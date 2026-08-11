@@ -1,0 +1,67 @@
+diff --git a/packages/coding-agent/src/modes/daemon/command-recovery-journal.ts b/packages/coding-agent/src/modes/daemon/command-recovery-journal.ts
+index 05fcec06..16d9f137 100644
+--- a/packages/coding-agent/src/modes/daemon/command-recovery-journal.ts
++++ b/packages/coding-agent/src/modes/daemon/command-recovery-journal.ts
+@@ -206,11 +206,16 @@ export class CommandRecoveryJournal {
+ 			closeSync(descriptor);
+ 		}
+ 		renameSync(tempPath, this.path);
+-		const directoryDescriptor = openSync(dirname(this.path), "r");
+-		try {
+-			fsyncSync(directoryDescriptor);
+-		} finally {
+-			closeSync(directoryDescriptor);
++		// Windows does not support fsync on directory handles and reports EPERM.
++		// The journal file itself was flushed before the atomic rename above; keep
++		// the extra directory durability barrier on platforms that implement it.
++		if (process.platform !== "win32") {
++			const directoryDescriptor = openSync(dirname(this.path), "r");
++			try {
++				fsyncSync(directoryDescriptor);
++			} finally {
++				closeSync(directoryDescriptor);
++			}
+ 		}
+ 		this.recordCount = records.length;
+ 	}
+diff --git a/packages/coding-agent/src/modes/daemon/daemon-supervisor.ts b/packages/coding-agent/src/modes/daemon/daemon-supervisor.ts
+index bc74217c..f4a6ef72 100644
+--- a/packages/coding-agent/src/modes/daemon/daemon-supervisor.ts
++++ b/packages/coding-agent/src/modes/daemon/daemon-supervisor.ts
+@@ -2330,10 +2330,14 @@ export class DaemonSupervisor {
+ 			try {
+ 				await client.connect(Math.min(500, Math.max(50, deadline - Date.now())));
+ 				await client.waitForHello(1000);
++				const authenticationTimeoutMs =
++					process.platform === "win32"
++						? Math.min(10_000, Math.max(1000, deadline - Date.now()))
++						: 1000;
+ 				await client.authenticateWorker(
+ 					worker.descriptor.authenticationToken,
+ 					this.supervisorAuthenticationClaim(),
+-					1000,
++					authenticationTimeoutMs,
+ 				);
+ 				await this.assertRecoveryAllowed();
+ 				client.onFrame((frame) => this.handleWorkerFrame(worker, frame));
+diff --git a/packages/coding-agent/src/modes/daemon/daemon-worker-client.ts b/packages/coding-agent/src/modes/daemon/daemon-worker-client.ts
+index 6adb2357..b5c958da 100644
+--- a/packages/coding-agent/src/modes/daemon/daemon-worker-client.ts
++++ b/packages/coding-agent/src/modes/daemon/daemon-worker-client.ts
+@@ -47,9 +47,16 @@ export class DaemonWorkerClient {
+ 			throw new Error("Daemon worker client is already connected");
+ 		}
+ 		const socket = createConnection(this.socketPath);
++		// Named pipes on Windows can deliver the worker hello immediately when the
++		// first data listener is attached. Pause the socket until the framed channel
++		// and its frame listener are both installed, otherwise that initial frame can
++		// be consumed before handleFrame is registered and every connection attempt
++		// waits for a hello that already arrived.
++		socket.pause();
+ 		this.socket = socket;
+ 		this.channel = new PrivateFramedChannel(socket, isDaemonWorkerFrameHeader);
+ 		this.channel.onFrame((frame) => this.handleFrame(frame));
++		socket.resume();
+ 
+ 		await new Promise<void>((resolve, reject) => {
+ 			const timeout = setTimeout(() => {

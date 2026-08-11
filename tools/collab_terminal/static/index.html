@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>V14 Collab Terminal</title>
+  <link rel="stylesheet" href="/static/terminal.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <span class="logo-icon">&#9889;</span>
+        <div>
+          <h1>V14 Terminal</h1>
+          <span class="subtitle">Collaboration multi-LLM</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-btn active" data-panel="dashboard" title="Dashboard">
+          <span class="nav-icon">&#128202;</span> Dashboard
+        </button>
+        <button class="nav-btn" data-panel="chat" title="Chat">
+          <span class="nav-icon">&#128172;</span> Chat
+        </button>
+        <button class="nav-btn" data-panel="tasks" title="Taches">
+          <span class="nav-icon">&#128203;</span> Taches
+        </button>
+        <button class="nav-btn" data-panel="scoring" title="Scoring">
+          <span class="nav-icon">&#127942;</span> Scoring
+        </button>
+        <button class="nav-btn" data-panel="validation" title="Validation">
+          <span class="nav-icon">&#9989;</span> Validation
+        </button>
+        <button class="nav-btn" data-panel="agents" title="Agents">
+          <span class="nav-icon">&#129302;</span> Agents
+        </button>
+      </nav>
+      <div class="sidebar-services" id="sidebar-services">
+        <h3>Services</h3>
+        <div id="service-list"></div>
+      </div>
+      <div class="sidebar-worker" id="sidebar-worker">
+        <h3>Worker</h3>
+        <div class="worker-controls">
+          <div class="worker-status" id="worker-indicator">
+            <span class="worker-dot" id="worker-dot"></span>
+            <span id="worker-label">--</span>
+          </div>
+          <button id="worker-toggle" class="btn-worker" title="Demarrer/Arreter le worker">--</button>
+        </div>
+        <div class="worker-stats" id="worker-stats"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span id="last-update">--</span>
+        <button id="refresh-btn" class="btn-sm">Actualiser</button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content">
+
+      <!-- DASHBOARD -->
+      <section class="panel" id="panel-dashboard">
+        <div class="panel-header">
+          <h2>Dashboard de collaboration</h2>
+          <div class="heartbeat-badge" id="hb-badge">--</div>
+        </div>
+        <div class="presence-bar" id="presence-bar-dash"></div>
+        <div class="kpi-grid" id="kpi-grid">
+          <div class="kpi"><span class="kpi-label">Taches totales</span><span class="kpi-value" id="kpi-total">--</span></div>
+          <div class="kpi kpi-green"><span class="kpi-label">Terminees</span><span class="kpi-value" id="kpi-done">--</span></div>
+          <div class="kpi kpi-blue"><span class="kpi-label">En cours</span><span class="kpi-value" id="kpi-progress">--</span></div>
+          <div class="kpi kpi-amber"><span class="kpi-label">En revue</span><span class="kpi-value" id="kpi-review">--</span></div>
+          <div class="kpi kpi-red"><span class="kpi-label">Bloquees</span><span class="kpi-value" id="kpi-blocked">--</span></div>
+          <div class="kpi"><span class="kpi-label">Backlog</span><span class="kpi-value" id="kpi-backlog">--</span></div>
+        </div>
+        <div class="chart-row">
+          <div class="chart-card">
+            <h3>Repartition par agent</h3>
+            <div id="agent-distribution" class="distribution-chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>Repartition par statut</h3>
+            <div id="status-distribution" class="distribution-chart"></div>
+          </div>
+        </div>
+        <div class="chart-card full-width">
+          <h3>Activite Hub MCP + Bus</h3>
+          <p class="hint">Messages en temps reel du collab_hub (SQLite durable) et du bus fichier V12. Le terminal ingere automatiquement les nouveaux messages toutes les 5s.</p>
+          <div id="hub-activity" class="activity-feed"></div>
+        </div>
+      </section>
+
+      <!-- CHAT -->
+      <section class="panel hidden" id="panel-chat">
+        <div class="panel-header">
+          <h2>Chat de collaboration</h2>
+          <div class="chat-controls">
+            <select id="chat-as" class="select-sm">
+              <option value="florent">Florent</option>
+              <option value="prime">Prime</option>
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+              <option value="hermes">Hermes</option>
+              <option value="copilot">Copilot</option>
+            </select>
+            <select id="chat-to" class="select-sm">
+              <option value="all">Tous</option>
+              <option value="prime">Prime</option>
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+              <option value="hermes">Hermes</option>
+              <option value="copilot">Copilot</option>
+              <option value="florent">Florent</option>
+            </select>
+          </div>
+        </div>
+        <div class="presence-bar" id="presence-bar"></div>
+        <div class="chat-info">
+          <span class="route-legend">Messages routes vers : <strong>Hub MCP (8770)</strong> + <strong>Bus fichier</strong> + <strong>Hermes (8766)</strong>. Les agents voient les messages a leur prochaine lecture du hub.</span>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-row">
+          <textarea id="chat-input" placeholder="Ecrire un message... (Enter pour envoyer, Shift+Enter pour retour a la ligne)" rows="2"></textarea>
+          <button id="chat-send" class="btn-primary">Envoyer</button>
+        </div>
+      </section>
+
+      <!-- TACHES -->
+      <section class="panel hidden" id="panel-tasks">
+        <div class="panel-header">
+          <h2>Journal des taches</h2>
+          <button id="new-task-btn" class="btn-primary">+ Nouvelle tache</button>
+        </div>
+        <form id="new-task-form" class="task-form hidden">
+          <div class="form-row">
+            <input id="tf-title" type="text" placeholder="Titre de la tache" maxlength="120" required>
+            <select id="tf-owner">
+              <option value="prime">Prime</option>
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+              <option value="hermes">Hermes</option>
+              <option value="copilot">Copilot</option>
+              <option value="florent">Florent</option>
+              <option value="team">Equipe</option>
+            </select>
+            <select id="tf-priority">
+              <option value="P0">P0</option><option value="P1" selected>P1</option>
+              <option value="P2">P2</option><option value="P3">P3</option>
+            </select>
+            <button type="submit" class="btn-primary">Creer</button>
+            <button type="button" id="tf-cancel" class="btn-sm">Annuler</button>
+          </div>
+          <textarea id="tf-desc" placeholder="Description (optionnel)" maxlength="1200" rows="2"></textarea>
+        </form>
+        <div class="task-filters">
+          <button class="filter-btn active" data-filter="all">Toutes</button>
+          <button class="filter-btn" data-filter="in_progress">En cours</button>
+          <button class="filter-btn" data-filter="review">En revue</button>
+          <button class="filter-btn" data-filter="done">Terminees</button>
+          <button class="filter-btn" data-filter="blocked">Bloquees</button>
+          <button class="filter-btn" data-filter="backlog">Backlog</button>
+        </div>
+        <div id="task-list" class="task-list"></div>
+      </section>
+
+      <!-- SCORING -->
+      <section class="panel hidden" id="panel-scoring">
+        <div class="panel-header"><h2>Scoring de performance</h2></div>
+        <div class="scoring-grid" id="scoring-grid"></div>
+        <div class="chart-card full-width">
+          <h3>Classement par score moyen</h3>
+          <div id="leaderboard" class="leaderboard"></div>
+        </div>
+        <div class="chart-card full-width">
+          <h3>Detail des scores par tache</h3>
+          <div id="task-scores" class="task-scores"></div>
+        </div>
+      </section>
+
+      <!-- VALIDATION -->
+      <section class="panel hidden" id="panel-validation">
+        <div class="panel-header"><h2>Matrice de validation multi-LLM</h2></div>
+        <div class="chart-card full-width">
+          <h3>Qui valide le travail de qui ?</h3>
+          <p class="hint">Chaque cellule indique combien de fois l'agent en colonne a valide/mis a jour une tache de l'agent en ligne.</p>
+          <div id="validation-matrix" class="matrix-container"></div>
+        </div>
+        <div class="chart-card full-width">
+          <h3>Niveaux de validation par tache</h3>
+          <div id="validation-levels" class="validation-levels"></div>
+        </div>
+      </section>
+
+      <!-- AGENTS -->
+      <section class="panel hidden" id="panel-agents">
+        <div class="panel-header"><h2>Agents LLM</h2></div>
+        <div class="agents-grid" id="agents-grid"></div>
+        <div class="chart-card full-width">
+          <h3>Rapports Prime Agent</h3>
+          <div id="prime-reports" class="reports-list"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+  <script src="/static/terminal.js"></script>
+</body>
+</html>

@@ -1,0 +1,284 @@
+{
+  "version": 1,
+  "source": "V12 .agents/skills plus collab-discipline, adapted for V14",
+  "canonical_root": ".agents/skills",
+  "platform_roots": {
+    "claude": ".claude/skills",
+    "codex": ".codex/skills",
+    "hermes": ".hermes/skills"
+  },
+  "skill_document_count": 54,
+  "unique_skill_count": 48,
+  "skills": [
+    {
+      "name": "babysit",
+      "path": "babysit/SKILL.md",
+      "sha256": "e322b0c36fa1c62caa399170e660672096f527f9f6761fb7b6477bf8f1c106ea"
+    },
+    {
+      "name": "brainstorming",
+      "path": "brainstorming/SKILL.md",
+      "sha256": "e14914605f640e0841758e45d0ab2a53243b59b921f929e47921c99668f2e61d"
+    },
+    {
+      "name": "Codex-api",
+      "path": "claude-api/SKILL.md",
+      "sha256": "7e2564dc35d12a69220c37f5a99e578f6ff0ec6f7f48812ed9d530e6752cb573"
+    },
+    {
+      "name": "claude-code-plugin-release",
+      "path": "claude-code-plugin-release/SKILL.md",
+      "sha256": "1aa8a6dee9a13a9fca707ced272d6974e0ea2900cee1d91eebce4a4e7f636bd1"
+    },
+    {
+      "name": "collab-discipline",
+      "path": "collab-discipline/SKILL.md",
+      "sha256": "b7f68ded8b51b0351e07c7b465b76482f684d06b11eec94795307abe761d63d9"
+    },
+    {
+      "name": "context7-cli",
+      "path": "context7-cli/SKILL.md",
+      "sha256": "afdb9caa1e5778142941c50e9f0c68e2f6e4efb0c7eaa43f43c10dc42b3ad1c5"
+    },
+    {
+      "name": "context7-mcp",
+      "path": "context7-mcp/SKILL.md",
+      "sha256": "731ebe1d31a5d7e907f82c01e82ec9b863c38e4a755e1673d4176fb09ef547df"
+    },
+    {
+      "name": "design-is",
+      "path": "design-is/SKILL.md",
+      "sha256": "1d6529372738c64a74e2ad1b3a8521fe354d166ca9909d448aa2ac1094fc8627"
+    },
+    {
+      "name": "dispatching-parallel-agents",
+      "path": "dispatching-parallel-agents/SKILL.md",
+      "sha256": "f0df13f584049059cc5619f90061405b89dcc6e28ab3f2a8517d27d99c7a46a6"
+    },
+    {
+      "name": "do",
+      "path": "do/SKILL.md",
+      "sha256": "993ea03d417bb8ddcc32b62f2a09408a06a6a71889466046fb05ebc0ec9a994a"
+    },
+    {
+      "name": "executing-plans",
+      "path": "executing-plans/SKILL.md",
+      "sha256": "bbd8d28bb655a52817cc129ce49f9e46fa7c6303f72ed5de95bfe914ef8e0ce8"
+    },
+    {
+      "name": "find-docs",
+      "path": "find-docs/SKILL.md",
+      "sha256": "709c7759e33d296587ddcd779cce261a7dc75cd637fed7457d1e99566f683aea"
+    },
+    {
+      "name": "finishing-a-development-branch",
+      "path": "finishing-a-development-branch/SKILL.md",
+      "sha256": "e6d4a812de900d33c6eacfb40747f99427f25c304a7b7099120f9373b115a47f"
+    },
+    {
+      "name": "frontend-design",
+      "path": "frontend-design/SKILL.md",
+      "sha256": "35c43b9d10c2388dbb228047ad028c989a14033750812125f351c85aa42c7a4a"
+    },
+    {
+      "name": "gitnexus-cli",
+      "path": "gitnexus/gitnexus-cli/SKILL.md",
+      "sha256": "9f033ba8ccc1afec441b3aea079ba2d5019365dc09cc57a48de7231dfad14e41"
+    },
+    {
+      "name": "gitnexus-debugging",
+      "path": "gitnexus/gitnexus-debugging/SKILL.md",
+      "sha256": "4a1e82aa835c52e38227d853c20ef05ea33be1dfb6aa6511474d15357f1d3f2e"
+    },
+    {
+      "name": "gitnexus-exploring",
+      "path": "gitnexus/gitnexus-exploring/SKILL.md",
+      "sha256": "ffafeaa0ce52be079e4d4b3a48c0a166728c009380a243c394c4e08f728527bb"
+    },
+    {
+      "name": "gitnexus-guide",
+      "path": "gitnexus/gitnexus-guide/SKILL.md",
+      "sha256": "40b047beeb9a7c5d47f17426b4061d2c2562c85c11288fa7f8da376d910e4f91"
+    },
+    {
+      "name": "gitnexus-impact-analysis",
+      "path": "gitnexus/gitnexus-impact-analysis/SKILL.md",
+      "sha256": "a4d6e8003c4a822c380b0e81b2fa0d642612236c734a9d51834e362c4be52f33"
+    },
+    {
+      "name": "gitnexus-refactoring",
+      "path": "gitnexus/gitnexus-refactoring/SKILL.md",
+      "sha256": "6aab994ee0266063245245483ee3280645aca66c0c5e56730ffad3f32ecbbc5c"
+    },
+    {
+      "name": "gitnexus-cli",
+      "path": "gitnexus-cli/SKILL.md",
+      "sha256": "62a9aab80d307d40403c6383b93cbe739559eee96adcf22e75ea98ed69226bdf"
+    },
+    {
+      "name": "gitnexus-debugging",
+      "path": "gitnexus-debugging/SKILL.md",
+      "sha256": "4a1e82aa835c52e38227d853c20ef05ea33be1dfb6aa6511474d15357f1d3f2e"
+    },
+    {
+      "name": "gitnexus-exploring",
+      "path": "gitnexus-exploring/SKILL.md",
+      "sha256": "ffafeaa0ce52be079e4d4b3a48c0a166728c009380a243c394c4e08f728527bb"
+    },
+    {
+      "name": "gitnexus-guide",
+      "path": "gitnexus-guide/SKILL.md",
+      "sha256": "40b047beeb9a7c5d47f17426b4061d2c2562c85c11288fa7f8da376d910e4f91"
+    },
+    {
+      "name": "gitnexus-impact-analysis",
+      "path": "gitnexus-impact-analysis/SKILL.md",
+      "sha256": "a4d6e8003c4a822c380b0e81b2fa0d642612236c734a9d51834e362c4be52f33"
+    },
+    {
+      "name": "gitnexus-pr-review",
+      "path": "gitnexus-pr-review/SKILL.md",
+      "sha256": "f7bac200a4752191d2e3aa7a2273720ca436d25df88cb2ef48dc19f92ae0934e"
+    },
+    {
+      "name": "gitnexus-refactoring",
+      "path": "gitnexus-refactoring/SKILL.md",
+      "sha256": "6aab994ee0266063245245483ee3280645aca66c0c5e56730ffad3f32ecbbc5c"
+    },
+    {
+      "name": "how-it-works",
+      "path": "how-it-works/SKILL.md",
+      "sha256": "9214da98b56accbe765df5bc9544a2d6c62f2ccb4efe60be69391419477f1b81"
+    },
+    {
+      "name": "knowledge-agent",
+      "path": "knowledge-agent/SKILL.md",
+      "sha256": "538de006ebe2619b8a47dd47b09c5afa51ccbe0f806f5fd17ab348609eef6fd1"
+    },
+    {
+      "name": "learn-codebase",
+      "path": "learn-codebase/SKILL.md",
+      "sha256": "7dece1f0742473515d009d9aa5255305fcec326cabdebb4792d38c5dfb5a71c6"
+    },
+    {
+      "name": "make-plan",
+      "path": "make-plan/SKILL.md",
+      "sha256": "5e83552aa87eb321451e1da464aff5765d84ef053f0c1062e3ff7b789b08448d"
+    },
+    {
+      "name": "mem-search",
+      "path": "mem-search/SKILL.md",
+      "sha256": "73c810cf6b08e67c253b1fcdf370d391a5ad2ccf63211f478426b977a5c1e694"
+    },
+    {
+      "name": "oh-my-issues",
+      "path": "oh-my-issues/SKILL.md",
+      "sha256": "292417dedb16cbf795f929db0d60e08ff5512efb7f58c16995c6ba15c6499566"
+    },
+    {
+      "name": "pathfinder",
+      "path": "pathfinder/SKILL.md",
+      "sha256": "a3e17bf66e7c2eb198f4b04c06adaff29bf62b7cbd09005c7c234cdcf4ad796b"
+    },
+    {
+      "name": "pdf",
+      "path": "pdf/SKILL.md",
+      "sha256": "067401220db5745f719ff8c048d545d5edc8545e809668a3a6f9e2892fa51d48"
+    },
+    {
+      "name": "receiving-code-review",
+      "path": "receiving-code-review/SKILL.md",
+      "sha256": "647036bbdab7bf2317e14e079595e984c9030f64295e2b4c0fb57dbeb48f25dd"
+    },
+    {
+      "name": "requesting-code-review",
+      "path": "requesting-code-review/SKILL.md",
+      "sha256": "1017ccdd5bc61fab67c654cf118cbdb520464b313073a0a6b9a6b9aa647a3ad6"
+    },
+    {
+      "name": "smart-explore",
+      "path": "smart-explore/SKILL.md",
+      "sha256": "89c834b9ed8881c7e22b27ec0c9ed9fc5e05b3379a8aa1f2a23265831eae7144"
+    },
+    {
+      "name": "standup",
+      "path": "standup/SKILL.md",
+      "sha256": "2b2f8b72790cb728e3db24a91bcb229cd8a06284d4f734d09393ea13a8083335"
+    },
+    {
+      "name": "subagent-driven-development",
+      "path": "subagent-driven-development/SKILL.md",
+      "sha256": "41ab239a6ad1c487cd839fdac972a8c9cf0f5e90efa59a63f963767864f0df4c"
+    },
+    {
+      "name": "systematic-debugging",
+      "path": "systematic-debugging/SKILL.md",
+      "sha256": "3b20719eca4f0461cb51a195221320d775dcf03b6859271066a03a5132a6ce7a"
+    },
+    {
+      "name": "test-driven-development",
+      "path": "test-driven-development/SKILL.md",
+      "sha256": "b5b4717b8b761cce15a6cfe9022e33fd959e0894c0c39d72c9cb49c23486c10e"
+    },
+    {
+      "name": "timeline-report",
+      "path": "timeline-report/SKILL.md",
+      "sha256": "35b625feab3e4ecf9124cfc5a678440c41904091a0f6b7d4c1ae2a95670918c2"
+    },
+    {
+      "name": "trading-team",
+      "path": "trading-team/SKILL.md",
+      "sha256": "a490a496837e0245cd76bb8ecab7ec066cef10ebd0dc83d14d30a99252cb1cb0"
+    },
+    {
+      "name": "using-git-worktrees",
+      "path": "using-git-worktrees/SKILL.md",
+      "sha256": "e2c3ec142e52868a51af246c620cd76ab648dcf27d6900d47e6ffd07159a9794"
+    },
+    {
+      "name": "using-superpowers",
+      "path": "using-superpowers/SKILL.md",
+      "sha256": "55379fe7c1c473a02c61961c822996bff30e1320d6921d9062509bc508482c05"
+    },
+    {
+      "name": "verification-before-completion",
+      "path": "verification-before-completion/SKILL.md",
+      "sha256": "ea52d15aabaf72bc6b558efe2c126f161b53961090ddcd712000273bfe8c7b6c"
+    },
+    {
+      "name": "webapp-testing",
+      "path": "webapp-testing/SKILL.md",
+      "sha256": "8bc27790f6e6dfc2bfa6692326d4518baacf6a31dcc646d963c729adad2f7e34"
+    },
+    {
+      "name": "weekly-digests",
+      "path": "weekly-digests/SKILL.md",
+      "sha256": "811f0022e493703698f8bf8a9eeaf8db37ffe8ed16fb5697effe2d840a2a8b7c"
+    },
+    {
+      "name": "what-the",
+      "path": "what-the/SKILL.md",
+      "sha256": "408a7fe8df05094631b9201b97a206a25830fb88c1bb36fb2ea631eeb9719697"
+    },
+    {
+      "name": "wowerpoint",
+      "path": "wowerpoint/SKILL.md",
+      "sha256": "05ae7cd337a61d6c4a7f172b822acc69ab903538014201ac64caec4676d9d6a6"
+    },
+    {
+      "name": "writing-plans",
+      "path": "writing-plans/SKILL.md",
+      "sha256": "272e1af349f5062c28dc282b3e21b220d58d683a7314a10c455b7432ec91d845"
+    },
+    {
+      "name": "writing-skills",
+      "path": "writing-skills/SKILL.md",
+      "sha256": "6b8d08fe863318be8480ae8428e169640309fa9208df84bb0510012764454146"
+    },
+    {
+      "name": "xlsx",
+      "path": "xlsx/SKILL.md",
+      "sha256": "7de127f835149f9c755fdf70d2ce4320e78a720dacf9f82495165de63b52732d"
+    }
+  ]
+}

@@ -1,0 +1,169 @@
+<!-- Poste de contrôle Titanium V14 — servi par tools/dashboard.py -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Titanium V14 — poste de contrôle</title>
+<link rel="stylesheet" href="/ui/poste.css">
+
+<div class="poste">
+
+  <!-- ── Constantes vitales : lisibles sans lire ─────────────────────── -->
+  <header class="vitaux">
+    <div class="marque">TITANIUM <b>V14</b></div>
+
+    <div class="vital">
+      <span class="k">Compte</span>
+      <span class="v n" id="v-compte">—</span>
+    </div>
+    <div class="vital">
+      <span class="k">Équité</span>
+      <span class="v n" id="v-equite">—</span>
+    </div>
+    <div class="vital">
+      <span class="k">Exposition</span>
+      <span class="v n" id="v-risque">—</span>
+    </div>
+    <div class="vital">
+      <span class="k">Positions</span>
+      <span class="v n" id="v-positions">—</span>
+    </div>
+    <div class="vital">
+      <span class="k">Mur</span>
+      <span class="v" id="v-mur">—</span>
+    </div>
+    <div class="vital">
+      <span class="k">Boucle</span>
+      <span class="v" id="v-boucle">—</span>
+    </div>
+    <div class="vital pousse">
+      <span class="k">Relevé</span>
+      <span class="v n" id="v-heure">—</span>
+    </div>
+  </header>
+
+  <!-- ── Anomalies : la surface qui doit crever les yeux ─────────────── -->
+  <div class="anomalies" id="anomalies"></div>
+
+  <div class="corps">
+
+    <!-- ── Colonne principale ───────────────────────────────────────── -->
+    <div class="colonne">
+
+      <!-- ── Anatomie : le flux, artère par artère ────────────────── -->
+      <section class="bloc">
+        <h2>Anatomie
+          <span class="vues" role="group" aria-label="Vue">
+            <button data-vue="flux" aria-pressed="true">flux</button>
+            <button data-vue="code" aria-pressed="false">code</button>
+          </span>
+          <span class="compte" id="med-resume"></span></h2>
+        <div class="toile anatomie">
+          <canvas id="anatomie" height="330"></canvas>
+          <div class="anat-info" id="anat-info" hidden></div>
+        </div>
+        <div class="legende" id="leg-flux">
+          <span><i style="background:#2fa37a"></i>sain</span>
+          <span><i style="background:#3d7a99"></i>inconnu — pas encore de mesure</span>
+          <span><i style="background:#d98324"></i>ralenti</span>
+          <span><i style="background:#d64545"></i>bouché — le flux ne passe pas</span>
+          <span class="eteint">survolez un organe pour le détail</span>
+        </div>
+        <div class="legende" id="leg-code" hidden>
+          <span><i style="background:#2fa37a"></i>couvert par des tests</span>
+          <span><i style="background:#d98324"></i>non couvert</span>
+          <span><i style="background:#d64545"></i>orphelin — personne ne l'importe</span>
+          <span class="eteint">la taille suit le nombre de lignes · survolez pour le détail</span>
+        </div>
+      </section>
+
+      <section class="bloc">
+        <div class="barre-actif">
+          <label class="eteint" for="sel-actif" style="font-size:10.5px;
+            text-transform:uppercase;letter-spacing:.09em">Actif</label>
+          <select id="sel-actif" aria-label="Choisir l'actif à tracer"></select>
+          <div class="tf" role="group" aria-label="Unité de temps">
+            <button data-tf="M5"  aria-pressed="false">M5</button>
+            <button data-tf="M15" aria-pressed="true">M15</button>
+            <button data-tf="H1"  aria-pressed="false">H1</button>
+            <button data-tf="H4"  aria-pressed="false">H4</button>
+          </div>
+          <button id="btn-tracer" class="primaire">Analyser</button>
+          <span class="rebours" id="rebours"></span>
+          <span id="etat-chart" class="eteint n" style="font-size:11px"></span>
+        </div>
+        <div class="toile"><canvas id="chart" height="440"></canvas></div>
+        <div class="legende">
+          <span><i style="background:#77d8ff"></i>support / résistance</span>
+          <span><i style="background:#3de68c"></i>zone OTE</span>
+          <span><i style="background:#ff5c72"></i>FVG non comblée</span>
+          <span><i style="background:#ffc857"></i>prix moyen (VPOC)</span>
+          <span><i style="background:#e8eef5"></i>entrée</span>
+          <span><i style="background:#c2483f"></i>stop</span>
+          <span><i style="background:#2fa37a"></i>objectif</span>
+        </div>
+      </section>
+
+      <section class="bloc">
+        <h2>Lecture de l'actif <span class="compte" id="lect-titre"></span></h2>
+        <div class="contenu" id="lecture">
+          <div class="vide">Choisis un actif et lance l'analyse.</div>
+        </div>
+      </section>
+
+      <section class="bloc">
+        <h2>Positions ouvertes <span class="compte" id="pos-compte"></span></h2>
+        <div class="contenu serre large" id="positions"></div>
+      </section>
+
+      <section class="bloc">
+        <h2>Avancement vers le mode réel
+          <span class="compte" id="prom-compte"></span></h2>
+        <div class="contenu serre large" id="promotion"></div>
+      </section>
+
+    </div>
+
+    <!-- ── Colonne des registres ────────────────────────────────────── -->
+    <div class="colonne">
+
+      <section class="bloc">
+        <h2>Exécution</h2>
+        <div class="contenu" id="execution"></div>
+      </section>
+
+      <section class="bloc">
+        <h2>Analystes <span class="compte" id="ana-compte"></span></h2>
+        <div class="contenu" id="analystes"></div>
+      </section>
+
+      <section class="bloc">
+        <h2>Mode strict, en observation</h2>
+        <div class="contenu" id="fantome"></div>
+      </section>
+
+      <section class="bloc">
+        <h2>Edge par contexte <span class="compte" id="edge-compte"></span></h2>
+        <div class="contenu serre large defile" id="edge"></div>
+      </section>
+
+      <section class="bloc">
+        <h2>Organes</h2>
+        <div class="contenu serre defile" id="organes"></div>
+      </section>
+
+      <section class="bloc">
+        <h2>Chaîne de données</h2>
+        <div class="contenu" id="vendeurs"></div>
+      </section>
+
+    </div>
+  </div>
+
+  <footer class="pied">
+    <span>Lecture seule — cette page n'envoie aucun ordre et n'appelle aucun LLM.</span>
+    <a href="/command">Ouvrir le V14 Command Center</a>
+    <span id="pied-llm"></span>
+    <span id="pied-maj"></span>
+  </footer>
+</div>
+
+<script src="/ui/poste.js"></script>

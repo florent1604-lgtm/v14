@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Titanium V14 — cockpit</title>
+<link rel="stylesheet" href="/ui/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%2322c55e'/></svg>">
+</head>
+<body>
+
+<header>
+  <span class="brand"><span class="dot" id="pulse" aria-hidden="true"></span>TITANIUM V14</span>
+  <span class="meta" id="meta-llm">…</span>
+  <span class="pill" id="pill-loop" title="État de la boucle d'amorçage">boucle —</span>
+  <span class="pill" id="pill-wall" title="Mur démo ↔ réel">mur —</span>
+  <span class="spacer"></span>
+  <span class="meta" id="meta-time">—</span>
+  <button id="btn-refresh" title="Recharger l'état (R)">Actualiser</button>
+</header>
+
+<main>
+
+  <!-- ─── rangée 1 : sécurité et compte ─────────────────────────── -->
+  <section class="span-4">
+    <h2>Mur démo ↔ réel</h2>
+    <div class="body" id="wall"><div class="empty">chargement…</div></div>
+  </section>
+
+  <section class="span-4">
+    <h2>Terminal MetaTrader 5</h2>
+    <div class="body" id="account"><div class="empty">chargement…</div></div>
+  </section>
+
+  <section class="span-4">
+    <h2>Boucle d'amorçage</h2>
+    <div class="body" id="loop"><div class="empty">chargement…</div></div>
+  </section>
+
+  <!-- ─── rangée 2 : le balayage, cœur opérationnel ─────────────── -->
+  <section class="span-all">
+    <h2>Balayage — portes → risque <span class="count" id="scan-count"></span></h2>
+    <div class="toolbar">
+      <input type="text" id="symbols" placeholder="EURUSD, XAUUSD, GER40…  (vide = univers portable)"
+             aria-label="Symboles à balayer">
+      <label class="check"><input type="checkbox" id="prod"> mode PROD (quorum 3/4 + edge exigé)</label>
+      <button class="primary" id="btn-scan">Lancer le balayage <kbd>S</kbd></button>
+      <span class="meta" id="scan-meta"></span>
+    </div>
+    <div class="bar" id="scan-bar" hidden><i></i></div>
+    <div class="body flush scroll-x" id="scan">
+      <div class="empty">Aucun balayage. Lecture MT5 + calcul des features —
+        déterministe, sans appel LLM, sans exécution.</div>
+    </div>
+  </section>
+
+  <section class="span-all" id="detail-section" hidden>
+    <h2>Détail du setup <span class="count" id="detail-sym"></span></h2>
+    <div class="body" id="detail"></div>
+  </section>
+
+  <!-- ─── rangée 3 : positions, edge, pont ──────────────────────── -->
+  <section class="span-4">
+    <h2>Positions ouvertes <span class="count" id="pos-count"></span></h2>
+    <div class="body flush scroll-x" id="positions"><div class="empty">chargement…</div></div>
+  </section>
+
+  <section class="span-4">
+    <h2>Edge mesuré par contexte <span class="count" id="edge-count"></span></h2>
+    <div class="body flush scroll-x" id="edge"><div class="empty">chargement…</div></div>
+  </section>
+
+  <section class="span-4">
+    <h2>Pont MQL5 — zones sur graphique</h2>
+    <div class="body" id="bridge"><div class="empty">chargement…</div></div>
+  </section>
+
+  <!-- ─── rangée 4 : mesure, socle, données ─────────────────────── -->
+  <section class="span-4">
+    <h2>Indicateurs discriminants <span class="count" id="disc-count"></span></h2>
+    <div class="body flush scroll-x" id="discriminants"><div class="empty">chargement…</div></div>
+  </section>
+
+  <section class="span-4">
+    <h2>Briques &amp; tests <span class="count" id="tests-count"></span></h2>
+    <div class="body" id="bricks"><div class="empty">chargement…</div></div>
+  </section>
+
+  <section class="span-4">
+    <h2>Chaîne de données</h2>
+    <div class="body" id="vendors"><div class="empty">chargement…</div></div>
+  </section>
+
+  <!-- ─── rangée 4b : exposition, analystes, fenêtres ───────────── -->
+  <section class="span-4">
+    <h2>Budget de risque <span class="count" id="risque-count"></span></h2>
+    <div class="body" id="risque"><div class="empty">chargement…</div></div>
+  </section>
+
+  <section class="span-4">
+    <h2>Analystes LLM <span class="count" id="avis-count"></span></h2>
+    <div class="body" id="analystes"><div class="empty">chargement…</div></div>
+  </section>
+
+  <section class="span-4">
+    <h2>PROD fantôme <span class="count" id="fantome-count"></span></h2>
+    <div class="body" id="fantome"><div class="empty">chargement…</div></div>
+  </section>
+
+  <!-- ─── rangée 5 : délibération ───────────────────────────────── -->
+  <section class="span-all">
+    <h2>Analyses multi-agents <span class="count" id="runs-count"></span></h2>
+    <div class="body" id="runs"><div class="empty">chargement…</div></div>
+  </section>
+
+</main>
+
+<footer>
+  <kbd>R</kbd> actualiser · <kbd>S</kbd> balayer · <kbd>P</kbd> basculer PROD ·
+  <kbd>Échap</kbd> fermer le détail
+  <span class="spacer"></span>
+  Lecture seule — aucune route ne passe d'ordre ni n'appelle un LLM.
+</footer>
+
+<script src="/ui/app.js"></script>
+</body>
+</html>

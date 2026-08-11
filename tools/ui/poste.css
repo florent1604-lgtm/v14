@@ -1,0 +1,371 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   TITANIUM V14 — poste de contrôle
+
+   Registre visuel : instrument de mesure, pas application grand public.
+   Fond ardoise froide, encre chaude, laiton pour ce qui est actionnable.
+   Le vert et le rouge sont RÉSERVÉS au sens d'une position et au P&L ;
+   les employer aussi comme couleur d'accent rendrait un graphique
+   illisible au premier coup d'œil, qui est le seul qui compte ici.
+
+   Chiffres en chasse fixe et tabulaires, sans exception : une colonne de
+   nombres qui ne s'aligne pas ne se compare pas.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Ardoise froide — un gris pur paraîtrait non choisi. */
+  --fond:        #0c1116;
+  --fond-2:      #111820;
+  --fond-3:      #16202a;
+  --trait:       #1e2b37;
+  --trait-fort:  #2c3d4d;
+
+  --encre:       #e8eef5;
+  --encre-2:     #9fb0c0;
+  --encre-3:     #64788a;
+
+  /* Laiton : ce qui est actionnable ou sélectionné. */
+  --laiton:      #c9a227;
+  --laiton-mat:  #8a7020;
+
+  /* Sémantique, distincte de l'accent. */
+  --long:        #2fa37a;
+  --short:       #c2483f;
+  --alerte:      #d98324;
+  --grave:       #d64545;
+  --calme:       #3d7a99;
+
+  --r: 2px;                 /* angles quasi vifs : un instrument, pas une carte */
+  --u: 4px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--fond);
+  color: var(--encre);
+  font-family: "Segoe UI", -apple-system, "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Toute donnée chiffrée passe par là. */
+.n, td.n, .val, .mono {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas,
+               "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ── Ossature ───────────────────────────────────────────────────────── */
+
+.poste {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  min-height: 100vh;
+}
+
+/* Bandeau de constantes vitales — toujours visible, jamais scrollé. */
+.vitaux {
+  display: flex; align-items: stretch;
+  gap: 0;
+  /* Sur écran étroit le bandeau défile plutôt que d'élargir la page :
+     un débordement horizontal du body rend tout le reste inutilisable. */
+  overflow-x: auto;
+  background: var(--fond-2);
+  border-bottom: 1px solid var(--trait-fort);
+  position: sticky; top: 0; z-index: 40;
+}
+
+.marque {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 18px;
+  border-right: 1px solid var(--trait);
+  font-weight: 700; letter-spacing: 0.14em; font-size: 12px;
+}
+.marque b { color: var(--laiton); font-weight: 700; }
+
+.vital {
+  padding: 9px 16px;
+  border-right: 1px solid var(--trait);
+  display: flex; flex-direction: column; gap: 1px;
+  min-width: 96px;
+}
+.vital .k {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--encre-3);
+}
+.vital .v { font-size: 14px; font-weight: 600; }
+.vital.pousse { margin-left: auto; border-right: 0; border-left: 1px solid var(--trait); }
+
+.etat-pastille {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.etat-pastille::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+
+/* ── Barre d'anomalies : ce que Florent doit voir sans chercher ────── */
+
+.anomalies {
+  display: flex; flex-wrap: wrap; gap: 1px;
+  background: var(--trait);
+  border-bottom: 1px solid var(--trait-fort);
+  min-height: 30px;
+}
+.anomalie {
+  flex: 1 1 auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  background: var(--fond-2);
+  font-size: 11.5px;
+}
+.anomalie .sev {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+  padding: 1px 6px; border-radius: var(--r);
+  text-transform: uppercase;
+}
+.anomalie.grave    { background: #241414; }
+.anomalie.grave    .sev { background: var(--grave); color: #180b0b; }
+.anomalie.attention{ background: #241c11; }
+.anomalie.attention .sev { background: var(--alerte); color: #17100a; }
+.anomalie.info     .sev { background: var(--calme); color: #071016; }
+.anomalie.rien     { color: var(--encre-3); justify-content: center; }
+
+/* ── Corps ──────────────────────────────────────────────────────────── */
+
+.corps {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1px;
+  background: var(--trait);
+  align-items: start;
+}
+@media (max-width: 1180px) { .corps { grid-template-columns: 1fr; } }
+
+.colonne { display: grid; gap: 1px; background: var(--trait); min-width: 0; }
+
+.bloc {
+  background: var(--fond);
+  min-width: 0;
+}
+.bloc > h2 {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.13em;
+  color: var(--encre-3);
+  background: var(--fond-2);
+  border-bottom: 1px solid var(--trait);
+  display: flex; align-items: center; gap: 10px;
+}
+.bloc > h2 .compte {
+  margin-left: auto; color: var(--encre-2);
+  letter-spacing: 0; text-transform: none; font-size: 11px;
+}
+.bloc .contenu { padding: 12px 14px; }
+.bloc .contenu.serre { padding: 0; }
+
+/* ── Graphique ──────────────────────────────────────────────────────── */
+
+.barre-actif {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  background: var(--fond-2);
+  border-bottom: 1px solid var(--trait);
+  flex-wrap: wrap;
+}
+select, input[type="search"], button {
+  font: inherit;
+  background: var(--fond-3);
+  color: var(--encre);
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--r);
+  padding: 5px 9px;
+}
+select { min-width: 150px; }
+button { cursor: pointer; }
+button:hover  { border-color: var(--laiton-mat); }
+button.primaire { background: var(--laiton); color: #14100a; border-color: var(--laiton); font-weight: 600; }
+button.primaire:hover { background: #dbb02c; }
+:focus-visible { outline: 2px solid var(--laiton); outline-offset: 1px; }
+
+.tf { display: flex; gap: 0; }
+.tf button {
+  border-radius: 0; border-right-width: 0; padding: 5px 10px;
+  color: var(--encre-2);
+}
+.tf button:first-child { border-radius: var(--r) 0 0 var(--r); }
+.tf button:last-child  { border-radius: 0 var(--r) var(--r) 0; border-right-width: 1px; }
+.tf button[aria-pressed="true"] {
+  background: var(--laiton); color: #14100a; border-color: var(--laiton);
+  font-weight: 600;
+}
+
+.toile { position: relative; background: #090d11; }
+canvas { display: block; width: 100%; }
+.legende {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--trait);
+  background: var(--fond-2);
+  font-size: 10.5px; color: var(--encre-2);
+}
+.legende i {
+  display: inline-block; width: 9px; height: 9px;
+  margin-right: 5px; vertical-align: -1px; border-radius: 1px;
+}
+
+/* ── Tableaux ───────────────────────────────────────────────────────── */
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th {
+  text-align: left; font-weight: 600; font-size: 9.5px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--encre-3);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--trait);
+  background: var(--fond-2);
+  position: sticky; top: 0;
+}
+tbody td { padding: 5px 10px; border-bottom: 1px solid var(--fond-3); }
+tbody tr:hover td { background: var(--fond-2); }
+td.n, th.n { text-align: right; }
+
+.defile { max-height: 260px; overflow: auto; }
+.large  { overflow-x: auto; }
+
+/* ── Lignes clé/valeur ──────────────────────────────────────────────── */
+
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; }
+.kv dt { color: var(--encre-3); font-size: 11.5px; }
+.kv dd {
+  margin: 0; text-align: right;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Piliers ────────────────────────────────────────────────────────── */
+
+.piliers { display: flex; gap: 4px; flex-wrap: wrap; }
+.pilier {
+  font-size: 10px; padding: 3px 8px;
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--r);
+  color: var(--encre-3);
+  letter-spacing: 0.02em;
+}
+.pilier.ok { border-color: var(--long); color: var(--long); background: #0f1f1a; }
+.pilier.hors { opacity: 0.45; }
+
+/* ── Jauge ──────────────────────────────────────────────────────────── */
+
+.jauge {
+  height: 5px; border-radius: 3px; overflow: hidden;
+  background: var(--fond-3); margin-top: 6px;
+}
+.jauge > i { display: block; height: 100%; background: var(--calme); }
+.jauge.chaud > i { background: var(--alerte); }
+.jauge.brulant > i { background: var(--grave); }
+
+/* ── Sémantique de valeur ───────────────────────────────────────────── */
+
+.long, .pos { color: var(--long); }
+.short, .neg { color: var(--short); }
+.att  { color: var(--alerte); }
+.mal  { color: var(--grave); }
+.ok   { color: var(--long); }
+.eteint { color: var(--encre-3); }
+.vide { padding: 22px 14px; text-align: center; color: var(--encre-3); font-size: 12px; }
+
+/* ── Pied ───────────────────────────────────────────────────────────── */
+
+.pied {
+  padding: 7px 16px;
+  font-size: 10.5px; color: var(--encre-3);
+  background: var(--fond-2);
+  border-top: 1px solid var(--trait);
+  display: flex; gap: 18px; flex-wrap: wrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .anomalie.grave { animation: respire 2.4s ease-in-out infinite; }
+  @keyframes respire { 50% { background: #2c1717; } }
+}
+
+
+/* ── Écran étroit ────────────────────────────────────────────────────
+   Rien ne doit élargir le body. Les tableaux et le bandeau défilent
+   dans leur propre boîte ; la page, jamais. */
+.bloc, .colonne, .contenu { min-width: 0; max-width: 100%; }
+table { min-width: 0; }
+.large, .defile { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+@media (max-width: 620px) {
+  .vital { min-width: 84px; padding: 7px 11px; }
+  .barre-actif { gap: 6px; }
+  select { min-width: 120px; }
+  .bloc .contenu { padding: 10px 11px; }
+}
+
+/* ── Anatomie du flux ─────────────────────────────────────────────────
+   Un schéma d'organes reliés par des artères. La couleur d'une artère
+   dit si le flux passe ; sa pulsation, à quel débit. Un organe hors
+   service et toute sa descendance s'éteignent — c'est ce qui permet de
+   remonter à la cause plutôt qu'au symptôme. */
+
+.anatomie { background: #080c10; position: relative; }
+.anat-info {
+  position: absolute; pointer-events: none;
+  background: var(--fond-2);
+  border: 1px solid var(--trait-fort);
+  border-radius: var(--r);
+  padding: 8px 11px;
+  font-size: 11.5px; line-height: 1.5;
+  max-width: 280px; z-index: 5;
+  box-shadow: 0 6px 22px rgba(0,0,0,.55);
+}
+.anat-info b { display: block; margin-bottom: 3px; }
+.anat-info .m {
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--encre-2);
+}
+.anat-info .d { color: var(--alerte); margin-top: 5px; display: block; }
+
+/* Compte à rebours de bougie */
+.rebours {
+  font-family: ui-monospace, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px; padding: 3px 8px;
+  border: 1px solid var(--trait-fort); border-radius: var(--r);
+  color: var(--encre-2);
+}
+.rebours.chaud { color: var(--alerte); border-color: var(--alerte); }
+
+
+/* Sélecteur de vue dans l'en-tête d'un bloc. */
+.vues { display: inline-flex; margin-left: 4px; }
+.vues button {
+  font-size: 9.5px; padding: 2px 9px; letter-spacing: .08em;
+  text-transform: uppercase; border-radius: 0; border-right-width: 0;
+  color: var(--encre-3); background: var(--fond-3);
+  border: 1px solid var(--trait-fort);
+}
+.vues button:first-child { border-radius: var(--r) 0 0 var(--r); }
+.vues button:last-child  { border-radius: 0 var(--r) var(--r) 0; border-right-width: 1px; }
+.vues button[aria-pressed="true"] {
+  background: var(--laiton); color: #14100a; border-color: var(--laiton);
+  font-weight: 700;
+}
+
+/* ⚠️ `[hidden]` est une simple règle de la feuille navigateur : toute
+   déclaration d'auteur avec `display` la bat. `.legende { display:flex }`
+   rendait visibles les deux légendes à la fois. Défaut déjà rencontré sur
+   l'ancien tableau de bord — d'où cette règle explicite. */
+[hidden] { display: none !important; }

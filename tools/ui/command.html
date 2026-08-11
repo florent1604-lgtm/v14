@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>V14 Command Center</title>
+  <link rel="stylesheet" href="/ui/command.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <span class="eyebrow">TITANIUM V14</span>
+      <h1>Command Center</h1>
+    </div>
+    <nav aria-label="Navigation principale">
+      <a href="/poste">Cockpit trading</a>
+      <a href="/classique">Vue technique</a>
+      <button id="refresh">Actualiser</button>
+    </nav>
+  </header>
+
+  <div id="safety" class="safety">Chargement des garde-fous…</div>
+
+  <main>
+    <section class="kpis" aria-label="Indicateurs clés">
+      <article><span>Mode</span><strong id="k-mode">—</strong><small>réel interdit</small></article>
+      <article><span>Équité démo</span><strong id="k-equity">—</strong><small id="k-account">—</small></article>
+      <article><span>Trades clos</span><strong id="k-trades">—</strong><small id="k-contexts">—</small></article>
+      <article><span>Cellules promues</span><strong id="k-promo">—</strong><small>preuve OOS requise</small></article>
+      <article><span>Tests</span><strong id="k-tests">—</strong><small id="k-test-time">—</small></article>
+      <article><span>Boucle</span><strong id="k-loop">—</strong><small id="k-heartbeat">—</small></article>
+    </section>
+
+    <section class="panel span-8">
+      <div class="panel-title"><div><span class="eyebrow">ÉQUIPE</span><h2>Gouvernance</h2></div>
+        <span class="hint">Prime coordonne les preuves, Florent arbitre.</span></div>
+      <div id="governance" class="agents"></div>
+    </section>
+
+    <section class="panel span-4">
+      <div class="panel-title"><div><span class="eyebrow">RUNTIME</span><h2>Services</h2></div></div>
+      <div id="runtime" class="service-list"></div>
+    </section>
+
+    <section class="panel span-12">
+      <div class="panel-title">
+        <div><span class="eyebrow">MESURE</span><h2>Tunnel vers la rentabilité</h2></div>
+        <span class="hint" id="funnel-note"></span>
+      </div>
+      <div id="funnel" class="funnel"></div>
+      <div id="refus" class="refus"></div>
+    </section>
+
+    <section class="panel span-12">
+      <div class="panel-title">
+        <div><span class="eyebrow">JOURNAL LOCAL COMMUN</span><h2>Plan de travail</h2></div>
+        <span class="hint">Changer un statut ne lance aucun agent automatiquement.</span>
+      </div>
+      <form id="task-form" class="task-form">
+        <input id="task-title" maxlength="120" required placeholder="Nouvelle tâche vérifiable">
+        <select id="task-owner" aria-label="Responsable">
+          <option value="prime">Prime</option><option value="claude">Claude</option>
+          <option value="codex">Codex</option><option value="hermes">Hermes</option>
+          <option value="florent">Florent</option><option value="team">Équipe</option>
+        </select>
+        <select id="task-priority" aria-label="Priorité">
+          <option>P0</option><option>P1</option><option selected>P2</option><option>P3</option>
+        </select>
+        <button type="submit" class="primary">Ajouter</button>
+      </form>
+      <div id="task-error" class="error" hidden></div>
+      <div id="board" class="board"></div>
+    </section>
+
+    <section class="panel span-5">
+      <div class="panel-title"><div><span class="eyebrow">PRIME</span><h2>Preuves et rapports</h2></div></div>
+      <div id="prime-reports" class="timeline"></div>
+    </section>
+
+    <section class="panel span-7">
+      <div class="panel-title"><div><span class="eyebrow">BUS COMMUN</span><h2>Activité récente</h2></div></div>
+      <div id="activity" class="timeline"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span id="generated">—</span>
+    <span>Local uniquement · aucun secret · aucun shell · aucun ordre</span>
+  </footer>
+  <script src="/ui/command.js"></script>
+</body>
+</html>

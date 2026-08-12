@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from titanium.data.mt5_vendor import decalage_serveur, heure_serveur_en_utc
 from titanium.edge import PNL_R_MAX
 from titanium.execution.mt5_executor import ExecutionPolicy, ExecutionRefused, assert_can_trade
 
@@ -149,6 +150,16 @@ class TrackedState:
     #: l acceptait pas : le TypeError etait avale par un `except` d observabilite
     #: et TOUT le contexte d ouverture etait perdu silencieusement.
     candle_source: str = ""
+    # Provenance d'une entree passive. Ces champs restent vides pour les
+    # positions historiques ou ouvertes au marche. Ils rendent possible le
+    # rapprochement causal ordre limite -> fill -> cloture, sans reconstruire
+    # le prix de reference apres coup.
+    limit_order_ticket: int = 0
+    limit_planned_price: float = 0.0
+    limit_market_reference_price: float = 0.0
+    limit_target_saving_r: float | None = None
+    limit_realized_saving_r: float | None = None
+    limit_slippage_r: float | None = None
 
     def to_dict(self) -> dict:
         return {"r": self.r, "phase": self.phase, "peak_fav_r": self.peak_fav_r,
@@ -162,7 +173,13 @@ class TrackedState:
                 "support_pillars": self.support_pillars,
                 "asset_class": self.asset_class, "account": self.account,
                 "timeframe": self.timeframe,
-                "candle_source": self.candle_source}
+                "candle_source": self.candle_source,
+                "limit_order_ticket": self.limit_order_ticket,
+                "limit_planned_price": self.limit_planned_price,
+                "limit_market_reference_price": self.limit_market_reference_price,
+                "limit_target_saving_r": self.limit_target_saving_r,
+                "limit_realized_saving_r": self.limit_realized_saving_r,
+                "limit_slippage_r": self.limit_slippage_r}
 
     @classmethod
     def from_dict(cls, d: dict) -> "TrackedState":
@@ -192,6 +209,22 @@ class TrackedState:
             account=str(d.get("account", "")),
             timeframe=str(d.get("timeframe", "")),
             candle_source=str(d.get("candle_source", "") or ""),
+            limit_order_ticket=int(d.get("limit_order_ticket", 0) or 0),
+            limit_planned_price=float(d.get("limit_planned_price", 0.0) or 0.0),
+            limit_market_reference_price=float(
+                d.get("limit_market_reference_price", 0.0) or 0.0),
+            limit_target_saving_r=(
+                None if d.get("limit_target_saving_r") is None
+                else float(d.get("limit_target_saving_r"))
+            ),
+            limit_realized_saving_r=(
+                None if d.get("limit_realized_saving_r") is None
+                else float(d.get("limit_realized_saving_r"))
+            ),
+            limit_slippage_r=(
+                None if d.get("limit_slippage_r") is None
+                else float(d.get("limit_slippage_r"))
+            ),
         )
 
 
@@ -431,8 +464,12 @@ def _cloture_depuis_historique(
         if sortie is None:
             sortie = max(deals, key=lambda d: getattr(d, "time", 0))
 
-        quand = datetime.fromtimestamp(
-            float(getattr(sortie, "time", 0) or 0), tz=timezone.utc).isoformat()
+        # `deal.time` est en heure SERVEUR. L'etiqueter "+00:00" a rendu
+        # fausses de trois heures les 35 premieres cloture du journal et a
+        # gonfle d'autant toutes les durees de detention (7 minutes reelles
+        # journalisees 187). Constate le 12/08/2026.
+        decalage = decalage_serveur(mt5, (symbole_attendu,))
+        quand = heure_serveur_en_utc(getattr(sortie, "time", 0) or 0, decalage)
         # `net` = ce que le compte a réellement gagné ou perdu, frais compris.
         # MT5 signe déjà `profit` selon le sens : pas de multiplication par
         # `side`, qui inverserait tous les shorts.
@@ -582,6 +619,43 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
                 "indicators": st.indicators,
                 "source": "live",
             }, ensure_ascii=False) + "\n")
+        if st.limit_order_ticket:
+            # La fermeture complete le meme fil causal que le placement et le
+            # fill. Le PnL reste le net comptable MT5 deja valide ci-dessus.
+            from titanium.execution.pending_context import append_limit_event
+
+            written, reason = append_limit_event(
+                journal_path.parent / "limit_lifecycle.ndjson",
+                {
+                    "event": "closed",
+                    "order_ticket": st.limit_order_ticket,
+                    "position_ticket": int(ticket),
+                    "symbol": st.symbol,
+                    "side": st.side,
+                    "planned_price": st.limit_planned_price,
+                    "market_reference_price": st.limit_market_reference_price,
+                    "fill_price": st.entry,
+                    "exit_price": prix_sortie,
+                    "target_saving_r": st.limit_target_saving_r,
+                    "realized_saving_r": st.limit_realized_saving_r,
+                    "slippage_r": st.limit_slippage_r,
+                    "pnl_r": round(pnl_r, 4),
+                    "cost_r": round(cout_total, 4) if cout_total is not None else None,
+                    "context": st.context_key,
+                    "regime": (
+                        str(st.context_key).split("|")[2]
+                        if len(str(st.context_key).split("|")) > 2 else "unknown"
+                    ),
+                    "asset_class": st.asset_class or _classe_de(st.symbol),
+                    "mode": st.mode,
+                    "closed_at": ts_exit,
+                },
+            )
+            if diagnostic is not None:
+                diagnostic.update(
+                    limit_lifecycle_written=written,
+                    limit_lifecycle_reason=reason,
+                )
         if diagnostic is not None:
             diagnostic.update(reason="JOURNALISE", permanent=False)
         return True

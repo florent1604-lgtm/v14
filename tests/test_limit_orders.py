@@ -13,6 +13,8 @@ from titanium.execution import limit_orders as lo
 from titanium.execution.limit_orders import place_limit_order, plan_limit_entry
 from titanium.execution.mt5_executor import ExecutionPolicy
 from titanium.execution.pending_context import (
+    append_limit_event,
+    limit_lifecycle_summary,
     reconcile_pending_contexts,
     save_pending_context,
 )
@@ -137,6 +139,7 @@ def test_place_limit_envoie_pending_avec_expiration(monkeypatch):
     assert not isinstance(request["expiration"], bool)
     attendu = datetime.now(timezone.utc) + timedelta(seconds=600)
     assert abs(request["expiration"] - int(attendu.timestamp())) <= 5
+    assert result.market_reference_price == pytest.approx(terminal.ask)
 
 
 def test_expiration_datetime_serait_refusee_par_le_terminal(monkeypatch):
@@ -190,6 +193,9 @@ def test_contexte_pending_transfere_au_ticket_de_position(tmp_path):
         r=0.005, symbol="EURUSD", side=1, entry=1.1000,
         sl_initial=1.0950, tp_initial=1.1075,
         context_key="EURUSD|long|continuation|3p", risque_devise=25.0,
+        asset_class="forex", limit_order_ticket=555,
+        limit_planned_price=1.1000, limit_market_reference_price=1.1002,
+        limit_target_saving_r=0.04,
     )
     save_pending_context(
         pending_path, order_ticket=555, symbol="EURUSD", side=1,
@@ -210,12 +216,101 @@ def test_contexte_pending_transfere_au_ticket_de_position(tmp_path):
     report = reconcile_pending_contexts(
         Terminal(), magic=14_000, state_path=state_path,
         pending_path=pending_path, positions=[pos],
+        lifecycle_path=tmp_path / "limit_lifecycle.ndjson",
     )
     state = load_state(state_path)
     assert report["adopted"] == 1
     assert state["999"].context_key == template.context_key
     assert state["999"].entry == pytest.approx(1.0999)
     assert state["999"].r == pytest.approx(0.005)
+    assert state["999"].limit_realized_saving_r == pytest.approx(0.06)
+    assert state["999"].limit_slippage_r == pytest.approx(-0.02)
+    assert report["events_written"] == 1
+    summary = limit_lifecycle_summary(tmp_path / "limit_lifecycle.ndjson")
+    assert summary["filled"] == 1
+    assert summary["mean_realized_saving_r"] == pytest.approx(0.06)
+
+
+def test_limite_expiree_est_classee_et_journalisee(tmp_path):
+    pending_path = tmp_path / "pending.json"
+    lifecycle_path = tmp_path / "limit_lifecycle.ndjson"
+    state_path = tmp_path / "positions.json"
+    template = TrackedState(
+        r=0.005, symbol="EURUSD", side=1, entry=1.1000,
+        context_key="EURUSD|long|continuation|3p",
+        limit_order_ticket=555, limit_planned_price=1.1000,
+        limit_market_reference_price=1.1002, limit_target_saving_r=0.04,
+    )
+    save_pending_context(
+        pending_path, order_ticket=555, symbol="EURUSD", side=1,
+        expires_at=(datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat(),
+        state=template,
+    )
+
+    class Terminal:
+        ORDER_STATE_CANCELED = 2
+        ORDER_STATE_EXPIRED = 6
+
+        def orders_get(self):
+            return ()
+
+        def history_orders_get(self, **kwargs):
+            return [SimpleNamespace(
+                ticket=555, state=6, comment="expired", time_done=123,
+            )]
+
+    report = reconcile_pending_contexts(
+        Terminal(), magic=14_000, state_path=state_path,
+        pending_path=pending_path, positions=[], lifecycle_path=lifecycle_path,
+    )
+    assert report["expired"] == 1
+    assert report["canceled"] == 0
+    assert report["purged"] == 1
+    assert limit_lifecycle_summary(lifecycle_path)["expired"] == 1
+
+
+def test_journal_cycle_limite_est_append_only_et_idempotent(tmp_path):
+    path = tmp_path / "limit_lifecycle.ndjson"
+    event = {
+        "event": "placed", "order_ticket": 555, "symbol": "EURUSD",
+        "regime": "continuation",
+    }
+    assert append_limit_event(path, event) == (True, "WRITTEN")
+    assert append_limit_event(path, event) == (False, "DUPLICATE")
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 1
+    summary = limit_lifecycle_summary(path)
+    assert summary["placed"] == 1
+    assert summary["open"] == 1
+    assert summary["by_symbol"]["EURUSD"]["placed"] == 1
+
+
+def test_disparition_sans_historique_ne_devient_pas_une_fausse_expiration(tmp_path):
+    pending_path = tmp_path / "pending.json"
+    lifecycle_path = tmp_path / "limit_lifecycle.ndjson"
+    template = TrackedState(
+        r=0.005, symbol="EURUSD", side=1, entry=1.1000,
+        context_key="EURUSD|long|continuation|3p", limit_order_ticket=777,
+    )
+    save_pending_context(
+        pending_path, order_ticket=777, symbol="EURUSD", side=1,
+        expires_at=(datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat(),
+        state=template,
+    )
+
+    class Terminal:
+        def orders_get(self):
+            return ()
+
+        def history_orders_get(self, **kwargs):
+            return ()
+
+    report = reconcile_pending_contexts(
+        Terminal(), magic=14_000, state_path=tmp_path / "positions.json",
+        pending_path=pending_path, positions=[], lifecycle_path=lifecycle_path,
+    )
+    assert report["unknown"] == 1
+    assert report["expired"] == 0
+    assert limit_lifecycle_summary(lifecycle_path)["unknown"] == 1
 
 
 def test_expiration_est_convertie_dans_le_fuseau_du_serveur(monkeypatch):

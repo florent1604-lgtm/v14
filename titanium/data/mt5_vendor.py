@@ -376,3 +376,62 @@ def is_available() -> bool:
             return True
     except Exception:  # noqa: BLE001 — sonde, jamais bloquante
         return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HORLOGE DU SERVEUR
+#
+# Un serveur MT5 publie TOUS ses horodatages dans SON fuseau, pas en UTC :
+# `deal.time`, `order.time_expiration`, `tick.time`. Le courtier Axi est à
+# UTC+3. Deux dégâts constatés le 12/08/2026 :
+#
+#   * une expiration d'ordre calculée en UTC paraît PASSÉE au serveur, qui
+#     refuse l'ordre (retcode 10022) — aucune limite n'a jamais été posée ;
+#   * `datetime.fromtimestamp(deal.time, tz=utc)` étiquette l'heure serveur
+#     « +00:00 » : les 35 clôtures du journal portent une heure fausse de
+#     trois heures, et les durées de détention calculées sont gonflées
+#     d'autant (7 minutes journalisées 187).
+#
+# D'où cette mesure unique, partagée par l'exécution et par le journal.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Au-delà, la mesure est jugée absurde et on préfère ne rien corriger.
+DECALAGE_MAX_S = 24 * 3600
+
+#: Les fuseaux des courtiers sont des multiples du quart d'heure. Arrondir
+#: absorbe la latence du tick sans jamais déplacer un horodatage réel.
+DECALAGE_PAS_S = 900
+
+
+def decalage_serveur(mt5, symboles=(), *, maintenant: float | None = None) -> int:
+    """Écart en secondes entre l'horloge du serveur et l'horloge UTC.
+
+    Renvoie ``0`` dès que la mesure n'est pas crédible : mieux vaut un
+    horodatage non corrigé qu'un décalage inventé.
+
+    On retient le tick le PLUS AVANCÉ parmi les symboles proposés. Un marché
+    fermé renvoie un tick ancien, donc sous-estime le décalage ; le maximum est
+    le seul estimateur qui ne se laisse pas tromper par un symbole endormi.
+    """
+    reference = float(maintenant if maintenant is not None
+                      else datetime.now(timezone.utc).timestamp())
+    candidats = []
+    for symbole in [s for s in symboles if s]:
+        try:
+            tick = mt5.symbol_info_tick(symbole)
+            brut = float(getattr(tick, "time", 0) or 0) - reference
+        except Exception:  # noqa: BLE001 — observabilité, jamais bloquant
+            continue
+        if brut == -reference:          # tick absent : time=0
+            continue
+        if abs(brut) <= DECALAGE_MAX_S:
+            candidats.append(brut)
+    if not candidats:
+        return 0
+    return int(round(max(candidats) / DECALAGE_PAS_S)) * DECALAGE_PAS_S
+
+
+def heure_serveur_en_utc(epoch_serveur: float, decalage_s: int) -> str:
+    """Convertit un horodatage MT5 (heure serveur) en instant UTC ISO-8601."""
+    return datetime.fromtimestamp(
+        float(epoch_serveur) - int(decalage_s), tz=timezone.utc).isoformat()

@@ -27,6 +27,7 @@ import pytest
 from titanium.analysis.discriminants import depuis_journal
 from titanium.edge import TradeJournal
 from titanium.execution.mt5_executor import ExecutionPolicy
+from titanium.execution.pending_context import limit_lifecycle_summary
 from titanium.execution.position_manager import (
     PHASE_BREAKEVEN,
     PHASE_INIT,
@@ -129,6 +130,26 @@ def test_journalise_un_perdant(tmp_path):
     journaliser_cloture(etat(mae_r=-1.05), "556", prix_sortie=1.0900,
                         ts_exit="", journal_path=j, net_devise=-100.0)
     assert TradeJournal(j).read_all()[0].pnl_r == pytest.approx(-1.0, abs=0.01)
+
+
+def test_cloture_limite_complete_le_cycle_avec_pnl_net(tmp_path):
+    j = tmp_path / "trades.ndjson"
+    st = etat(
+        limit_order_ticket=555,
+        limit_planned_price=1.1000,
+        limit_market_reference_price=1.1002,
+        limit_target_saving_r=0.02,
+        limit_realized_saving_r=0.03,
+        limit_slippage_r=-0.01,
+    )
+    assert journaliser_cloture(
+        st, "999", prix_sortie=1.1150,
+        ts_exit="2026-08-07T05:00:00+00:00",
+        journal_path=j, net_devise=150.0,
+    )
+    summary = limit_lifecycle_summary(tmp_path / "limit_lifecycle.ndjson")
+    assert summary["closed"] == 1
+    assert summary["net_pnl_r"] == pytest.approx(1.5)
 
 
 def test_le_journal_est_relu_par_le_registre_dedge(tmp_path):

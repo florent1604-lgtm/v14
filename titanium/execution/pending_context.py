@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,125 @@ def _write(path: Path, data: dict) -> None:
     tmp.replace(path)
 
 
+def append_limit_event(path: Path, event: dict) -> tuple[bool, str]:
+    """Ajoute un evenement immutable et idempotent au cycle des limites.
+
+    L'identifiant ``ordre:event`` evite les doublons apres une relance tout en
+    conservant un journal strictement append-only. Une panne de telemetrie est
+    rendue au caller ; elle ne doit jamais lever dans la boucle de trading.
+    """
+    try:
+        order_ticket = int(event.get("order_ticket", 0) or 0)
+        event_name = str(event.get("event", "") or "").strip().lower()
+        if not order_ticket or not event_name:
+            return False, "EVENT_INVALIDE"
+        event_id = f"{order_ticket}:{event_name}"
+        path = Path(path)
+        if path.exists():
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    if json.loads(raw).get("event_id") == event_id:
+                        return False, "DUPLICATE"
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+        record = dict(event)
+        record.update({
+            "event_id": event_id,
+            "event": event_name,
+            "order_ticket": order_ticket,
+            "at": str(event.get("at") or datetime.now(timezone.utc).isoformat()),
+        })
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        return True, "WRITTEN"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"ERROR_{type(exc).__name__.upper()}"
+
+
+def limit_lifecycle_summary(path: Path) -> dict:
+    """Agrege le denominateur causal des limites, globalement et par strate."""
+    events: list[dict] = []
+    seen: set[str] = set()
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    for raw in lines:
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        event_id = str(event.get("event_id", ""))
+        if not event_id or event_id in seen:
+            continue
+        seen.add(event_id)
+        events.append(event)
+
+    def aggregate(rows: list[dict]) -> dict:
+        counts = {name: sum(r.get("event") == name for r in rows)
+                  for name in (
+                      "placed", "filled", "expired", "canceled", "unknown", "closed")}
+        known_resolved = counts["filled"] + counts["expired"] + counts["canceled"]
+        resolved = known_resolved + counts["unknown"]
+        saving = [float(r["realized_saving_r"]) for r in rows
+                  if r.get("event") == "filled"
+                  and r.get("realized_saving_r") is not None
+                  and math.isfinite(float(r["realized_saving_r"]))]
+        slippage = [float(r["slippage_r"]) for r in rows
+                    if r.get("event") == "filled"
+                    and r.get("slippage_r") is not None
+                    and math.isfinite(float(r["slippage_r"]))]
+        pnl = [float(r["pnl_r"]) for r in rows
+               if r.get("event") == "closed" and r.get("pnl_r") is not None
+               and math.isfinite(float(r["pnl_r"]))]
+        return {
+            **counts,
+            "open": max(0, counts["placed"] - resolved),
+            "fill_rate": (
+                counts["filled"] / known_resolved if known_resolved else None),
+            "mean_realized_saving_r": (sum(saving) / len(saving) if saving else None),
+            "mean_slippage_r": (sum(slippage) / len(slippage) if slippage else None),
+            "net_pnl_r": (sum(pnl) if pnl else None),
+        }
+
+    def grouped(key: str) -> dict:
+        values = sorted({str(row.get(key, "") or "unknown") for row in events})
+        return {value: aggregate([
+            row for row in events if str(row.get(key, "") or "unknown") == value
+        ]) for value in values}
+
+    return {
+        **aggregate(events),
+        "by_symbol": grouped("symbol"),
+        "by_regime": grouped("regime"),
+    }
+
+
+def _order_issue(mt5, order_ticket: str) -> tuple[str, dict]:
+    """Classe la disparition d'un ordre a partir de l'historique MT5."""
+    try:
+        history = mt5.history_orders_get(ticket=int(order_ticket)) or []
+    except Exception:  # noqa: BLE001
+        history = []
+    if not history:
+        return "unknown", {"broker_state": None, "broker_comment": ""}
+    order = max(history, key=lambda item: getattr(item, "time_done", 0) or 0)
+    state = int(getattr(order, "state", -1) or -1)
+    comment = str(getattr(order, "comment", "") or "")
+    if state == int(getattr(mt5, "ORDER_STATE_CANCELED", 2)):
+        issue = "canceled"
+    elif state == int(getattr(mt5, "ORDER_STATE_EXPIRED", 6)):
+        issue = "expired"
+    elif "cancel" in comment.lower():
+        issue = "canceled"
+    elif "expir" in comment.lower():
+        issue = "expired"
+    else:
+        issue = "unknown"
+    return issue, {"broker_state": state, "broker_comment": comment}
+
+
 def save_pending_context(path: Path, *, order_ticket: int, symbol: str, side: int,
                          expires_at: str, state: TrackedState) -> None:
     data = _read(path)
@@ -39,9 +159,12 @@ def save_pending_context(path: Path, *, order_ticket: int, symbol: str, side: in
 
 
 def reconcile_pending_contexts(mt5, *, magic: int, state_path: Path,
-                               pending_path: Path, positions=None) -> dict:
+                               pending_path: Path, positions=None,
+                               lifecycle_path: Path | None = None) -> dict:
     """Rattache par symbole/sens le contexte pending au ticket de position."""
-    report = {"adopted": 0, "pending": 0, "purged": 0}
+    report = {"adopted": 0, "pending": 0, "purged": 0,
+              "expired": 0, "canceled": 0, "unknown": 0,
+              "events_written": 0, "event_failures": 0, "details": []}
     pending = _read(pending_path)
     if not pending:
         return report
@@ -77,10 +200,43 @@ def reconcile_pending_contexts(mt5, *, magic: int, state_path: Path,
         entry = float(getattr(pos, "price_open", 0.0) or template.entry)
         sl = float(getattr(pos, "sl", 0.0) or template.sl_initial)
         tp = float(getattr(pos, "tp", 0.0) or template.tp_initial)
+        planned = float(template.limit_planned_price or template.entry or 0.0)
+        market_reference = float(template.limit_market_reference_price or 0.0)
+        realized_saving_r = None
+        slippage_r = None
+        if template.r > 0 and market_reference > 0 and planned > 0:
+            realized_saving_r = ((market_reference - entry) * side) / template.r
+            slippage_r = ((entry - planned) * side) / template.r
         state[ticket] = replace(
             template, entry=entry, sl_initial=sl, tp_initial=tp,
             r=abs(entry - sl) if entry and sl else template.r,
+            limit_realized_saving_r=realized_saving_r,
+            limit_slippage_r=slippage_r,
         )
+        if lifecycle_path is not None:
+            regime = str(template.context_key).split("|")[2:3]
+            written, reason = append_limit_event(lifecycle_path, {
+                "event": "filled", "order_ticket": int(key),
+                "position_ticket": int(ticket), "symbol": pos.symbol,
+                "side": side, "planned_price": planned,
+                "market_reference_price": market_reference,
+                "fill_price": entry, "r_unit": template.r,
+                "target_saving_r": template.limit_target_saving_r,
+                "realized_saving_r": realized_saving_r,
+                "slippage_r": slippage_r,
+                "context": template.context_key,
+                "regime": regime[0] if regime else "unknown",
+                "asset_class": template.asset_class,
+                "mode": template.mode,
+            })
+            report["events_written"] += int(written)
+            report["event_failures"] += int(not written and reason != "DUPLICATE")
+            report["details"].append({
+                "order_ticket": int(key), "position_ticket": int(ticket),
+                "issue": "filled", "event": reason,
+                "realized_saving_r": realized_saving_r,
+                "slippage_r": slippage_r,
+            })
         pending.pop(key, None)
         changed_state = True
         report["adopted"] += 1
@@ -95,8 +251,39 @@ def reconcile_pending_contexts(mt5, *, magic: int, state_path: Path,
                 if expiry.tzinfo is None:
                     expiry = expiry.replace(tzinfo=timezone.utc)
                 if now.timestamp() > expiry.timestamp() + 60:
+                    issue, broker = _order_issue(mt5, key)
+                    template = TrackedState.from_dict(value["state"])
+                    event_ok = True
+                    event_reason = "DISABLED"
+                    if lifecycle_path is not None:
+                        regime = str(template.context_key).split("|")[2:3]
+                        written, event_reason = append_limit_event(lifecycle_path, {
+                            "event": issue, "order_ticket": int(key),
+                            "symbol": value.get("symbol"),
+                            "side": int(value.get("side", 0) or 0),
+                            "planned_price": template.limit_planned_price or template.entry,
+                            "market_reference_price": template.limit_market_reference_price,
+                            "r_unit": template.r,
+                            "target_saving_r": template.limit_target_saving_r,
+                            "expires_at": value.get("expires_at"),
+                            "context": template.context_key,
+                            "regime": regime[0] if regime else "unknown",
+                            "asset_class": template.asset_class,
+                            "mode": template.mode,
+                            **broker,
+                        })
+                        event_ok = written or event_reason == "DUPLICATE"
+                        report["events_written"] += int(written)
+                        report["event_failures"] += int(not event_ok)
+                    if not event_ok:
+                        continue
                     pending.pop(key, None)
                     report["purged"] += 1
+                    report[issue] += 1
+                    report["details"].append({
+                        "order_ticket": int(key), "issue": issue,
+                        "event": event_reason, **broker,
+                    })
             except (TypeError, ValueError):
                 continue
 

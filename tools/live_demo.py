@@ -641,7 +641,6 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
     try:
         from datetime import datetime, timezone
 
-        from titanium.edge import context_from_feats
         from titanium.execution.position_manager import (
             TrackedState, load_state, save_state,
         )
@@ -666,6 +665,14 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             risque_devise=float(risque_devise or 0.0),
             spread_r=(None if spread_r is None else float(spread_r)),
             spread_exact=False,
+            limit_order_ticket=int(ticket),
+            limit_planned_price=float(res.price or 0.0),
+            limit_market_reference_price=float(
+                getattr(res, "market_reference_price", 0.0) or 0.0),
+            limit_target_saving_r=(
+                float(getattr(res, "spread_saved_price", 0.0) or 0.0) / r
+                if r > 0 else None
+            ),
             **_stratification(sym, feats, out.side),
         )
         save_state(chemin, etat)
@@ -717,10 +724,13 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         get_rates,
         get_rates_cache,
     )
-    from titanium.edge import context_from_feats
     from titanium.execution.limit_orders import place_limit_order
     from titanium.execution.mt5_executor import ExecutionPolicy
-    from titanium.execution.pending_context import reconcile_pending_contexts
+    from titanium.execution.pending_context import (
+        append_limit_event,
+        limit_lifecycle_summary,
+        reconcile_pending_contexts,
+    )
     from titanium.execution.position_manager import ManageParams, manage_once
     from titanium.features.builder import build_feats, risk_context_from
     from titanium.orchestrator import OrchestratorConfig, run_once
@@ -856,6 +866,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 adoption = reconcile_pending_contexts(
                     mt5, magic=politique.magic, state_path=etat,
                     pending_path=RACINE / "results" / "pending_limits.json",
+                    lifecycle_path=RACINE / "results" / "limit_lifecycle.ndjson",
                     positions=positions_courantes,
                 )
                 if adoption.get("adopted"):
@@ -864,12 +875,31 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     ) + int(adoption["adopted"])
                     print(f"    limites exécutées : {adoption['adopted']} contexte(s) "
                           "rattaché(s)", flush=True)
-                if adoption.get("purged"):
+                if adoption.get("expired"):
                     stats["limites_expirees"] = int(
                         stats.get("limites_expirees", 0) or 0
-                    ) + int(adoption["purged"])
-                    print(f"    limites expirées : {adoption['purged']} contexte(s) "
+                    ) + int(adoption["expired"])
+                    print(f"    limites expirées : {adoption['expired']} contexte(s) "
                           "purgé(s)", flush=True)
+                if adoption.get("canceled"):
+                    stats["limites_annulees"] = int(
+                        stats.get("limites_annulees", 0) or 0
+                    ) + int(adoption["canceled"])
+                    print(f"    limites annulees : {adoption['canceled']} contexte(s) "
+                          "purge(s)", flush=True)
+                if adoption.get("unknown"):
+                    stats["limites_issue_inconnue"] = int(
+                        stats.get("limites_issue_inconnue", 0) or 0
+                    ) + int(adoption["unknown"])
+                    _compter_tunnel(
+                        stats, "limit_lifecycle_failure", "ISSUE_INCONNUE")
+                if adoption.get("events_written"):
+                    stats["limit_lifecycle_events"] = int(
+                        stats.get("limit_lifecycle_events", 0) or 0
+                    ) + int(adoption["events_written"])
+                if adoption.get("event_failures"):
+                    _compter_tunnel(
+                        stats, "limit_lifecycle_failure", "RECONCILIATION")
                 r = manage_once(
                     mt5,
                     policy=politique,
@@ -1165,11 +1195,45 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             unite_b = getattr(budgets.get(sym), "timeframe", LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             economie_r = res.spread_saved_price / (out.stop_distance or 1.0)
+            ctxk = _contexte_exact(sym, feats, out.side)
+            stratification = _stratification(sym, feats, out.side)
+            regime = str(ctxk).split("|")[2:3]
+            evenement_ecrit, motif_evenement = append_limit_event(
+                RACINE / "results" / "limit_lifecycle.ndjson",
+                {
+                    "event": "placed", "order_ticket": int(res.ticket),
+                    "symbol": sym, "side": int(out.side),
+                    "planned_price": float(res.price or 0.0),
+                    "market_reference_price": float(
+                        getattr(res, "market_reference_price", 0.0) or 0.0),
+                    "r_unit": float(out.stop_distance or 0.0),
+                    "target_saving_price": float(res.spread_saved_price or 0.0),
+                    "target_saving_r": economie_r,
+                    "spread_r": float(res.spread_r or 0.0),
+                    "expires_at": res.expires_at,
+                    "lot": float(res.lot or 0.0),
+                    "risk_money": float(budget.risk_money or 0.0),
+                    "context": ctxk,
+                    "regime": regime[0] if regime else "unknown",
+                    "asset_class": stratification.get("asset_class", ""),
+                    "mode": stratification.get("mode", ""),
+                    "timeframe": unite_b,
+                    "candle_source": stratification.get("candle_source", ""),
+                },
+            )
+            if evenement_ecrit:
+                stats["limit_lifecycle_events"] = int(
+                    stats.get("limit_lifecycle_events", 0) or 0
+                ) + 1
+            elif motif_evenement != "DUPLICATE":
+                _compter_tunnel(
+                    stats, "limit_lifecycle_failure", motif_evenement)
+                print(f"    ALERTE cycle limite non journalise : "
+                      f"{motif_evenement}", flush=True)
             print(f"    {sym:8} LIMIT PLACÉE {sens}{marque} #{res.ticket} "
                   f"@ {res.price} — économie visée {economie_r:.1%}R · "
                   f"expire {res.expires_at} — {detail} · SL {res.sl} TP {res.tp}",
                   flush=True)
-            ctxk = context_from_feats(sym, feats, out.side).key()
             print(f"             contexte : {ctxk}", flush=True)
         elif res.reason != "DEJA_ENVOYE":
             _compter_refus_execution(stats, res)
@@ -1194,6 +1258,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
 
     # Second battement, en FIN de tour : celui du début prouve la vitalité
     # (utile si un balayage se bloque), celui-ci porte des statistiques à jour.
+    stats["limit_lifecycle"] = limit_lifecycle_summary(
+        RACINE / "results" / "limit_lifecycle.ndjson")
     _publier_zones()
     battre(stats, armer=armer and politique.enabled, equity=compte.equity,
            portables=len(tradables))

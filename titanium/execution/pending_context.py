@@ -63,14 +63,13 @@ def append_limit_event(path: Path, event: dict) -> tuple[bool, str]:
         return False, f"ERROR_{type(exc).__name__.upper()}"
 
 
-def limit_lifecycle_summary(path: Path) -> dict:
-    """Agrege le denominateur causal des limites, globalement et par strate."""
-    events: list[dict] = []
-    seen: set[str] = set()
+def _lifecycle_events(path: Path) -> list[dict]:
     try:
         lines = Path(path).read_text(encoding="utf-8").splitlines()
     except OSError:
-        lines = []
+        return []
+    events = []
+    seen: set[str] = set()
     for raw in lines:
         try:
             event = json.loads(raw)
@@ -81,6 +80,85 @@ def limit_lifecycle_summary(path: Path) -> dict:
             continue
         seen.add(event_id)
         events.append(event)
+    return events
+
+
+def _repair_adopted_limit_states(state_path: Path, lifecycle_path: Path) -> dict:
+    """Repare uniquement la provenance d'un fill deja adopte.
+
+    Le commit initial du journal de cycle a place par erreur les champs limite
+    dans le chemin des ordres au marche. Les evenements append-only ``placed``
+    et ``filled`` restent toutefois une preuve suffisante pour completer ces
+    champs sans modifier entree, stop, risque, phase ou logique de gestion.
+    """
+    report = {"repaired": 0, "events_written": 0, "event_failures": 0}
+    events = _lifecycle_events(lifecycle_path)
+    if not events:
+        return report
+    placed = {
+        int(event.get("order_ticket", 0) or 0): event
+        for event in events if event.get("event") == "placed"
+    }
+    fills = [event for event in events if event.get("event") == "filled"]
+    state = load_state(state_path)
+    changed = False
+    for fill in fills:
+        order_ticket = int(fill.get("order_ticket", 0) or 0)
+        position_ticket = str(fill.get("position_ticket", "") or "")
+        template = state.get(position_ticket)
+        plan = placed.get(order_ticket)
+        if not order_ticket or template is None or plan is None:
+            continue
+        if template.limit_order_ticket:
+            continue
+        if str(plan.get("symbol", "")) != str(template.symbol):
+            continue
+        planned_price = float(plan.get("planned_price", 0.0) or 0.0)
+        market_reference = float(plan.get("market_reference_price", 0.0) or 0.0)
+        fill_price = float(fill.get("fill_price", 0.0) or template.entry or 0.0)
+        if not (planned_price > 0 and market_reference > 0 and template.r > 0):
+            continue
+        realized_saving_r = (
+            (market_reference - fill_price) * template.side / template.r)
+        slippage_r = ((fill_price - planned_price) * template.side / template.r)
+        target_saving_r = plan.get("target_saving_r")
+        state[position_ticket] = replace(
+            template,
+            limit_order_ticket=order_ticket,
+            limit_planned_price=planned_price,
+            limit_market_reference_price=market_reference,
+            limit_target_saving_r=(
+                None if target_saving_r is None else float(target_saving_r)),
+            limit_realized_saving_r=realized_saving_r,
+            limit_slippage_r=slippage_r,
+        )
+        written, reason = append_limit_event(lifecycle_path, {
+            "event": "filled_metrics", "order_ticket": order_ticket,
+            "position_ticket": int(position_ticket), "symbol": template.symbol,
+            "side": template.side, "planned_price": planned_price,
+            "market_reference_price": market_reference,
+            "fill_price": fill_price, "r_unit": template.r,
+            "target_saving_r": target_saving_r,
+            "realized_saving_r": realized_saving_r,
+            "slippage_r": slippage_r,
+            "context": template.context_key,
+            "regime": plan.get("regime", "unknown"),
+            "asset_class": template.asset_class,
+            "mode": template.mode,
+            "repair_source": "placed+filled",
+        })
+        report["events_written"] += int(written)
+        report["event_failures"] += int(not written and reason != "DUPLICATE")
+        report["repaired"] += 1
+        changed = True
+    if changed:
+        save_state(state_path, state)
+    return report
+
+
+def limit_lifecycle_summary(path: Path) -> dict:
+    """Agrege le denominateur causal des limites, globalement et par strate."""
+    events = _lifecycle_events(path)
 
     def aggregate(rows: list[dict]) -> dict:
         counts = {name: sum(r.get("event") == name for r in rows)
@@ -88,13 +166,21 @@ def limit_lifecycle_summary(path: Path) -> dict:
                       "placed", "filled", "expired", "canceled", "unknown", "closed")}
         known_resolved = counts["filled"] + counts["expired"] + counts["canceled"]
         resolved = known_resolved + counts["unknown"]
-        saving = [float(r["realized_saving_r"]) for r in rows
-                  if r.get("event") == "filled"
-                  and r.get("realized_saving_r") is not None
+        metrics = {}
+        for row in rows:
+            if row.get("event") not in {"filled", "filled_metrics"}:
+                continue
+            ticket = int(row.get("order_ticket", 0) or 0)
+            if ticket and (
+                row.get("realized_saving_r") is not None
+                or row.get("slippage_r") is not None
+            ):
+                metrics[ticket] = row
+        saving = [float(r["realized_saving_r"]) for r in metrics.values()
+                  if r.get("realized_saving_r") is not None
                   and math.isfinite(float(r["realized_saving_r"]))]
-        slippage = [float(r["slippage_r"]) for r in rows
-                    if r.get("event") == "filled"
-                    and r.get("slippage_r") is not None
+        slippage = [float(r["slippage_r"]) for r in metrics.values()
+                    if r.get("slippage_r") is not None
                     and math.isfinite(float(r["slippage_r"]))]
         pnl = [float(r["pnl_r"]) for r in rows
                if r.get("event") == "closed" and r.get("pnl_r") is not None
@@ -164,7 +250,13 @@ def reconcile_pending_contexts(mt5, *, magic: int, state_path: Path,
     """Rattache par symbole/sens le contexte pending au ticket de position."""
     report = {"adopted": 0, "pending": 0, "purged": 0,
               "expired": 0, "canceled": 0, "unknown": 0,
-              "events_written": 0, "event_failures": 0, "details": []}
+              "events_written": 0, "event_failures": 0,
+              "repaired": 0, "details": []}
+    if lifecycle_path is not None:
+        repair = _repair_adopted_limit_states(state_path, lifecycle_path)
+        report["repaired"] += repair["repaired"]
+        report["events_written"] += repair["events_written"]
+        report["event_failures"] += repair["event_failures"]
     pending = _read(pending_path)
     if not pending:
         return report

@@ -18,7 +18,7 @@ from titanium.execution.pending_context import (
     reconcile_pending_contexts,
     save_pending_context,
 )
-from titanium.execution.position_manager import TrackedState, load_state
+from titanium.execution.position_manager import TrackedState, load_state, save_state
 
 
 def spec(**over) -> SymbolSpec:
@@ -311,6 +311,50 @@ def test_disparition_sans_historique_ne_devient_pas_une_fausse_expiration(tmp_pa
     assert report["unknown"] == 1
     assert report["expired"] == 0
     assert limit_lifecycle_summary(lifecycle_path)["unknown"] == 1
+
+
+def test_fill_deja_adopte_recupere_sa_provenance_depuis_le_journal(tmp_path):
+    lifecycle_path = tmp_path / "limit_lifecycle.ndjson"
+    state_path = tmp_path / "positions.json"
+    save_state(state_path, {
+        "89325926": TrackedState(
+            r=14.073, symbol="ETHUSD", side=1, entry=1894.4,
+            sl_initial=1880.327, context_key="ETHUSD|long|continuation|3p",
+            asset_class="crypto", risque_devise=20.81,
+        ),
+    })
+    append_limit_event(lifecycle_path, {
+        "event": "placed", "order_ticket": 89325926, "symbol": "ETHUSD",
+        "side": 1, "planned_price": 1894.467,
+        "market_reference_price": 1896.26, "target_saving_r": 0.1268,
+        "regime": "continuation",
+    })
+    append_limit_event(lifecycle_path, {
+        "event": "filled", "order_ticket": 89325926,
+        "position_ticket": 89325926, "symbol": "ETHUSD", "side": 1,
+        "fill_price": 1894.4,
+    })
+
+    report = reconcile_pending_contexts(
+        SimpleNamespace(), magic=14_000, state_path=state_path,
+        pending_path=tmp_path / "pending.json", positions=[],
+        lifecycle_path=lifecycle_path,
+    )
+
+    repaired = load_state(state_path)["89325926"]
+    assert report["repaired"] == 1
+    assert repaired.limit_order_ticket == 89325926
+    assert repaired.limit_planned_price == pytest.approx(1894.467)
+    assert repaired.limit_market_reference_price == pytest.approx(1896.26)
+    assert repaired.limit_target_saving_r == pytest.approx(0.1268)
+    assert repaired.limit_realized_saving_r == pytest.approx(
+        (1896.26 - 1894.4) / 14.073)
+    assert repaired.limit_slippage_r == pytest.approx(
+        (1894.4 - 1894.467) / 14.073)
+    summary = limit_lifecycle_summary(lifecycle_path)
+    assert summary["filled"] == 1
+    assert summary["mean_realized_saving_r"] == pytest.approx(
+        repaired.limit_realized_saving_r)
 
 
 def test_expiration_est_convertie_dans_le_fuseau_du_serveur(monkeypatch):

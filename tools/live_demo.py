@@ -665,14 +665,6 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             risque_devise=float(risque_devise or 0.0),
             spread_r=(None if spread_r is None else float(spread_r)),
             spread_exact=False,
-            limit_order_ticket=int(ticket),
-            limit_planned_price=float(res.price or 0.0),
-            limit_market_reference_price=float(
-                getattr(res, "market_reference_price", 0.0) or 0.0),
-            limit_target_saving_r=(
-                float(getattr(res, "spread_saved_price", 0.0) or 0.0) / r
-                if r > 0 else None
-            ),
             **_stratification(sym, feats, out.side),
         )
         save_state(chemin, etat)
@@ -704,6 +696,14 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
             risque_devise=float(risque_devise or 0.0),
             spread_r=(None if spread_r is None else float(spread_r)),
             spread_exact=False,
+            limit_order_ticket=int(ticket),
+            limit_planned_price=float(res.price or 0.0),
+            limit_market_reference_price=float(
+                getattr(res, "market_reference_price", 0.0) or 0.0),
+            limit_target_saving_r=(
+                float(getattr(res, "spread_saved_price", 0.0) or 0.0) / r
+                if r > 0 else None
+            ),
             **_stratification(sym, feats, out.side),
         )
         save_pending_context(

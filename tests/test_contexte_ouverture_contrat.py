@@ -62,3 +62,63 @@ def test_le_journal_conserve_la_source_du_pilier_g5():
     champs = {f.name for f in fields(ClosedTrade)}
     assert "candle_source" in champs
     assert "candle_source" in {f.name for f in fields(TrackedState)}
+
+
+def _kwargs_trackedstate_dans_live_demo() -> dict[str, set[str]]:
+    """Tous les mots-cles passes a ``TrackedState(...)`` par live_demo.
+
+    Lu dans l'AST plutot que dans le texte : un argument ajoute sur une ligne
+    repliee ou renomme reste detecte.
+    """
+    import ast
+
+    arbre = ast.parse((RACINE / "tools" / "live_demo.py").read_text(encoding="utf-8"))
+    trouves: dict[str, set[str]] = {}
+    for noeud in ast.walk(arbre):
+        if not isinstance(noeud, ast.Call):
+            continue
+        cible = noeud.func
+        nom = getattr(cible, "id", None) or getattr(cible, "attr", None)
+        if nom != "TrackedState":
+            continue
+        fonction = "?"
+        for parent in ast.walk(arbre):
+            if isinstance(parent, ast.FunctionDef) and noeud in ast.walk(parent):
+                fonction = parent.name
+        trouves.setdefault(fonction, set()).update(
+            kw.arg for kw in noeud.keywords if kw.arg)
+    return trouves
+
+
+def test_tous_les_arguments_passes_a_trackedstate_existent():
+    """Le 12/08/2026, deux fois de suite, live_demo a passe un mot-cle inconnu.
+
+    La premiere fois ``candle_source``, la seconde les champs ``limit_*`` sur
+    le mauvais chemin. Dans les deux cas le ``TypeError`` etait avale par un
+    ``except`` d'observabilite : aucune trace, et le contexte perdu.
+    """
+    champs = {f.name for f in fields(TrackedState)}
+    for fonction, kwargs in _kwargs_trackedstate_dans_live_demo().items():
+        inconnus = kwargs - champs - {"r"}
+        assert not inconnus, (
+            f"live_demo.{fonction} passe a TrackedState des mots-cles "
+            f"inexistants : {sorted(inconnus)}"
+        )
+
+
+def test_la_provenance_limite_reste_sur_le_chemin_pending():
+    """Un ordre au marche n'a ni prix planifie ni economie visee.
+
+    Les renseigner depuis ``_attacher_contexte`` (chemin marche) a fait croire
+    a une provenance limite sur des positions qui n'en avaient pas, et a laisse
+    les vrais fills sans provenance. Corrige par Codex le 12/08/2026.
+    """
+    par_fonction = _kwargs_trackedstate_dans_live_demo()
+    limite = {k for k in par_fonction.get("_memoriser_contexte_limit", set())
+              if k.startswith("limit_")}
+    marche = {k for k in par_fonction.get("_attacher_contexte", set())
+              if k.startswith("limit_")}
+    assert limite, "le chemin pending doit porter la provenance de la limite"
+    assert not marche, (
+        f"le chemin marche ne doit rien affirmer sur les limites : {sorted(marche)}"
+    )

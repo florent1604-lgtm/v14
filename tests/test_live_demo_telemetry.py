@@ -1,8 +1,11 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 import titanium.execution.pending_context as pending_context
 from tools.live_demo import (
+    _attacher_contexte,
     _code_portabilite,
     _compter_refus_execution,
     _compter_tunnel,
@@ -77,13 +80,40 @@ def test_contexte_limite_sauve_retourne_une_preuve(monkeypatch, tmp_path):
         sl=1.0950,
         tp=1.1075,
         expires_at="2026-08-12T12:00:00+00:00",
+        market_reference_price=1.1002,
+        spread_saved_price=0.0002,
     )
 
     ok, reason = _memoriser_contexte_limit(555, "EURUSD", {}, out, res)
 
     assert (ok, reason) == (True, "SAVED")
     saved = json.loads((tmp_path / "results" / "pending_limits.json").read_text())
-    assert saved["555"]["state"]["context_key"] == "EURUSD|long|x|3p"
+    state = saved["555"]["state"]
+    assert state["context_key"] == "EURUSD|long|x|3p"
+    assert state["limit_order_ticket"] == 555
+    assert state["limit_planned_price"] == 1.1000
+    assert state["limit_market_reference_price"] == 1.1002
+    assert state["limit_target_saving_r"] == pytest.approx(0.04)
+
+
+def test_contexte_ordre_marche_ne_se_fait_pas_passer_pour_une_limite(
+    monkeypatch, tmp_path,
+):
+    import tools.live_demo as live_demo
+
+    monkeypatch.setattr(live_demo, "RACINE", tmp_path)
+    monkeypatch.setattr(live_demo, "_contexte_exact", lambda *_: "EURUSD|long|x|3p")
+    monkeypatch.setattr(live_demo, "_stratification", lambda *_: {})
+    out = SimpleNamespace(side=1, stop_distance=0.005)
+    res = SimpleNamespace(price=1.1000, sl=1.0950, tp=1.1075)
+
+    _attacher_contexte(999, "EURUSD", {}, out, res, risque_devise=25.0)
+
+    state = json.loads((tmp_path / "results" / "positions.json").read_text())["999"]
+    assert state["limit_order_ticket"] == 0
+    assert state["limit_planned_price"] == 0.0
+    assert state["limit_market_reference_price"] == 0.0
+    assert state["limit_target_saving_r"] is None
 
 
 def test_echec_contexte_limite_n_est_plus_silencieux(monkeypatch):

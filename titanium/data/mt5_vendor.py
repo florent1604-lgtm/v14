@@ -299,7 +299,15 @@ def get_rates(symbol: str, timeframe: str = "H4", count: int = 200,
         raise NoMarketDataError(symbol, detail=f"aucune bougie {timeframe} retournée")
 
     df = pd.DataFrame(raw)
-    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+    # `rates["time"]` est en heure SERVEUR. L'etiqueter UTC produisait un index
+    # en avance de trois heures sur ce courtier : croiser ces barres avec le
+    # journal live (lui en vrai UTC) donnait des fenetres decalees, et un rejeu
+    # des trades clos ecartait 12 trades sur 37 faute d'intersection. Constate
+    # le 12/08/2026. Aucune decision de production ne lit l'heure absolue d'une
+    # barre — seul l'ordre des barres compte — mais toute analyse qui melange
+    # barres et journal en depend.
+    df["time"] = pd.to_datetime(
+        df["time"] - decalage_serveur_cache((symbol,)), unit="s", utc=True)
     df = df.set_index("time").sort_index()
     df = _volumes_en_flottant(df)
     if closed_only and len(df) > 0:
@@ -435,3 +443,41 @@ def heure_serveur_en_utc(epoch_serveur: float, decalage_s: int) -> str:
     """Convertit un horodatage MT5 (heure serveur) en instant UTC ISO-8601."""
     return datetime.fromtimestamp(
         float(epoch_serveur) - int(decalage_s), tz=timezone.utc).isoformat()
+
+
+#: Symboles utilises pour mesurer l'horloge du serveur : ils cotent presque
+#: toujours, donc leur tick est frais meme quand les bourses dorment.
+_SYMBOLES_HORLOGE = ("BTCUSD", "ETHUSD", "EURUSD", "XAUUSD")
+
+#: Le fuseau d'un serveur ne change qu'aux passages heure d'ete/hiver. Une
+#: mesure par quart d'heure suffit, et evite un appel MT5 par barre lue.
+_HORLOGE_TTL_S = 900
+
+_horloge: dict = {"decalage": 0, "mesure_a": 0.0}
+
+
+def decalage_serveur_cache(symboles=(), *, force: bool = False) -> int:
+    """Decalage serveur↔UTC, mesure au plus une fois par quart d'heure.
+
+    Rend 0 tant qu'aucune mesure credible n'existe : un horodatage non corrige
+    reste preferable a un horodatage corrige au hasard.
+    """
+    maintenant = datetime.now(timezone.utc).timestamp()
+    if not force and (maintenant - _horloge["mesure_a"]) < _HORLOGE_TTL_S:
+        return int(_horloge["decalage"])
+    try:
+        with mt5_session() as mt5:
+            mesure = decalage_serveur(
+                mt5, tuple(symboles) + _SYMBOLES_HORLOGE, maintenant=maintenant)
+    except Exception:  # noqa: BLE001 — l'horloge ne casse jamais une lecture
+        return int(_horloge["decalage"])
+    if mesure:
+        _horloge["decalage"] = int(mesure)
+    _horloge["mesure_a"] = maintenant
+    return int(_horloge["decalage"])
+
+
+def reinitialiser_horloge_serveur() -> None:
+    """Oublie la mesure d'horloge (tests, ou changement d'heure legale)."""
+    _horloge["decalage"] = 0
+    _horloge["mesure_a"] = 0.0

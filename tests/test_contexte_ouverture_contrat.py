@@ -122,3 +122,16 @@ def test_la_provenance_limite_reste_sur_le_chemin_pending():
     assert not marche, (
         f"le chemin marche ne doit rien affirmer sur les limites : {sorted(marche)}"
     )
+
+
+def test_le_journal_declare_sa_convention_d_horloge():
+    """Sans marqueur, impossible de savoir si `closed_at` est UTC ou serveur.
+
+    Les 37 premieres lignes du journal live portent l'heure du serveur
+    etiquetee "+00:00". Les croiser avec des barres de marche produit des
+    fenetres decalees de trois heures ; un rejeu des trades clos ecartait
+    ainsi 10 trades sur 37 et surestimait l'esperance de 0,32 R.
+    """
+    champs = {f.name for f in fields(ClosedTrade)}
+    assert "horloge" in champs
+    assert ClosedTrade(context="x", pnl_r=0.0).horloge == ""    # ancien = inconnu

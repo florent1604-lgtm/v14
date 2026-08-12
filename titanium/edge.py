@@ -89,6 +89,11 @@ class ClosedTrade:
     #: True ⇒ `pnl_r` vient du net en devise ET `cost_r` contient toutes
     #: les composantes mesurées. Le protocole exige 90 % de trades exacts.
     exact_cost: bool = False
+    #: Convention d'horloge de `closed_at`. Les lignes ecrites avant le
+    #: 12/08/2026 portent l'heure du SERVEUR (UTC+3 chez ce courtier) tout en
+    #: etant etiquetees "+00:00" : elles valent "" et ne doivent pas etre
+    #: croisees avec des barres de marche. Les nouvelles valent "utc".
+    horloge: str = ""
     #: Qui a fourni le pilier G5 à l'entrée : "formes", "displacement" ou "".
     #: Le secours displacement (12/08/2026) fait passer G5 de 11,9 % à 23,7 % ;
     #: seul ce champ, journalisé à la CLÔTURE, permettra de comparer les deux
@@ -175,7 +180,8 @@ class TradeJournal:
                     timeframe=str(d.get("timeframe", "")),
                     risk_money=float(d.get("risk_money", 0.0) or 0.0),
                     exact_cost=cout_exact,
-                    candle_source=str(d.get("candle_source", "") or "")))
+                    candle_source=str(d.get("candle_source", "") or ""),
+                    horloge=str(d.get("horloge", "") or "")))
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
                 self.rejected_lines += 1
                 continue        # ligne corrompue : on la saute, on ne casse rien

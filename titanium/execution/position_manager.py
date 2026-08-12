@@ -584,6 +584,9 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
             quorum=st.quorum,
             support_pillars=st.support_pillars,
             candle_source=st.candle_source,
+            # `closed_at` est desormais du vrai UTC. Le marqueur permet a un
+            # outil de refuser les lignes anciennes, ecrites en heure serveur.
+            horloge="utc",
             asset_class=st.asset_class or _classe_de(st.symbol),
             timeframe=st.timeframe,
             risk_money=st.risque_devise,

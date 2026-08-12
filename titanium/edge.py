@@ -313,6 +313,7 @@ ASSET_CLASSES = {
     "crypto": {"BTCUSD", "ETHUSD", "LTCUSD", "XRPUSD", "ADAUSD",
                "DOGUSD", "BCHUSD"},
     "energie": {"USOIL", "UKOIL"},
+    "agricole": {"COCOA.FS", "COFFEE.FS", "SOYBEAN.FS"},
 }
 
 
@@ -325,8 +326,21 @@ GROUPES_MT5 = {
     "ROW_CASH": "indices",
 }
 
-#: `ROW_FUTURES` mélange énergie et indices : on tranche sur le nom.
+#: Le courtier range plus finement que le premier segment : `ROW_CASH\CASH_OIL`
+#: n'est pas un indice, et `ROW_FUTURES` mélange indices, énergie, métaux et
+#: agricole. Lire le SECOND segment évite de deviner. Constaté le 12/08/2026 :
+#: `COPPER.fs` était classé « indices », c'est-à-dire retiré de la seule classe
+#: — les métaux — où un avantage directionnel a été mesuré.
+SOUS_GROUPES_MT5 = {
+    "CASH_OIL": "energie",
+}
+
+#: `FUT_COMMODITY*` est le seul sous-groupe réellement hétérogène : on y tranche
+#: sur le nom, faute de mieux, et le défaut est explicite plutôt que caché.
 _ENERGIE = ("BRENT", "WTI", "OIL", "GAS", "NGAS")
+_METAUX = ("COPPER", "XCU", "ALUMIN", "ZINC", "NICKEL", "PLATIN", "PALLAD",
+           "XPT", "XPD", "SILVER", "GOLD")
+_AGRICOLE = ("COCOA", "COFFEE", "SOYBEAN", "SUGAR", "WHEAT", "CORN", "COTTON")
 
 #: Groupes résolus une fois par processus. Un appel MT5 par clôture de trade
 #: serait payé sur le chemin critique pour une information immuable.
@@ -334,24 +348,53 @@ _CACHE_GROUPES: dict = {}
 
 
 def classe_depuis_groupe(groupe: str, symbole: str = "") -> str:
-    """Classe déduite du groupe MT5. Rend "" si le groupe est inconnu."""
-    g = str(groupe or "").split("\\")[0].strip().upper()
-    if g == "ROW_FUTURES":
+    """Classe déduite du chemin MT5. Rend "" si le groupe est inconnu.
+
+    Le chemin complet est utilisé (``ROW_CASH\\CASH_OIL\\UKOIL``), pas seulement
+    sa racine : c'est la classification du courtier, pas une devinette.
+    """
+    chemin = [p.strip().upper() for p in str(groupe or "").split("\\") if p.strip()]
+    if not chemin:
+        return ""
+    racine = chemin[0]
+    sous = chemin[1] if len(chemin) > 1 else ""
+
+    if sous in SOUS_GROUPES_MT5:
+        return SOUS_GROUPES_MT5[sous]
+    if sous.startswith("CASH_INDICES") or sous.startswith("FUT_INDICES"):
+        return "indices"
+    if sous.startswith("FUT_COMMODITY") or racine == "ROW_FUTURES":
         s = str(symbole or "").upper()
-        return "energie" if any(e in s for e in _ENERGIE) else "indices"
-    return GROUPES_MT5.get(g, "")
+        if any(e in s for e in _ENERGIE):
+            return "energie"
+        if any(m in s for m in _METAUX):
+            return "metaux"
+        if any(a in s for a in _AGRICOLE):
+            return "agricole"
+        return "indices"
+    return GROUPES_MT5.get(racine, "")
 
 
 def _groupe_mt5(symbole: str) -> str:
-    """Groupe du symbole selon MT5, mis en cache. Ne lève jamais."""
+    """Groupe du symbole selon MT5, mis en cache. Ne lève jamais.
+
+    ⚠️ Le catalogue n'est lisible que dans une SESSION initialisée. Appeler
+    ``symbols_get()`` sur un module MetaTrader5 simplement importé renvoie
+    ``None`` sans erreur : la classe devient "" et l'actif cesse d'être
+    promouvable. Le défaut ne se voyait pas depuis la boucle de trading, qui
+    initialise MT5 pour d'autres raisons, mais faussait tout outil d'analyse
+    lancé séparément — le 12/08/2026, 66 % des candidats ressortaient
+    « inconnue » dans une mesure d'exposition par classe.
+    """
     s = str(symbole or "").upper()
     if s in _CACHE_GROUPES:
         return _CACHE_GROUPES[s]
     try:
-        import MetaTrader5 as mt5  # noqa: N813
+        from titanium.data.mt5_vendor import mt5_session
 
-        for spec in (mt5.symbols_get() or []):
-            _CACHE_GROUPES[spec.name.upper()] = spec.path or ""
+        with mt5_session() as mt5:
+            for spec in (mt5.symbols_get() or []):
+                _CACHE_GROUPES[spec.name.upper()] = spec.path or ""
     except Exception:  # noqa: BLE001 — hors ligne : on garde la liste en dur
         pass
     return _CACHE_GROUPES.get(s, "")

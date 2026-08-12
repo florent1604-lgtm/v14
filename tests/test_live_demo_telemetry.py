@@ -1,6 +1,11 @@
 import json
+from types import SimpleNamespace
 
-from tools.live_demo import _code_portabilite, _compter_tunnel
+from tools.live_demo import (
+    _code_portabilite,
+    _compter_refus_execution,
+    _compter_tunnel,
+)
 
 
 def test_compteur_tunnel_agrege_par_etape_et_motif():
@@ -30,6 +35,32 @@ def test_compteur_tunnel_accepte_un_volume_et_reste_serialisable():
     _compter_tunnel(stats, "flow", "portables", 0)
     assert stats["tunnel"]["flow"] == {"catalogue": 149, "portables": 4}
     json.dumps(stats)
+
+
+def test_refus_execution_est_ventile_par_motif_et_porte():
+    stats = {}
+    resultat = SimpleNamespace(
+        reason="RETCODE_10016",
+        checks=[
+            {"gate": "wall", "passed": True},
+            {"gate": "send", "passed": False, "detail": "invalid stops"},
+        ],
+    )
+
+    _compter_refus_execution(stats, resultat)
+
+    assert stats["tunnel"] == {
+        "post_enter_refusal": {"EXECUTION": 1},
+        "execution_refusal": {"RETCODE_10016": 1},
+        "execution_gate_failed": {"send": 1},
+    }
+    json.dumps(stats)
+
+
+def test_refus_execution_sans_checks_reste_explicite():
+    stats = {}
+    _compter_refus_execution(stats, SimpleNamespace(reason="WALL_ERREUR", checks=[]))
+    assert stats["tunnel"]["execution_gate_failed"] == {"NON_DETAILLE": 1}
 
 
 def test_motifs_de_portabilite_sont_stables():

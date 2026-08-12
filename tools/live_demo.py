@@ -187,6 +187,24 @@ def _compter_tunnel(stats: dict, etape: str, motif: str, nombre: int = 1) -> Non
     seau[cle] = int(seau.get(cle, 0) or 0) + increment
 
 
+def _compter_refus_execution(stats: dict, resultat) -> None:
+    """Ventile un refus d'ordre sans perdre le compteur historique EXECUTION."""
+    _compter_tunnel(stats, "post_enter_refusal", "EXECUTION")
+    _compter_tunnel(
+        stats,
+        "execution_refusal",
+        getattr(resultat, "reason", "") or "INCONNU",
+    )
+    portes = []
+    for check in getattr(resultat, "checks", ()) or ():
+        if isinstance(check, dict) and check.get("passed") is False:
+            portes.append(check.get("gate") or "INCONNU")
+    if not portes:
+        portes.append("NON_DETAILLE")
+    for porte in portes:
+        _compter_tunnel(stats, "execution_gate_failed", porte)
+
+
 def _code_portabilite(motif: str) -> str:
     """Normalise un texte de dimensionnement en code stable de tunnel."""
     texte = str(motif or "").lower()
@@ -588,6 +606,13 @@ def _stratification(sym: str, feats: dict, side: int) -> dict:
             "asset_class": asset_class_of(sym),
             "account": compte,
             "timeframe": str((feats.get("_trace") or {}).get("timeframe") or LTF),
+            # Qui a fourni G5 : "formes" (motif de chandelier) ou
+            # "displacement" (amplitude ICT, secours ajoute le 12/08/2026).
+            # Sans ce champ au journal, on ne pourra jamais comparer
+            # l'esperance des deux sources sur des RESULTATS -- seulement sur
+            # des taux de passage, qui ne disent rien de la rentabilite.
+            "candle_source": str(
+                (feats.get("_trace") or {}).get("candle_source") or ""),
         }
     except Exception:  # noqa: BLE001
         return {}
@@ -1137,7 +1162,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             ctxk = context_from_feats(sym, feats, out.side).key()
             print(f"             contexte : {ctxk}", flush=True)
         elif res.reason != "DEJA_ENVOYE":
-            _compter_tunnel(stats, "post_enter_refusal", "EXECUTION")
+            _compter_refus_execution(stats, res)
             print(f"    {sym:8} ordre refusé : {res.reason}", flush=True)
             for chk in res.checks:
                 if not chk["passed"]:

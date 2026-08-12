@@ -51,7 +51,34 @@ from titanium.features.structure import (
 )
 
 #: Incrémenter dès que la façon de CALCULER une feature change — la trace le porte.
-BUILDER_VERSION = "1.0.0"
+BUILDER_VERSION = "1.1.0"
+
+#: G5 accepte un displacement en SECOURS quand le moteur de formes est muet.
+#:
+#: Mesuré le 12/08/2026 sur 134 setups directionnels réels (mission Prime
+#: ba74e58a) : G5 passait 6.7 % du temps. Sur les 125 échecs, 80 % venaient
+#: d'un moteur muet — aucun motif, ou motif en attente de confirmation. Or un
+#: displacement (2 ATR ou plus en 1 à 3 bougies, corps pleins) EST une bougie
+#: de confirmation, et `candlesticks` ne le voit pas : il cherche des FORMES
+#: (englobante, marteau), jamais l'AMPLITUDE.
+#:
+#: Secours et non remplacement : sur les 18 setups où le displacement était
+#: aligné, 8 avaient un moteur de formes disant le CONTRAIRE. Les écraser
+#: serait un passage en force. On ne comble que le silence.
+#:
+#: Effet mesuré : G5 6.7 % → 14.2 %, quorum 21.6 % → 24.6 % (+4 setups / 134).
+#: Mettre à False pour revenir au comportement d'avant.
+DISPLACEMENT_FALLBACK = True
+
+#: Amplitude minimale d'un displacement retenu, en multiples d'ATR. C'est le
+#: seuil ICT canonique ; le relever rend le secours muet, l'abaisser en fait
+#: un tampon (à 1 ATR, une bougie ordinaire suffirait).
+DISPLACEMENT_MIN_ATR = 2.0
+
+#: Fenêtre de recherche et fraîcheur exigée, en barres. Un displacement vieux
+#: de quinze barres ne confirme plus l'entrée d'aujourd'hui.
+DISPLACEMENT_LOOKBACK = 20
+DISPLACEMENT_FRAICHEUR = 4
 
 #: Émotion neutre : ni véto, ni attente. Utilisée quand aucun pôle n'est branché.
 NEUTRAL_EMOTION = {"filter_block": None, "stale": False, "confidence": 1.0, "wait": False}
@@ -144,6 +171,32 @@ def _ote_ob(df: pd.DataFrame, price: float, fib_ctx: dict) -> int:
         return direction if (aligne and statut in ("intact", "tested", "fvg")) else 0
     except Exception:  # noqa: BLE001
         return 0
+
+
+def _displacement_dir(df: pd.DataFrame) -> tuple[int, float]:
+    """Secours G5 : direction et force du displacement récent, ou (0, 0.0).
+
+    Voir `DISPLACEMENT_FALLBACK` pour la mesure qui justifie ce secours. On ne
+    retient que le plus récent : deux displacements opposés dans la fenêtre
+    ne se compensent pas, le dernier a le dernier mot.
+    """
+    if not DISPLACEMENT_FALLBACK:
+        return 0, 0.0
+    try:
+        from titanium.features.ict_structure import detect_displacement
+
+        recents = [
+            d for d in detect_displacement(
+                df, min_atr_mult=DISPLACEMENT_MIN_ATR,
+                lookback=DISPLACEMENT_LOOKBACK)
+            if d.end_index >= DISPLACEMENT_LOOKBACK - DISPLACEMENT_FRAICHEUR
+        ]
+        if not recents:
+            return 0, 0.0
+        dernier = max(recents, key=lambda d: d.end_index)
+        return int(dernier.direction), float(dernier.strength)
+    except Exception:  # noqa: BLE001
+        return 0, 0.0
 
 
 def _setup_side(sr_ctx: dict) -> int | None:
@@ -244,6 +297,13 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
     cndl = candlesticks.net_bias_on_df(
         ltf, uptrend=(trend > 0) if trend != 0 else None)
     candle_dir = int(cndl.get("direction") or 0)
+    candle_force = abs(float(cndl.get("score", 0.0)))
+    # Secours : le moteur de FORMES est muet, l'AMPLITUDE parle peut-être.
+    candle_source = "formes" if candle_dir else ""
+    if candle_dir == 0:
+        candle_dir, candle_force = _displacement_dir(ltf)
+        if candle_dir:
+            candle_source = "displacement"
 
     setup_side = _setup_side(sr_ctx)
     setup_family = _setup_family(setup_side, trend)
@@ -276,7 +336,7 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
             "fair_value": 0.5 if vp_ctx.get("on_fair_price_zone") else 0.0,
             "liquidity": 0.6 if liquidity != 0 else 0.0,
             "ote_ob": 0.7 if ote_dir != 0 else 0.0,
-            "candle_confirmed": abs(float(cndl.get("score", 0.0))),
+            "candle_confirmed": candle_force,
         },
         "_trace": {
             "version": BUILDER_VERSION,
@@ -305,6 +365,10 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
                 for b, h in smc.detect_fvg_unfilled(
                     ltf, smc.BUY if (setup_side or 0) > 0 else smc.SELL)[-6:]
             ] if setup_side in (-1, 1) else [],
+            # Quelle source a fourni G5 : "formes", "displacement", ou "" si
+            # aucune. Sans cette trace on ne pourrait pas, plus tard, comparer
+            # l'espérance des deux sources sur les trades journalisés.
+            "candle_source": candle_source,
             "candle_patterns": cndl.get("patterns", []),
             "candle_pending": cndl.get("pending_confirmation", []),
             "candle_confirmed_from_prev": cndl.get("confirmed_from_prev", []),

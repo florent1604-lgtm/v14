@@ -46,6 +46,22 @@ if not exist "%GIT_BASH%" (
   exit /b 1
 )
 
+REM --- Windows preflight. Prime 0.7.1 can leave dead session leases and worker
+REM --- descriptors after a forced stop. They trigger EPERM loops on the next
+REM --- launch. The repair is recoverable (quarantine only) and proves process
+REM --- identity with PID + creation time before moving anything.
+set "PREFLIGHT_PY=%~dp0.venv\Scripts\python.exe"
+if not exist "%PREFLIGHT_PY%" set "PREFLIGHT_PY=python"
+"%PREFLIGHT_PY%" "%~dp0tools\prime_agent_preflight.py" repair
+if errorlevel 1 (
+  echo.
+  echo   Prime preflight en echec. Aucun nouveau worker ne sera lance.
+  echo   Voir docs\PRIME_AGENT.md, section stabilite Windows.
+  echo.
+  pause
+  exit /b 1
+)
+
 REM --- Kernel IPython. Le bootstrap automatique de la 0.7.1 est casse sous
 REM --- Windows (il cherche kernel-venv\bin\python), donc on designe nous-memes
 REM --- l'interpreteur. On ne se contente PAS de verifier qu'il existe : un venv
@@ -121,9 +137,32 @@ REM --- --cwd est indispensable : le kernel et les outils heritent du repertoire
 REM --- du DEMON, pas de celui du client. Sans lui, un comptage de fichiers dans
 REM --- titanium/ renvoie 0 au lieu de 42, sans la moindre erreur. Une reponse
 REM --- fausse et silencieuse est pire qu'un echec. Constate le 09/08/2026.
+REM Sans argument explicite, reutiliser la session saine de cette racine. Cela
+REM evite qu'un double-clic cree deux clients, deux workers et deux leases.
+set "PRIME_ACTIVE_ID=__ERROR__"
+if not "%~1"=="" goto :prime_launch
+for /f "delims=" %%I in ('""%PREFLIGHT_PY%" "%~dp0tools\prime_agent_preflight.py" active --cwd "%CD%""') do set "PRIME_ACTIVE_ID=%%I"
+if "%PRIME_ACTIVE_ID%"=="__ERROR__" (
+  echo.
+  echo   Etat Prime impossible a prouver. Lancement bloque pour eviter un doublon.
+  echo   Relancer PRIME_V14.bat apres prime-agent doctor --fix.
+  echo.
+  pause
+  exit /b 1
+)
+if "%PRIME_ACTIVE_ID%"=="__NONE__" set "PRIME_ACTIVE_ID="
+if defined PRIME_ACTIVE_ID (
+  echo   session   : %PRIME_ACTIVE_ID% ^(attachement, aucun nouveau worker^)
+  prime-agent attach "%PRIME_ACTIVE_ID%"
+  set "PRIME_EXIT=%ERRORLEVEL%"
+  goto :prime_fin
+)
+
+:prime_launch
 prime-agent --cwd "%CD%" %PRIME_ARGS% %*
 set "PRIME_EXIT=%ERRORLEVEL%"
 
+:prime_fin
 echo.
 if not "%PRIME_EXIT%"=="0" echo   Prime Agent termine avec le code %PRIME_EXIT%.
 pause

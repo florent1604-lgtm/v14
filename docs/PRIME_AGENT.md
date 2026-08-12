@@ -332,6 +332,36 @@ une première mission puis une seconde sur le même démon et rechercher `worker
 `EPERM` et `fsync` dans `~/.prime/agent/logs/prime-agent-daemon.*.log`.
 Le diff réapplicable est conservé dans `docs/PRIME_AGENT_WINDOWS_071.patch`.
 
+## Stabilité des sessions Windows
+
+`PRIME_V14.bat` exécute maintenant `tools/prime_agent_preflight.py` avant tout
+lancement. Le preflight traite les deux causes du blocage observé le 12/08/2026 :
+
+- un `session-leases/*.lock` dont le PID propriétaire est mort ou réutilisé ;
+- un descripteur `daemon-workers/*/<worker>.json` qui désigne un worker mort.
+
+La preuve ne repose pas sur le PID seul : Windows réutilise les PID. Le script
+compare aussi `processStartId` à la date de création réelle du processus. Un
+artefact illisible reste en place (fail-closed). Un artefact prouvé orphelin est
+déplacé sous `~/.prime/agent/quarantine/<UTC>/`, jamais supprimé, afin de garder
+un retour arrière et les journaux de diagnostic.
+
+Sans argument explicite, le lanceur interroge ensuite `prime-agent list --json`.
+S'il existe déjà une session `live` avec un worker `ready` sur la racine V14, il
+fait `prime-agent attach <id>` au lieu de créer une seconde session. Si l'état
+du daemon ne peut pas être prouvé, le lancement est bloqué plutôt que de risquer
+un doublon. Des arguments explicites conservent le comportement de création
+voulu, par exemple pour changer de modèle.
+
+Diagnostic sans mutation :
+
+```
+.venv\Scripts\python.exe tools\prime_agent_preflight.py repair --dry-run
+.venv\Scripts\python.exe tools\prime_agent_preflight.py active --cwd C:\Users\flore\Desktop\V14
+```
+
+Tests reproductibles : `tests/test_prime_agent_preflight.py`.
+
 ## Limites connues
 
 - **Quota Gemini free tier** : `429` sur des requêtes rapprochées. Voir la section sur le

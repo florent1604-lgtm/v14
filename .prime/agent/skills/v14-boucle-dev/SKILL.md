@@ -130,3 +130,16 @@ garde-fous réservés. Avant tout échange
 inter-agent, lire `collab/HERMES_BRIDGE.md`. Secours hors ligne :
 `node tools/collab_bus.mjs send --from claude --to codex --task V14 --content "..."`.
 Ne jamais publier de secret sur le bus.
+
+## GitNexus partage
+
+Avant l'analyse ou l'edition, puis avant le passage de relais, executer :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/gitnexus_team.ps1 sync
+```
+
+Utiliser ensuite GitNexus pour explorer les flux, lancer `impact` upstream avant
+toute edition d'un symbole existant et `detect_changes` avant livraison. Voir
+`collab/GITNEXUS_TEAM_PROTOCOL.md`. Si le MCP n'est pas charge par le harnais,
+utiliser `tools/gitnexus_team.ps1 cli <commande>` depuis le shell de Prime.

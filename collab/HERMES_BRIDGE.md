@@ -38,6 +38,21 @@ trading V12, ni Titanium MCP, ni la porte d'ecriture GitNexus.
 Claude et Codex doivent etre relances dans le dossier V14 apres modification
 de `.mcp.json` et `.codex/config.toml` pour recharger les deux connexions.
 
+## Intelligence de code commune GitNexus
+
+Codex, Claude, Hermes et Prime partagent l'index `titanium-v14` via
+`http://127.0.0.1:4750/mcp`. Au debut de chaque mission et avant le passage de
+relais, l'agent qui dispose du shell execute :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/gitnexus_team.ps1 sync
+```
+
+Hermes est deja configure comme client MCP `gitnexus`; il consulte le graphe
+mais reste C1 sans autorite d'ecriture ou d'execution. Le protocole, le verrou
+multi-agent et les preuves attendues sont dans
+`collab/GITNEXUS_TEAM_PROTOCOL.md`.
+
 ## Format d'un echange utile
 
 Chaque demande contient :

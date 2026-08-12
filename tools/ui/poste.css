@@ -85,6 +85,11 @@ html, body {
   font-weight: 700; letter-spacing: 0.14em; font-size: 12px;
 }
 .marque b { color: var(--laiton); font-weight: 700; }
+.mode-badge {
+  color: var(--long); border: 1px solid currentColor; border-radius: 999px;
+  padding: 2px 7px; font-size: 9px; letter-spacing: .08em; white-space: nowrap;
+}
+.mode-badge.mal { color: var(--grave); }
 
 .vital {
   padding: 9px 16px;

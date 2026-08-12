@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+if [ -x ".venv/Scripts/python.exe" ]; then
+  PYTHON=".venv/Scripts/python.exe"
+elif [ -x ".venv/bin/python" ]; then
+  PYTHON=".venv/bin/python"
+else
+  PYTHON="python"
+fi
+
+echo "[pre-commit] Ruff critical errors"
+"$PYTHON" -m ruff check --select E9,F63,F7,F82 tradingagents titanium tools tests
+
+echo "[pre-commit] Fast safety tests"
+"$PYTHON" -m pytest -q \
+  tests/test_cost_conventions.py \
+  tests/test_llm_timeout.py \
+  tests/test_live_demo_cluster_journal.py \
+  tests/test_llm_skills_catalog.py

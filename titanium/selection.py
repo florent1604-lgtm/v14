@@ -89,7 +89,9 @@ def _cout_relatif(spread_prix: float, atr: float) -> float:
     """
     if atr <= 0:
         return 9.9
-    return (spread_prix * 2.0) / atr
+    # `spread_prix` est déjà l'écart ask-bid complet. Comme dans le backtest
+    # et la porte live, deux demi-spreads (entrée/sortie) en paient un seul.
+    return spread_prix / atr
 
 
 def _note_cout(c: float) -> float:

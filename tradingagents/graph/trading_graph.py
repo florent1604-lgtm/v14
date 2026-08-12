@@ -62,6 +62,19 @@ def _coerce_max_retries(value):
     return n
 
 
+def _coerce_timeout(value):
+    """Validate a strictly positive provider request timeout in seconds."""
+    if isinstance(value, bool):
+        raise ValueError(f"llm_timeout must be a number, not a boolean: {value!r}")
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"llm_timeout must be a number, got {value!r}") from exc
+    if seconds <= 0:
+        raise ValueError(f"llm_timeout must be > 0, got {seconds}")
+    return seconds
+
+
 class TradingAgentsGraph:
     """Main class that orchestrates the trading agents framework."""
 
@@ -182,6 +195,12 @@ class TradingAgentsGraph:
         max_retries = self.config.get("llm_max_retries")
         if max_retries is not None and max_retries != "":
             kwargs["max_retries"] = _coerce_max_retries(max_retries)
+
+        # Omit the kwarg when unset so existing callers retain their SDK
+        # default. The asynchronous worker opts into a bounded value.
+        timeout = self.config.get("llm_timeout")
+        if timeout is not None and timeout != "":
+            kwargs["timeout"] = _coerce_timeout(timeout)
 
         return kwargs
 

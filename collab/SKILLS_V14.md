@@ -27,8 +27,9 @@ Le manifeste verifiable est `config/skills-manifest.json`.
    redemarrer un service, approuver une permission ou lancer une action
    destructive sans validation humaine explicite.
 5. `trading-team` et `collab-discipline` ont ete adaptes a V14.
-6. Les skills Git/GitNexus restent installes mais fonctionnent en mode degrade
-   tant que V14 n'est pas un depot Git indexe par GitNexus.
+6. Les skills Git/GitNexus utilisent l'index partage `titanium-v14`. Chaque
+   mission synchronise d'abord l'empreinte du travail, y compris non commite,
+   selon `collab/GITNEXUS_TEAM_PROTOCOL.md`.
 
 ## Inventaire
 

@@ -52,6 +52,15 @@ AMORCAGE = 250
 MAX_BARRES = 200
 
 
+def cout_spread_r(spread: float, r_unit: float) -> float:
+    """Un spread ask-bid complet rapporté à la distance de risque.
+
+    Le spread est réparti en deux demi-spreads dans le rejeu (entrée et
+    sortie), mais il n'est payé qu'une fois au total.
+    """
+    return float(spread) / float(r_unit) if float(r_unit) > 0 else 0.0
+
+
 @dataclass
 class Trade:
     """Un trade simulé, avec tout ce qu'il faut pour l'analyser ensuite."""
@@ -230,9 +239,9 @@ def rejouer(symbol: str, ltf: pd.DataFrame, htf: pd.DataFrame, *,
         symbol: instrument (sert au contexte, pas au calcul).
         ltf: bougies de la timeframe d'entrée, index temporel croissant.
         htf: bougies de la timeframe haute.
-        spread: spread du courtier en unités de prix. **Appliqué deux fois**
-            (entrée + sortie). Le laisser à 0 produit un résultat flatteur et
-            faux.
+        spread: spread ask-bid complet du courtier en unités de prix. Il est
+            réparti en deux demi-spreads (entrée + sortie), donc payé une seule
+            fois au total. Le laisser à 0 produit un résultat flatteur et faux.
         stop_temporel: `(barres_max, seuil_r)` ou `None`. **None par défaut** :
             les résultats déjà mesurés ne bougent pas. Voir `_simuler_sortie`.
         pas: n'évaluer qu'une barre sur `pas`. Accélère un balayage large.
@@ -302,10 +311,11 @@ def rejouer(symbol: str, ltf: pd.DataFrame, htf: pd.DataFrame, *,
             trail_dist_r=trail_dist_r, max_barres=max_barres,
             stop_temporel=stop_temporel)
 
-        # Spread payé une seconde fois à la sortie.
+        # Seconde moitié du spread payée à la sortie : une moitié à l'entrée
+        # + une moitié ici = un spread ask-bid complet, pas deux.
         prix_sortie -= side * spread / 2.0
         brut_r = (prix_sortie - entree) * side / r_unit
-        cout_r = spread / r_unit if r_unit > 0 else 0.0
+        cout_r = cout_spread_r(spread, r_unit)
 
         ctx = context_from_feats(symbol, feats, side)
         indic = {}

@@ -7,6 +7,10 @@
     "collab_hub": {
       "type": "http",
       "url": "http://127.0.0.1:8770/mcp"
+    },
+    "gitnexus": {
+      "type": "http",
+      "url": "http://127.0.0.1:4750/mcp"
     }
   }
 }

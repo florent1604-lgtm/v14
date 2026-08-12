@@ -1,0 +1,14 @@
+.venv/
+node_modules/
+results/
+__pycache__/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+*.pyc
+*.pyo
+.env
+.env.*
+assets/
+collab/notifications/
+tools/collab_terminal/chat_log.ndjson

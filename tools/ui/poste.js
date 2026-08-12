@@ -84,20 +84,36 @@ function anomalies(d) {
 function vitaux(d) {
   const a = d.account || {}, w = d.wall || {}, l = d.loop || {},
         r = d.risque || {}, p = d.positions || {};
+  const positions = p.positions || [];
+  const limites = p.pending || [];
+  const pnlOuvert = positions.reduce(
+    (total, position) => total + Number(position.profit || 0), 0);
+
+  const mode = $('#v-mode');
+  mode.textContent = a.is_demo === true ? 'PAPER / DÉMO' : 'ATTENTION : NON DÉMO';
+  mode.className = 'mode-badge ' + (a.is_demo === true ? '' : 'mal');
 
   $('#v-compte').textContent = a.login ? `${a.login} ${a.mode_label || ''}` : '—';
   $('#v-compte').className = 'v n ' + (a.is_demo === false ? 'mal' : '');
 
+  $('#v-balance').textContent = a.balance != null
+    ? `${nb(a.balance)} ${a.currency || ''}` : '—';
+
   $('#v-equite').textContent = a.equity != null
     ? `${nb(a.equity)} ${a.currency || ''}` : '—';
+
+  $('#v-pnl').textContent = `${signe(pnlOuvert)} ${a.currency || ''}`.trim();
+  $('#v-pnl').className = 'v n ' + classeSigne(pnlOuvert);
 
   const occ = r.occupation || 0;
   $('#v-risque').textContent = r.disponible
     ? `${nb(r.engage_pct)} % / ${nb(r.budget_pct, 0)} %` : '—';
   $('#v-risque').className = 'v n ' + (occ >= 90 ? 'mal' : occ >= 70 ? 'att' : '');
 
-  const n = (p.positions || []).length;
-  $('#v-positions').textContent = `${n} / ${l.max_positions ?? '—'}`;
+  const n = positions.length;
+  $('#v-positions').textContent = limites.length
+    ? `${n} + ${limites.length}L / ${l.max_positions ?? '—'}`
+    : `${n} / ${l.max_positions ?? '—'}`;
 
   const mur = $('#v-mur');
   mur.innerHTML = '';
@@ -117,7 +133,8 @@ function vitaux(d) {
     : l.running ? (l.armed ? 'var(--grave)' : 'var(--long)') : 'var(--encre-3)';
   b.append(pb);
 
-  $('#v-heure').textContent = new Date().toLocaleTimeString('fr-FR');
+  $('#v-heure').textContent = l.age_s == null ? 'inconnue' : `il y a ${nb(l.age_s, 0)} s`;
+  $('#v-heure').className = 'v n ' + (l.stale ? 'mal' : '');
 }
 
 /* ── Exécution ────────────────────────────────────────────────────── */
@@ -161,37 +178,64 @@ function execution(d) {
 function positions(d) {
   const p = d.positions || {};
   const lignes = p.positions || [];
-  $('#pos-compte').textContent = lignes.length ? `${lignes.length} ouverte(s)` : '';
+  const limites = p.pending || [];
+  $('#pos-compte').textContent = `${lignes.length} ouverte(s) · ${limites.length} limite(s)`;
   const c = $('#positions');
   c.innerHTML = '';
-  if (!lignes.length) {
+  if (!lignes.length && !limites.length) {
     c.append(el('div', 'vide', 'Aucune position portée par V14.'));
     return;
   }
-  const t = el('table');
-  t.innerHTML = `<thead><tr>
-    <th>Ticket</th><th>Actif</th><th>Sens</th><th class="n">Lot</th>
-    <th class="n">Entrée</th><th class="n">Stop</th>
-    <th class="n">R courant</th><th class="n">P&amp;L</th><th>Phase</th>
-  </tr></thead>`;
-  const tb = el('tbody');
-  for (const x of lignes) {
-    const tr = el('tr');
-    const sens = x.side > 0 ? 'LONG' : 'SHORT';
-    tr.innerHTML = `
-      <td class="n eteint">${x.ticket ?? ''}</td>
-      <td>${x.symbol ?? ''}</td>
-      <td class="${x.side > 0 ? 'long' : 'short'}">${sens}</td>
-      <td class="n">${nb(x.volume, 2)}</td>
-      <td class="n">${nb(x.entry, 5)}</td>
-      <td class="n">${x.sl ? nb(x.sl, 5) : '—'}</td>
-      <td class="n ${classeSigne(x.fav_r)}">${signe(x.fav_r, 2)}</td>
-      <td class="n ${classeSigne(x.profit)}">${signe(x.profit, 2)}</td>
-      <td class="eteint">${x.phase ?? ''}</td>`;
-    tb.append(tr);
+  if (lignes.length) {
+    const t = el('table');
+    t.innerHTML = `<thead><tr>
+      <th>Ticket</th><th>Actif</th><th>Sens</th><th class="n">Lot</th>
+      <th class="n">Entrée</th><th class="n">Stop</th>
+      <th class="n">R courant</th><th class="n">P&amp;L</th><th>Phase</th>
+    </tr></thead>`;
+    const tb = el('tbody');
+    for (const x of lignes) {
+      const tr = el('tr');
+      const sens = x.side > 0 ? 'LONG' : 'SHORT';
+      tr.innerHTML = `
+        <td class="n eteint">${x.ticket ?? ''}</td>
+        <td>${x.symbol ?? ''}</td>
+        <td class="${x.side > 0 ? 'long' : 'short'}">${sens}</td>
+        <td class="n">${nb(x.volume, 2)}</td>
+        <td class="n">${nb(x.entry, 5)}</td>
+        <td class="n">${x.sl ? nb(x.sl, 5) : '—'}</td>
+        <td class="n ${classeSigne(x.fav_r)}">${signe(x.fav_r, 2)}</td>
+        <td class="n ${classeSigne(x.profit)}">${signe(x.profit, 2)}</td>
+        <td class="eteint">${x.phase ?? ''}</td>`;
+      tb.append(tr);
+    }
+    t.append(tb);
+    c.append(t);
   }
-  t.append(tb);
-  c.append(t);
+  if (limites.length) {
+    const titre = el('div', 'eteint', 'ORDRES LIMITES EN ATTENTE');
+    titre.style.cssText = 'padding:8px 10px 4px;font-size:10px;letter-spacing:.1em';
+    c.append(titre);
+    const t = el('table');
+    t.innerHTML = `<thead><tr><th>Ticket</th><th>Actif</th><th>Type</th>
+      <th class="n">Lot</th><th class="n">Prix limite</th>
+      <th class="n">Stop</th><th class="n">Expiration</th></tr></thead>`;
+    const tb = el('tbody');
+    for (const x of limites) {
+      const tr = el('tr');
+      const expiration = x.expires
+        ? new Date(x.expires * 1000).toLocaleTimeString('fr-FR') : 'GTC';
+      tr.innerHTML = `<td class="n eteint">${x.ticket ?? ''}</td>
+        <td>${x.symbol ?? ''}</td><td>${x.kind ?? ''}</td>
+        <td class="n">${nb(x.volume, 2)}</td>
+        <td class="n">${nb(x.price, 5)}</td>
+        <td class="n">${x.sl ? nb(x.sl, 5) : '—'}</td>
+        <td class="n eteint">${expiration}</td>`;
+      tb.append(tr);
+    }
+    t.append(tb);
+    c.append(t);
+  }
 }
 
 /* ── Promotion ────────────────────────────────────────────────────── */

@@ -87,6 +87,11 @@ _curseur = 0
 LTF, HTF = "M15", "H4"
 BARRES = 400
 MAX_POSITIONS = 8        # positions simultanées, tous actifs confondus
+# Une seule limite passive peut réserver du risque à la fois. Tant que le
+# risque des ordres non exécutés n'est pas valorisé par le moteur global, ce
+# verrou empêche plusieurs limites de se déclencher ensemble et de dépasser
+# silencieusement MAX_RISQUE_CUMULE_PCT.
+MAX_LIMITES_EN_ATTENTE = 1
 
 #: Risque cumulé maximal sur l'ensemble des positions ouvertes, en % de
 #: l'équité.
@@ -356,6 +361,66 @@ def _place_dans_la_grappe(sym: str, risque_pct: float) -> tuple:
         return True, ""
 
 
+CANDIDATS_GRAPPE = RACINE / "results" / "candidats_grappe.ndjson"
+_CANDIDATS_GRAPPE_VUS: set[str] = set()
+
+
+def _journaliser_grappes(candidats, equity: float) -> int:
+    """Journalise une fois par barre la grappe et son risque deja engage.
+
+    Mesure additive uniquement : elle ne change ni l'ordre des candidats, ni
+    les garde-fous, ni l'execution. Le risque propose est celui du RiskGate
+    deterministe, avant l'avis asynchrone des analystes.
+    """
+    if not candidats:
+        return 0
+    try:
+        import json
+        import MetaTrader5 as mt5  # noqa: N813
+
+        from titanium.correlation import risque_par_grappe
+
+        risques = (risque_par_grappe(mt5, _GRAPPES, equity)
+                   if _GRAPPES is not None else {})
+        lignes = []
+        for candidat in candidats:
+            sym = candidat["sym"]
+            feats = candidat["feats"]
+            cle = cle_barre(sym, feats)
+            if not cle or cle in _CANDIDATS_GRAPPE_VUS:
+                continue
+            _CANDIDATS_GRAPPE_VUS.add(cle)
+            dec, out = candidat["dec"], candidat["out"]
+            grappe = (_GRAPPES.grappe_de(sym)
+                      if _GRAPPES is not None else "indisponible")
+            membres = (_GRAPPES.membres.get(grappe, [])
+                       if _GRAPPES is not None else [])
+            risque_propose = ((float(out.risk_money or 0.0) / equity * 100.0)
+                              if equity > 0 else 0.0)
+            lignes.append({
+                "at": datetime.now(timezone.utc).isoformat(),
+                "candidate_key": cle,
+                "symbol": sym,
+                "side": int(out.side or 0),
+                "setup_family": str(getattr(dec, "setup_family", "") or ""),
+                "cluster": grappe,
+                "cluster_members": list(membres),
+                "cluster_risk_engaged_pct": round(float(risques.get(grappe, 0.0)), 6),
+                "proposed_risk_pct": round(risque_propose, 6),
+                "support_pillars": int(candidat.get("support", 0) or 0),
+                "rank": round(float(candidat.get("rank", 0.0) or 0.0), 6),
+            })
+        if not lignes:
+            return 0
+        CANDIDATS_GRAPPE.parent.mkdir(parents=True, exist_ok=True)
+        with CANDIDATS_GRAPPE.open("a", encoding="utf-8") as flux:
+            for ligne in lignes:
+                flux.write(json.dumps(ligne, ensure_ascii=False) + "\n")
+        return len(lignes)
+    except Exception:  # noqa: BLE001 -- une mesure ne bloque jamais la boucle
+        return 0
+
+
 def _derive_depuis_decision(sym: str, feats: dict, out) -> float | None:
     """Ecart entre le prix de decision et le prix courant, en R.
 
@@ -583,6 +648,41 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
         pass
 
 
+def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
+                              *, risque_devise: float = 0.0,
+                              spread_r: float | None = None) -> None:
+    """Conserve le contexte jusqu'au fill d'un ordre limite expirant."""
+    if not ticket or not getattr(res, "expires_at", ""):
+        return
+    try:
+        from datetime import datetime, timezone
+
+        from titanium.execution.pending_context import save_pending_context
+        from titanium.execution.position_manager import TrackedState
+
+        r = abs((res.price or 0.0) - (res.sl or 0.0))
+        template = TrackedState(
+            r=r if r > 0 else (out.stop_distance or 0.0),
+            symbol=sym, side=out.side,
+            entry=res.price or 0.0,
+            sl_initial=res.sl or 0.0, tp_initial=res.tp or 0.0,
+            context_key=_contexte_exact(sym, feats, out.side),
+            indicators=dict((feats.get("_trace") or {}).get("indicators") or {}),
+            ts_open=datetime.now(timezone.utc).isoformat(),
+            risque_devise=float(risque_devise or 0.0),
+            spread_r=(None if spread_r is None else float(spread_r)),
+            spread_exact=False,
+            **_stratification(sym, feats, out.side),
+        )
+        save_pending_context(
+            RACINE / "results" / "pending_limits.json",
+            order_ticket=int(ticket), symbol=sym, side=out.side,
+            expires_at=res.expires_at, state=template,
+        )
+    except Exception:  # noqa: BLE001 — la mesure ne bloque jamais l'exécution
+        pass
+
+
 def tour(*, armer: bool, stats: dict, tracer: bool = True,
          tracer_defaut: str = "EURUSD") -> None:
     from titanium.data.mt5_vendor import (
@@ -592,7 +692,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         get_rates_cache,
     )
     from titanium.edge import context_from_feats
-    from titanium.execution.mt5_executor import ExecutionPolicy, place_market_order
+    from titanium.execution.limit_orders import place_limit_order
+    from titanium.execution.mt5_executor import ExecutionPolicy
+    from titanium.execution.pending_context import reconcile_pending_contexts
     from titanium.execution.position_manager import ManageParams, manage_once
     from titanium.features.builder import build_feats, risk_context_from
     from titanium.orchestrator import OrchestratorConfig, run_once
@@ -694,6 +796,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
 
     # ── 2. Gestion des positions déjà ouvertes, avant d'en ouvrir d'autres.
     ouvertes = 0
+    limites_en_attente = 0
     par_symbole: dict[str, int] = {}
     gestion_saine = True
     try:
@@ -712,6 +815,35 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                         continue
                     ouvertes += 1
                     par_symbole[p.symbol] = par_symbole.get(p.symbol, 0) + 1
+                # Une limite en attente réserve déjà un créneau et du risque.
+                # L'ignorer permettrait d'empiler des ordres qui se
+                # transformeraient tous en positions au même mouvement.
+                ordres_courants = mt5.orders_get()
+                if ordres_courants is None and armer and politique.enabled:
+                    raise RuntimeError(f"ordres MT5 indisponibles: {mt5.last_error()}")
+                for ordre in (ordres_courants or []):
+                    if int(getattr(ordre, "magic", 0) or 0) != politique.magic:
+                        continue
+                    ouvertes += 1
+                    limites_en_attente += 1
+                    par_symbole[ordre.symbol] = par_symbole.get(ordre.symbol, 0) + 1
+                adoption = reconcile_pending_contexts(
+                    mt5, magic=politique.magic, state_path=etat,
+                    pending_path=RACINE / "results" / "pending_limits.json",
+                    positions=positions_courantes,
+                )
+                if adoption.get("adopted"):
+                    stats["limites_executees"] = int(
+                        stats.get("limites_executees", 0) or 0
+                    ) + int(adoption["adopted"])
+                    print(f"    limites exécutées : {adoption['adopted']} contexte(s) "
+                          "rattaché(s)", flush=True)
+                if adoption.get("purged"):
+                    stats["limites_expirees"] = int(
+                        stats.get("limites_expirees", 0) or 0
+                    ) + int(adoption["purged"])
+                    print(f"    limites expirées : {adoption['purged']} contexte(s) "
+                          "purgé(s)", flush=True)
                 r = manage_once(
                     mt5,
                     policy=politique,
@@ -859,6 +991,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             f"{c['sym']}({c['support']}/4)" for c in candidats[:6]), flush=True)
 
     # ── PHASE 2 — envoyer, sous tous les garde-fous, par ordre de mérite.
+    _journaliser_grappes(candidats, compte.equity)
+
     for c in candidats:
         if _stop:
             return
@@ -967,7 +1101,14 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             stats["simules"] += 1
             continue
 
-        res = place_market_order(
+        if limites_en_attente >= MAX_LIMITES_EN_ATTENTE:
+            _compter_tunnel(stats, "post_enter_refusal", "LIMIT_PENDING_CAP")
+            print(f"    limite en attente déjà présente "
+                  f"({MAX_LIMITES_EN_ATTENTE}) — aucun risque passif supplémentaire",
+                  flush=True)
+            break
+
+        res = place_limit_order(
             sym, out.side, budget.risk_money, out.stop_distance or 0.0,
             policy=politique,
             tp_distance=(out.stop_distance or 0.0) * cfg.rr_ratio,
@@ -975,17 +1116,23 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         )
         if res.sent:
             stats["envoyes"] += 1
+            stats["limites_placees"] = int(stats.get("limites_placees", 0) or 0) + 1
             ouvertes += 1
+            limites_en_attente += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
-            _attacher_contexte(res.ticket, sym, feats, out, res,
-                               risque_devise=budget.risk_money,
-                               spread_r=budget.cout_spread)
+            _memoriser_contexte_limit(
+                res.ticket, sym, feats, out, res,
+                risque_devise=budget.risk_money,
+                spread_r=budget.cout_spread,
+            )
             unite_b = getattr(budgets.get(sym), "timeframe", LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
-            print(f"    {sym:8} ORDRE ENVOYÉ {sens}{marque} #{res.ticket} "
-                  f"@ {res.price} — {detail} · SL {res.sl} TP {res.tp}",
+            economie_r = res.spread_saved_price / (out.stop_distance or 1.0)
+            print(f"    {sym:8} LIMIT PLACÉE {sens}{marque} #{res.ticket} "
+                  f"@ {res.price} — économie visée {economie_r:.1%}R · "
+                  f"expire {res.expires_at} — {detail} · SL {res.sl} TP {res.tp}",
                   flush=True)
             ctxk = context_from_feats(sym, feats, out.side).key()
             print(f"             contexte : {ctxk}", flush=True)

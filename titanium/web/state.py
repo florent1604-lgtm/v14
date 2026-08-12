@@ -195,6 +195,7 @@ def positions() -> dict:
     suivi = load_state(chemin)
 
     lignes = []
+    attentes = []
     try:
         import MetaTrader5 as mt5  # noqa: N813
 
@@ -220,11 +221,30 @@ def positions() -> dict:
                         "fav_r": round(fav, 3) if fav is not None else None,
                         "peak_r": round(st.peak_fav_r, 3) if st else None,
                     })
+                for ordre in (mt5.orders_get() or ()):
+                    if int(getattr(ordre, "magic", 0) or 0) != p.magic:
+                        continue
+                    ordre_type = int(getattr(ordre, "type", -1) or -1)
+                    buy_limit = int(mt5.ORDER_TYPE_BUY_LIMIT)
+                    sell_limit = int(mt5.ORDER_TYPE_SELL_LIMIT)
+                    if ordre_type not in (buy_limit, sell_limit):
+                        continue
+                    side = 1 if ordre_type == buy_limit else -1
+                    attentes.append({
+                        "ticket": str(ordre.ticket), "symbol": ordre.symbol,
+                        "side": side,
+                        "volume": float(getattr(ordre, "volume_initial", 0.0) or 0.0),
+                        "price": float(getattr(ordre, "price_open", 0.0) or 0.0),
+                        "sl": float(ordre.sl) if getattr(ordre, "sl", 0.0) else None,
+                        "tp": float(ordre.tp) if getattr(ordre, "tp", 0.0) else None,
+                        "expires": int(getattr(ordre, "time_expiration", 0) or 0),
+                        "kind": "BUY_LIMIT" if side > 0 else "SELL_LIMIT",
+                    })
     except Exception as exc:  # noqa: BLE001
         return {"error": f"{type(exc).__name__}: {exc}", "positions": [],
-                "params": params.__dict__}
+                "pending": [], "params": params.__dict__}
 
-    return {"positions": lignes, "params": params.__dict__,
+    return {"positions": lignes, "pending": attentes, "params": params.__dict__,
             "state_path": str(chemin)}
 
 

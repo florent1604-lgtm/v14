@@ -36,7 +36,7 @@ def test_catalog_contains_all_v12_skills_with_valid_frontmatter() -> None:
         name = next(line.split(":", 1)[1].strip() for line in lines if line.startswith("name:"))
         names.add(name)
 
-    assert len(documents) == 54
+    assert len(documents) == 48
     assert len(names) == 48
     assert {"trading-team", "collab-discipline"} <= names
 

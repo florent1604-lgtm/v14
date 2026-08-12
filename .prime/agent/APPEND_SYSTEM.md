@@ -60,6 +60,21 @@ leur demander une revue, mais cette revue n'est bloquante que si Florent l'exige
 tâche précise. Florent conserve l'autorité métier et reste l'unique autorité pour les
 secrets, l'élévation système, MT5, la boucle de trading, l'armement et le trading réel.
 
+## GitNexus commun
+
+Au debut de chaque mission et avant le rapport, Prime execute :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/gitnexus_team.ps1 sync
+```
+
+Prime utilise ensuite `query` et `context` pour comprendre le chemin, `impact`
+upstream avant toute edition d'un symbole existant et `detect_changes` avant la
+livraison. Le protocole complet est `collab/GITNEXUS_TEAM_PROTOCOL.md`. Si le
+MCP n'est pas charge par le harnais, utiliser
+`powershell -ExecutionPolicy Bypass -File tools/gitnexus_team.ps1 cli <commande>`
+depuis le shell. Cette intelligence de code n'elargit aucune permission.
+
 ## Gouvernance du V14 Command Center
 
 Le journal canonique des tâches est `collab/tasks.ndjson`. Il est append-only et se

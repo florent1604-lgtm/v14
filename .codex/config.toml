@@ -3,3 +3,6 @@ url = "http://127.0.0.1:8766/mcp"
 
 [mcp_servers.collab_hub]
 url = "http://127.0.0.1:8770/mcp"
+
+[mcp_servers.gitnexus]
+url = "http://127.0.0.1:4750/mcp"

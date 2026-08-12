@@ -66,6 +66,12 @@ ANALYSTES_DEFAUT = ("market", "news")
 #: 54 dépôts/heure mesurés.
 PARALLELE = 4
 
+# Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de
+# trading et toute valeur explicite de configuration reste prioritaire.
+# Un appel fournisseur bloque ne doit pas faire expirer toute la file.
+LLM_CALL_TIMEOUT_S = 90.0
+LLM_MAX_RETRIES = 0
+
 #: Coupe-circuit de quota. Sans lui, quatre travailleurs parallèles
 #: continuent de marteler un fournisseur épuisé, des dizaines d'appels par
 #: délibération, pendant des heures — pour ne produire que du neutre.
@@ -193,11 +199,17 @@ def construire_deliberateur(analystes=ANALYSTES_DEFAUT):
     try:
         from datetime import date
 
+        from tradingagents.default_config import DEFAULT_CONFIG
         from titanium.deliberation import GraphDeliberator
         # La date de trade borne le cache du graphe : une note du jour ne
         # doit pas resservir demain.
+        cfg = DEFAULT_CONFIG.copy()
+        if cfg.get("llm_timeout") in (None, ""):
+            cfg["llm_timeout"] = LLM_CALL_TIMEOUT_S
+        if cfg.get("llm_max_retries") in (None, ""):
+            cfg["llm_max_retries"] = LLM_MAX_RETRIES
         return GraphDeliberator(trade_date=date.today().isoformat(),
-                                analystes=tuple(analystes))
+                                analystes=tuple(analystes), config=cfg)
     except Exception as exc:                   # noqa: BLE001
         print(f"  ! délibérateur indisponible : {str(exc)[:160]}")
         print("    le travailleur tourne à vide ; la boucle de trading")
@@ -260,15 +272,19 @@ def passage(_inutilise=None) -> int:
     if not en_attente:
         return 0
 
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     n = 0
     # Les délibérations sont menées de front : ce sont des attentes réseau.
     # En séquentiel, le débit plafonnait à 31/heure pour 54 dépôts.
     with ThreadPoolExecutor(max_workers=PARALLELE) as pool:
-        for d, avis, duree, analystes in pool.map(_traiter, en_attente):
+        futurs = {pool.submit(_traiter, d): d for d in en_attente}
+        for futur in as_completed(futurs):
             if _stop:
+                for restant in futurs:
+                    restant.cancel()
                 break
+            d, avis, duree, analystes = futur.result()
             enregistrer(avis, AVIS)
             journaliser_cout(d.symbol, _classe_pour(d.symbol), analystes,
                              duree, avis.rating, avis.source)

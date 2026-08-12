@@ -219,9 +219,44 @@ Suite complète après correctif : **1 599 passés, 2 skips, 0 échec** (207 s).
 
 ## 8. Ce qui reste ouvert
 
-1. **Le correctif n'est pas actif en production.** La boucle `live_demo --armer`
-   (PID 28088) tourne sur le code chargé à 08:33. Prime a interdit le
-   redémarrage ; le correctif attend donc une décision.
+1. **Le correctif est actif en production depuis 13:40:54** — et ce n'est pas
+   moi qui ai redémarré.
+
+   J'avais d'abord écrit l'inverse, en me fiant au PID rapporté par Prime à
+   10:29 sans le revérifier. Les faits :
+
+   | | |
+   |---|---|
+   | PID `live_demo` actuel | **27588** (et non 28088) |
+   | démarrage du processus | 12/08/2026 **13:40:54** |
+   | `builder.py` modifié | 13:14:27 |
+   | `live_demo.py` modifié | 13:22:03 |
+
+   Les deux fichiers précèdent le démarrage : la boucle a importé le
+   correctif. Quelqu'un l'a redémarrée entre 13:22 et 13:41 — probablement la
+   mission `fd5be523` (instrumentation du chemin d'exécution), qui en a
+   besoin. Je maintiens la consigne : je ne redémarre pas.
+
+   **Effet observé en production**, `results/shadow_prod.ndjson`, de part et
+   d'autre de 11:40:54 UTC :
+
+   ```
+   G5 candle_confirmed nommé comme MANQUANT dans le motif
+     avant   9013 / 12865   70.1 %
+     après     16 / 48      33.3 %
+   ```
+
+   Direction et ordre de grandeur concordants avec l'A/B contrôlé. Deux
+   réserves, parce que ce chiffre est facile à sur-lire : l'échantillon après
+   bascule ne compte que 48 enregistrements et le marché a bougé en même
+   temps ; et `shadow_prod.ndjson` ne journalise **que** les setups à 2
+   piliers ou plus (mesuré : 2 piliers 87,5 %, 3 piliers 12,5 %, jamais
+   moins). C'est donc un taux **conditionnel** aux candidats déjà retenus,
+   utile en avant/après à filtre constant, trompeur lu comme un taux global.
+   L'A/B sur barres identiques reste la preuve principale.
+
+   Retour arrière si Prime le décide : `DISPLACEMENT_FALLBACK = False`
+   restaure exactement l'ancien comportement, avec un test qui le verrouille.
 
 2. **G4 reste à 7,5–9,6 %** et je ne propose pas d'y toucher. Si Prime veut le
    remonter, la seule voie honnête est de mesurer d'abord l'espérance des

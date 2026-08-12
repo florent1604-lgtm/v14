@@ -1,10 +1,12 @@
 import json
 from types import SimpleNamespace
 
+import titanium.execution.pending_context as pending_context
 from tools.live_demo import (
     _code_portabilite,
     _compter_refus_execution,
     _compter_tunnel,
+    _memoriser_contexte_limit,
 )
 
 
@@ -61,6 +63,46 @@ def test_refus_execution_sans_checks_reste_explicite():
     stats = {}
     _compter_refus_execution(stats, SimpleNamespace(reason="WALL_ERREUR", checks=[]))
     assert stats["tunnel"]["execution_gate_failed"] == {"NON_DETAILLE": 1}
+
+
+def test_contexte_limite_sauve_retourne_une_preuve(monkeypatch, tmp_path):
+    import tools.live_demo as live_demo
+
+    monkeypatch.setattr(live_demo, "RACINE", tmp_path)
+    monkeypatch.setattr(live_demo, "_contexte_exact", lambda *_: "EURUSD|long|x|3p")
+    monkeypatch.setattr(live_demo, "_stratification", lambda *_: {})
+    out = SimpleNamespace(side=1, stop_distance=0.005)
+    res = SimpleNamespace(
+        price=1.1000,
+        sl=1.0950,
+        tp=1.1075,
+        expires_at="2026-08-12T12:00:00+00:00",
+    )
+
+    ok, reason = _memoriser_contexte_limit(555, "EURUSD", {}, out, res)
+
+    assert (ok, reason) == (True, "SAVED")
+    saved = json.loads((tmp_path / "results" / "pending_limits.json").read_text())
+    assert saved["555"]["state"]["context_key"] == "EURUSD|long|x|3p"
+
+
+def test_echec_contexte_limite_n_est_plus_silencieux(monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise TypeError("champ de stratification inconnu")
+
+    monkeypatch.setattr(pending_context, "save_pending_context", fail)
+    out = SimpleNamespace(side=1, stop_distance=0.005)
+    res = SimpleNamespace(
+        price=1.1000,
+        sl=1.0950,
+        tp=1.1075,
+        expires_at="2026-08-12T12:00:00+00:00",
+    )
+
+    assert _memoriser_contexte_limit(555, "EURUSD", {}, out, res) == (
+        False,
+        "ERROR_TYPEERROR",
+    )
 
 
 def test_motifs_de_portabilite_sont_stables():

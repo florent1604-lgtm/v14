@@ -675,10 +675,10 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
 
 def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
                               *, risque_devise: float = 0.0,
-                              spread_r: float | None = None) -> None:
-    """Conserve le contexte jusqu'au fill d'un ordre limite expirant."""
+                              spread_r: float | None = None) -> tuple[bool, str]:
+    """Conserve le contexte jusqu'au fill et rend une preuve exploitable."""
     if not ticket or not getattr(res, "expires_at", ""):
-        return
+        return False, "TICKET_OU_EXPIRATION_ABSENT"
     try:
         from datetime import datetime, timezone
 
@@ -704,8 +704,9 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
             order_ticket=int(ticket), symbol=sym, side=out.side,
             expires_at=res.expires_at, state=template,
         )
-    except Exception:  # noqa: BLE001 — la mesure ne bloque jamais l'exécution
-        pass
+        return True, "SAVED"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"ERROR_{type(exc).__name__.upper()}"
 
 
 def tour(*, armer: bool, stats: dict, tracer: bool = True,
@@ -1147,11 +1148,20 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
-            _memoriser_contexte_limit(
+            contexte_sauve, motif_contexte = _memoriser_contexte_limit(
                 res.ticket, sym, feats, out, res,
                 risque_devise=budget.risk_money,
                 spread_r=budget.cout_spread,
             )
+            if contexte_sauve:
+                stats["pending_context_saved"] = int(
+                    stats.get("pending_context_saved", 0) or 0
+                ) + 1
+            else:
+                _compter_tunnel(
+                    stats, "pending_context_save_failure", motif_contexte)
+                print(f"    ALERTE contexte limite non sauvegarde : "
+                      f"{motif_contexte}", flush=True)
             unite_b = getattr(budgets.get(sym), "timeframe", LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             economie_r = res.spread_saved_price / (out.stop_distance or 1.0)

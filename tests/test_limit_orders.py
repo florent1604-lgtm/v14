@@ -131,7 +131,37 @@ def test_place_limit_envoie_pending_avec_expiration(monkeypatch):
     assert request["price"] <= terminal.bid
     assert request["sl"] == pytest.approx(request["price"] - 0.005)
     assert request["tp"] == pytest.approx(request["price"] + 0.0075)
-    assert request["expiration"].tzinfo is not None
+    # MetaTrader5 refuse un datetime : order_send renvoie None et rien n est
+    # envoye. L expiration doit etre un horodatage POSIX entier.
+    assert isinstance(request["expiration"], int)
+    assert not isinstance(request["expiration"], bool)
+    attendu = datetime.now(timezone.utc) + timedelta(seconds=600)
+    assert abs(request["expiration"] - int(attendu.timestamp())) <= 5
+
+
+def test_expiration_datetime_serait_refusee_par_le_terminal(monkeypatch):
+    """Regression 12/08/2026 : 100 % de ORDER_SEND_NUL, zero limite posee.
+
+    Le vrai terminal valide le type de ``expiration`` AVANT d envoyer quoi que
+    ce soit et renvoie ``None``. Ce faux terminal reproduit ce contrat pour que
+    la suite echoue si un datetime revenait un jour dans la requete.
+    """
+
+    class StrictMt5(FakeMt5):
+        def order_send(self, request):
+            self.requests.append(request)
+            if not isinstance(request.get("expiration"), int):
+                self.erreur = (-2, 'Invalid "expiration" argument')
+                return None
+            return FakeResult()
+
+    install(monkeypatch, mt5=StrictMt5())
+    result = place_limit_order(
+        "EURUSD", 1, 100.0, 0.005, policy=policy(), tp_distance=0.0075,
+        idempotency_key="EURUSD:M15:bar-strict",
+    )
+    assert result.sent and result.pending
+    assert result.reason == "PLACED_LIMIT"
 
 
 def test_limit_reapplique_le_mur_demo(monkeypatch):
@@ -186,3 +216,70 @@ def test_contexte_pending_transfere_au_ticket_de_position(tmp_path):
     assert state["999"].context_key == template.context_key
     assert state["999"].entry == pytest.approx(1.0999)
     assert state["999"].r == pytest.approx(0.005)
+
+
+def test_expiration_est_convertie_dans_le_fuseau_du_serveur(monkeypatch):
+    """Regression 12/08/2026 : retcode 10022 sur 15 tentatives sur 15.
+
+    Le serveur Axi est a UTC+3. Une expiration UTC lui parait passee.
+    """
+
+    class Mt5Decale(FakeMt5):
+        def symbol_info_tick(self, symbol):
+            return SimpleNamespace(
+                bid=self.bid, ask=self.ask,
+                time=int(datetime.now(timezone.utc).timestamp()) + 3 * 3600,
+            )
+
+    terminal = install(monkeypatch, mt5=Mt5Decale())
+    result = place_limit_order(
+        "EURUSD", 1, 100.0, 0.005, policy=policy(), tp_distance=0.0075,
+        idempotency_key="EURUSD:M15:bar-decale",
+    )
+    assert result.sent
+    envoye = terminal.requests[0]["expiration"]
+    attendu_utc = datetime.now(timezone.utc) + timedelta(seconds=600)
+    assert envoye - int(attendu_utc.timestamp()) == pytest.approx(3 * 3600, abs=5)
+    # Le journal, lui, reste en UTC : deux horloges melangees dans les traces
+    # rendraient toute analyse posterieure fausse.
+    assert result.expires_at.endswith("+00:00")
+
+
+def test_decalage_aberrant_est_ignore(monkeypatch):
+    """Un tick vieux d une semaine ne doit pas deplacer l expiration."""
+
+    class Mt5Aberrant(FakeMt5):
+        def symbol_info_tick(self, symbol):
+            return SimpleNamespace(
+                bid=self.bid, ask=self.ask,
+                time=int(datetime.now(timezone.utc).timestamp()) - 7 * 86400,
+            )
+
+    terminal = install(monkeypatch, mt5=Mt5Aberrant())
+    place_limit_order(
+        "EURUSD", 1, 100.0, 0.005, policy=policy(),
+        idempotency_key="EURUSD:M15:bar-aberrant",
+    )
+    envoye = terminal.requests[0]["expiration"]
+    attendu = datetime.now(timezone.utc) + timedelta(seconds=600)
+    assert abs(envoye - int(attendu.timestamp())) <= 5
+
+
+def test_decalage_est_arrondi_au_quart_d_heure(monkeypatch):
+    """La latence du tick ne doit pas fabriquer un decalage de quelques secondes."""
+
+    class Mt5Latence(FakeMt5):
+        def symbol_info_tick(self, symbol):
+            return SimpleNamespace(
+                bid=self.bid, ask=self.ask,
+                time=int(datetime.now(timezone.utc).timestamp()) - 7,
+            )
+
+    terminal = install(monkeypatch, mt5=Mt5Latence())
+    place_limit_order(
+        "EURUSD", 1, 100.0, 0.005, policy=policy(),
+        idempotency_key="EURUSD:M15:bar-latence",
+    )
+    envoye = terminal.requests[0]["expiration"]
+    attendu = datetime.now(timezone.utc) + timedelta(seconds=600)
+    assert abs(envoye - int(attendu.timestamp())) <= 5

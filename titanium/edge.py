@@ -89,6 +89,11 @@ class ClosedTrade:
     #: True ⇒ `pnl_r` vient du net en devise ET `cost_r` contient toutes
     #: les composantes mesurées. Le protocole exige 90 % de trades exacts.
     exact_cost: bool = False
+    #: Qui a fourni le pilier G5 à l'entrée : "formes", "displacement" ou "".
+    #: Le secours displacement (12/08/2026) fait passer G5 de 11,9 % à 23,7 % ;
+    #: seul ce champ, journalisé à la CLÔTURE, permettra de comparer les deux
+    #: sources sur des RÉSULTATS et non sur des taux de passage.
+    candle_source: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -169,7 +174,8 @@ class TradeJournal:
                     asset_class=str(d.get("asset_class", "")),
                     timeframe=str(d.get("timeframe", "")),
                     risk_money=float(d.get("risk_money", 0.0) or 0.0),
-                    exact_cost=cout_exact))
+                    exact_cost=cout_exact,
+                    candle_source=str(d.get("candle_source", "") or "")))
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
                 self.rejected_lines += 1
                 continue        # ligne corrompue : on la saute, on ne casse rien

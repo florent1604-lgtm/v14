@@ -98,6 +98,34 @@ def plan_limit_entry(spec: SymbolSpec, *, bid: float, ask: float, side: int,
     )
 
 
+#: Un serveur MT5 publie ses horodatages dans SON fuseau, pas en UTC. Axi est
+#: a UTC+3. Une expiration calculee en UTC est donc lue 3 heures dans le PASSE
+#: par le serveur, qui refuse l ordre avec le retcode 10022
+#: (TRADE_RETCODE_INVALID_EXPIRATION). Constate le 12/08/2026, apres correction
+#: du type de l argument : zero limite posee, 15 refus sur 15 tentatives.
+#: Le decalage se lit sur le tick le plus frais du symbole traite : une limite
+#: n est proposee que marche ouvert, donc ce tick date de quelques secondes.
+DECALAGE_MAX_S = 24 * 3600
+
+
+def _decalage_serveur(mt5, symbol: str, *, maintenant: float) -> int:
+    """Ecart, en secondes, entre l horloge du serveur et l horloge UTC.
+
+    Renvoie 0 des que la mesure n est pas credible : mieux vaut l ancien
+    comportement qu un decalage invente. Arrondi au quart d heure parce que
+    les fuseaux des courtiers sont des multiples de 15 minutes ; cela absorbe
+    la latence du tick sans deplacer l expiration.
+    """
+    try:
+        tick = mt5.symbol_info_tick(symbol)
+        brut = float(getattr(tick, "time", 0) or 0) - float(maintenant)
+    except Exception:  # noqa: BLE001 — observabilite, jamais bloquant
+        return 0
+    if not math.isfinite(brut) or abs(brut) > DECALAGE_MAX_S:
+        return 0
+    return int(round(brut / 900.0)) * 900
+
+
 def place_limit_order(symbol: str, side: int, risk_money: float,
                       stop_distance: float, *, policy: ExecutionPolicy,
                       tp_distance: float | None = None,
@@ -170,6 +198,8 @@ def place_limit_order(symbol: str, side: int, risk_money: float,
             tp = (round(plan.price + sign * tp_distance, spec.digits)
                   if tp_distance and tp_distance > 0 else 0.0)
             expiration = datetime.now(timezone.utc) + timedelta(seconds=plan.ttl_seconds)
+            decalage = _decalage_serveur(
+                mt5, symbol, maintenant=datetime.now(timezone.utc).timestamp())
             order_type = (mt5.ORDER_TYPE_BUY_LIMIT if r.side > 0
                           else mt5.ORDER_TYPE_SELL_LIMIT)
             requete = {
@@ -184,7 +214,13 @@ def place_limit_order(symbol: str, side: int, risk_money: float,
                 "magic": policy.magic,
                 "comment": policy.comment,
                 "type_time": mt5.ORDER_TIME_SPECIFIED,
-                "expiration": expiration,
+                # MetaTrader5 attend un horodatage POSIX entier. Un objet
+                # datetime fait echouer order_send AVANT tout envoi : la
+                # fonction renvoie None avec last_error
+                # (-2, 'Invalid "expiration" argument'), ce qui s est traduit
+                # par 100 % de refus ORDER_SEND_NUL et zero limite posee
+                # depuis la mise en production. Constate le 12/08/2026.
+                "expiration": int(expiration.timestamp()) + decalage,
                 "type_filling": mt5.ORDER_FILLING_RETURN,
             }
             res = mt5.order_send(requete)

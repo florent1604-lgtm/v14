@@ -143,6 +143,12 @@ class TrackedState:
     asset_class: str = ""
     account: str = ""
     timeframe: str = ""
+    #: Qui a fourni le pilier G5 : "formes", "displacement" ou "" (aucun).
+    #: Ajoute le 12/08/2026 en meme temps que le secours displacement. Sans ce
+    #: champ ici, tools/live_demo.py le passait a un constructeur qui ne
+    #: l acceptait pas : le TypeError etait avale par un `except` d observabilite
+    #: et TOUT le contexte d ouverture etait perdu silencieusement.
+    candle_source: str = ""
 
     def to_dict(self) -> dict:
         return {"r": self.r, "phase": self.phase, "peak_fav_r": self.peak_fav_r,
@@ -155,7 +161,8 @@ class TrackedState:
                 "mode": self.mode, "quorum": self.quorum,
                 "support_pillars": self.support_pillars,
                 "asset_class": self.asset_class, "account": self.account,
-                "timeframe": self.timeframe}
+                "timeframe": self.timeframe,
+                "candle_source": self.candle_source}
 
     @classmethod
     def from_dict(cls, d: dict) -> "TrackedState":
@@ -184,6 +191,7 @@ class TrackedState:
             asset_class=str(d.get("asset_class", "")),
             account=str(d.get("account", "")),
             timeframe=str(d.get("timeframe", "")),
+            candle_source=str(d.get("candle_source", "") or ""),
         )
 
 
@@ -538,6 +546,7 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
             mode=st.mode,
             quorum=st.quorum,
             support_pillars=st.support_pillars,
+            candle_source=st.candle_source,
             asset_class=st.asset_class or _classe_de(st.symbol),
             timeframe=st.timeframe,
             risk_money=st.risque_devise,

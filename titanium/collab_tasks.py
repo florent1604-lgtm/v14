@@ -17,7 +17,6 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 RACINE = Path(__file__).resolve().parent.parent
 JOURNAL = RACINE / "collab" / "tasks.ndjson"
 
@@ -200,9 +199,12 @@ def _append(event: dict, path: Path) -> None:
         with _process_lock(path):
             fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY)
             try:
-                written = os.write(fd, payload)
-                if written != len(payload):
-                    raise OSError("ecriture partielle du journal de taches")
+                offset = 0
+                while offset < len(payload):
+                    written = os.write(fd, payload[offset:])
+                    if written <= 0:
+                        raise OSError("ecriture interrompue du journal de taches")
+                    offset += written
                 os.fsync(fd)
             finally:
                 os.close(fd)

@@ -177,9 +177,10 @@ def test_verrou_refuse_deux_sauvegardes_simultanees(tmp_path: Path) -> None:
             sauvegarder(source, destination, fichiers=FICHIERS,
                         attente_verrou_s=0.2)
 
-    # Verrou rendu : la sauvegarde repasse.
+    # Verrou noyau rendu : la sauvegarde repasse. Le fichier compagnon persiste,
+    # afin qu'aucun propriétaire ne puisse supprimer le chemin d'un successeur.
     assert sauvegarder(source, destination, fichiers=FICHIERS)["fichiers"]
-    assert not (destination / ".verrou").exists()
+    assert (destination / ".verrou").is_file()
 
 
 def test_verrou_refuse_vraiment_un_autre_processus(tmp_path: Path) -> None:
@@ -221,7 +222,7 @@ def test_verrou_perime_est_repris(tmp_path: Path) -> None:
                           attente_verrou_s=0.2, verrou_perime_s=60.0)
 
     assert rapport["fichiers"]
-    assert not abandonne.exists()
+    assert abandonne.is_file()
 
 
 def test_manifeste_qualifie_la_coherence(tmp_path: Path) -> None:

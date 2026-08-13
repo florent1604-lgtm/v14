@@ -106,56 +106,59 @@ def _identifiant(maintenant: datetime | None = None) -> str:
 @contextmanager
 def verrou(destination: Path, *, attente_s: float = 30.0,
            perime_s: float = 300.0):
-    """Verrou INTER-PROCESSUS autour d'un instantane.
+    """Verrou noyau inter-processus autour d'un instantane.
 
-    `O_CREAT | O_EXCL` est atomique sur Windows comme sur POSIX : c'est la
-    seule primitive disponible ici qui empeche deux processus — la boucle, une
-    tache planifiee, un appel manuel — de copier en meme temps et de produire
-    deux instantanes a moitie ecrits.
-
-    Deux durees, et elles ne doivent PAS etre confondues :
-
-    * `attente_s` — combien de temps j'accepte d'attendre mon tour ;
-    * `perime_s` — a partir de quand je considere qu'un verrou a ete abandonne
-      par un processus tue.
-
-    Les melanger volait le verrou d'une sauvegarde vivante des que l'appelant
-    etait presse. Un verrou perime est retire et l'on reprend la main ; un
-    verrou vivant fait lever `SauvegardeError` plutot que de copier a deux.
+    Le fichier compagnon reste sur disque, mais seul le verrou d'octet détenu
+    par le noyau fait autorité. Il est automatiquement libéré si le processus
+    meurt : aucun propriétaire vivant ne peut donc se faire voler son verrou à
+    cause d'une simple ancienneté de fichier. ``perime_s`` reste accepté pour
+    compatibilité d'API, sans participer à la décision de propriété.
     """
+    del perime_s
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
     chemin = destination / ".verrou"
+    handle = chemin.open("a+b")
     debut = time.monotonic()
-    fd = None
-    while fd is None:
-        try:
-            fd = os.open(chemin, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+    acquis = False
+    try:
+        while not acquis:
             try:
-                perime = (time.time() - chemin.stat().st_mtime) > perime_s
-            except OSError:
-                perime = True          # verrou disparu entre-temps : on retente
-            if perime:
-                with suppress(OSError):
-                    chemin.unlink()
-                continue
-            if time.monotonic() - debut > attente_s:
-                raise SauvegardeError(
-                    f"verrou de sauvegarde toujours pris apres {attente_s:.1f}s: "
-                    f"{chemin}") from None
-            time.sleep(0.05)
-    try:
-        os.write(fd, f"{os.getpid()}".encode())
-    except OSError:
-        pass
-    finally:
-        os.close(fd)
-    try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    handle.seek(0)
+                    if handle.read(1) == b"":
+                        handle.seek(0)
+                        handle.write(b"\0")
+                        handle.flush()
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquis = True
+            except OSError as exc:
+                if time.monotonic() - debut > attente_s:
+                    raise SauvegardeError(
+                        f"verrou de sauvegarde toujours pris apres {attente_s:.1f}s: "
+                        f"{chemin}",
+                    ) from exc
+                time.sleep(0.05)
         yield chemin
     finally:
-        with suppress(OSError):
-            chemin.unlink()
+        if acquis:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
 
 
 def _empreinte_source(chemin: Path) -> tuple[int, int] | None:

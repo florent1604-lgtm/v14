@@ -5,6 +5,41 @@
 
 ---
 
+> ## ⚠️ CONCLUSION CHIFFRÉE INVALIDÉE — ne pas agir sur ce document
+>
+> Prime a montré (`0f452c5`, `collab/PRIME_HORLOGE_VENDEUR.md`) que **tous les
+> chiffres ci-dessous reposent sur un croisement d'horloges faux**, et que la
+> recommandation « armer le breakeven à 0,30 R » n'est pas utilisable.
+>
+> Avant son correctif, le journal **et** les barres étaient en heure serveur :
+> les deux erreurs s'annulaient et le croisement paraissait juste. Depuis que
+> `get_rates` publie du vrai UTC, les 43 lignes d'excursion portent encore un
+> `ts_exit` en heure serveur sous une étiquette « +00:00 ». La fenêtre de rejeu
+> s'étend donc **trois heures au-delà de la sortie réelle** : un trade
+> réellement stoppé peut y survivre jusqu'au trailing. La fidélité passe de
+> +0,105 R à **+0,32 R** — trois fois le gain que ce document prétend mesurer.
+>
+> **Ce qui reste valide :** la *forme* non monotone de la table (0,40 pire que
+> 0,50 et 0,60), parce qu'elle vient de l'ordre des événements et non de leur
+> datation absolue, et le fait que le contrefactuel naïf soit une borne
+> supérieure. **Ce qui ne l'est plus :** toute amplitude, tout net, toute
+> recommandation de seuil.
+>
+> **Correctif appliqué le 13/08/2026 :**
+> - `tools/rejeu_breakeven.py` refuse désormais toute ligne dont
+>   `horloge != "utc"` et le dit à l'écran, plutôt que de croiser en silence
+>   deux horloges. Sur le journal actuel : **43 lignes refusées, 0 rejouable.**
+> - `titanium/execution/position_manager.py` écrit `horloge: "utc"` dans
+>   `excursions.ndjson` — le marqueur existait sur `ClosedTrade` mais manquait
+>   là où il compte le plus, puisque ce sont ces horodatages qu'un rejeu croise
+>   avec des barres.
+>
+> Le rejeu redeviendra exploitable quand assez de clôtures marquées « utc » se
+> seront accumulées. Aucun seuil ne doit bouger avant que la fidélité soit du
+> même ordre que l'effet mesuré.
+
+---
+
 ## Le chiffre demandé
 
 > « Le contrefactuel ne débite pas les gagnants qu'un breakeven plus bas aurait

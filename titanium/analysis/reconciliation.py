@@ -172,7 +172,8 @@ def aggregate_mt5_deals(
     return sorted(result, key=lambda row: (row.closed_at, row.position_id))
 
 
-def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterable) -> dict:
+def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterable,
+              journal_rejections: Iterable = ()) -> dict:
     """Produit un rapport d'écart déterministe, sans modifier les sources."""
     mt5_rows = list(mt5_positions)
     mt5_by_id = {row.position_id: row for row in mt5_rows}
@@ -186,7 +187,23 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
     ticket_counts = Counter(ticket_of(trade) for trade in live if ticket_of(trade))
     journal_by_id = {ticket_of(trade): trade for trade in live if ticket_of(trade)}
 
-    missing = sorted(set(mt5_by_id) - set(journal_by_id))
+    def rejected_ticket(row) -> str:
+        if isinstance(row, dict):
+            raw = str(row.get("ticket", "") or "")
+        else:
+            raw = str(getattr(row, "ticket", "") or "")
+        return raw.removeprefix("live:")
+
+    rejected_ids = {
+        rejected_ticket(row) for row in (journal_rejections or ())
+        if rejected_ticket(row)
+    }
+
+    missing_edge = sorted(set(mt5_by_id) - set(journal_by_id))
+    recovered_without_context = sorted(
+        (set(mt5_by_id) & rejected_ids) - set(journal_by_id)
+    )
+    missing = sorted(set(mt5_by_id) - set(journal_by_id) - rejected_ids)
     orphan = sorted(set(journal_by_id) - set(mt5_by_id))
     duplicates = sorted(ticket for ticket, count in ticket_counts.items() if count > 1)
     pnl_mismatches = []
@@ -249,6 +266,7 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
         "mt5_closed": len(mt5_rows),
         "journal_live": len(live),
         "matched": len(set(mt5_by_id) & set(journal_by_id)),
+        "accounted": len(set(mt5_by_id) & (set(journal_by_id) | rejected_ids)),
         "mt5_net_currency": round(sum(row.net_currency for row in mt5_rows), 8),
         "strategy_observations": len(strategy_rows),
         "strategy_net_currency": round(
@@ -256,6 +274,8 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
         ),
         "exit_class_counts": dict(sorted(exit_class_counts.items())),
         "missing_in_journal": missing,
+        "missing_in_edge": missing_edge,
+        "recovered_without_context": recovered_without_context,
         "orphan_in_journal": orphan,
         "duplicate_journal_tickets": duplicates,
         "pnl_mismatches": pnl_mismatches,

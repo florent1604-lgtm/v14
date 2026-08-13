@@ -232,6 +232,51 @@ def _order_issue(mt5, order_ticket: str) -> tuple[str, dict]:
     return issue, {"broker_state": state, "broker_comment": comment}
 
 
+def _filled_order_snapshot(mt5, order_ticket: str) -> dict | None:
+    """Retourne la preuve broker d'un fill disparu avant le tour suivant.
+
+    Une limite peut etre remplie puis cloturee en moins d'une minute. Elle
+    n'apparait alors ni dans ``orders_get`` ni dans ``positions_get``. Le seul
+    signal fiable restant est l'ordre historique en etat FILLED, avec son
+    ``position_id``. Sans ces deux preuves, on ne reconstitue rien.
+    """
+    try:
+        history = mt5.history_orders_get(ticket=int(order_ticket)) or []
+    except Exception:  # noqa: BLE001
+        return None
+    if not history:
+        return None
+    order = max(history, key=lambda item: getattr(item, "time_done", 0) or 0)
+    try:
+        state = int(getattr(order, "state", -1))
+        filled_state = int(getattr(mt5, "ORDER_STATE_FILLED", 4))
+        position_ticket = int(getattr(order, "position_id", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if state != filled_state or position_ticket <= 0:
+        return None
+    try:
+        fill_price = float(
+            getattr(order, "price_current", 0.0)
+            or getattr(order, "price_open", 0.0)
+            or 0.0
+        )
+        sl = float(getattr(order, "sl", 0.0) or 0.0)
+        tp = float(getattr(order, "tp", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if fill_price <= 0:
+        return None
+    return {
+        "position_ticket": position_ticket,
+        "fill_price": fill_price,
+        "sl": sl,
+        "tp": tp,
+        "broker_state": state,
+        "broker_comment": str(getattr(order, "comment", "") or ""),
+    }
+
+
 def save_pending_context(path: Path, *, order_ticket: int, symbol: str, side: int,
                          expires_at: str, state: TrackedState) -> None:
     data = _read(path)
@@ -251,7 +296,7 @@ def reconcile_pending_contexts(mt5, *, magic: int, state_path: Path,
     report = {"adopted": 0, "pending": 0, "purged": 0,
               "expired": 0, "canceled": 0, "unknown": 0,
               "events_written": 0, "event_failures": 0,
-              "repaired": 0, "details": []}
+              "repaired": 0, "recovered_filled": 0, "details": []}
     if lifecycle_path is not None:
         repair = _repair_adopted_limit_states(state_path, lifecycle_path)
         report["repaired"] += repair["repaired"]
@@ -337,6 +382,78 @@ def reconcile_pending_contexts(mt5, *, magic: int, state_path: Path,
     if live_orders is not None:
         for key, value in list(pending.items()):
             if key in live_orders:
+                continue
+            recovered = _filled_order_snapshot(mt5, key)
+            if recovered is not None:
+                template = TrackedState.from_dict(value["state"])
+                position_ticket = str(recovered["position_ticket"])
+                planned = float(
+                    template.limit_planned_price or template.entry or 0.0)
+                market_reference = float(
+                    template.limit_market_reference_price or 0.0)
+                entry = float(recovered["fill_price"])
+                realized_saving_r = None
+                slippage_r = None
+                if template.r > 0 and market_reference > 0 and planned > 0:
+                    realized_saving_r = (
+                        (market_reference - entry) * template.side / template.r)
+                    slippage_r = (
+                        (entry - planned) * template.side / template.r)
+                base = state.get(position_ticket, template)
+                sl = float(recovered["sl"] or base.sl_initial or 0.0)
+                tp = float(recovered["tp"] or base.tp_initial or 0.0)
+                restored = replace(
+                    base,
+                    entry=entry,
+                    sl_initial=sl,
+                    tp_initial=tp,
+                    r=abs(entry - sl) if entry and sl else base.r,
+                    limit_order_ticket=int(key),
+                    limit_planned_price=planned,
+                    limit_market_reference_price=market_reference,
+                    limit_realized_saving_r=realized_saving_r,
+                    limit_slippage_r=slippage_r,
+                )
+                event_ok = True
+                event_reason = "DISABLED"
+                if lifecycle_path is not None:
+                    regime = str(template.context_key).split("|")[2:3]
+                    written, event_reason = append_limit_event(lifecycle_path, {
+                        "event": "filled", "order_ticket": int(key),
+                        "position_ticket": int(position_ticket),
+                        "symbol": value.get("symbol"),
+                        "side": int(value.get("side", 0) or 0),
+                        "planned_price": planned,
+                        "market_reference_price": market_reference,
+                        "fill_price": entry, "r_unit": template.r,
+                        "target_saving_r": template.limit_target_saving_r,
+                        "realized_saving_r": realized_saving_r,
+                        "slippage_r": slippage_r,
+                        "context": template.context_key,
+                        "regime": regime[0] if regime else "unknown",
+                        "asset_class": template.asset_class,
+                        "mode": template.mode,
+                        "recovered_from_history": True,
+                        "broker_state": recovered["broker_state"],
+                        "broker_comment": recovered["broker_comment"],
+                    })
+                    event_ok = written or event_reason == "DUPLICATE"
+                    report["events_written"] += int(written)
+                    report["event_failures"] += int(not event_ok)
+                if event_ok:
+                    state[position_ticket] = restored
+                    pending.pop(key, None)
+                    changed_state = True
+                    report["adopted"] += 1
+                    report["recovered_filled"] += 1
+                    report["details"].append({
+                        "order_ticket": int(key),
+                        "position_ticket": int(position_ticket),
+                        "issue": "filled_from_history",
+                        "event": event_reason,
+                        "realized_saving_r": realized_saving_r,
+                        "slippage_r": slippage_r,
+                    })
                 continue
             try:
                 expiry = datetime.fromisoformat(str(value.get("expires_at", "")))

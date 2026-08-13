@@ -394,9 +394,23 @@ def test_r_fige_a_la_premiere_observation(tmp_path):
 
 
 def test_tickets_fermes_purges(tmp_path):
+    class Mt5ClotureConfirmee(FakeMt5):
+        def history_deals_get(self, *args, **kwargs):
+            return [type("Deal", (), {
+                "position_id": 999,
+                "symbol": "EURUSD",
+                "entry": 1,
+                "time": 1_800_000_000,
+                "price": 1.11,
+                "profit": 10.0,
+                "commission": 0.0,
+                "swap": 0.0,
+                "fee": 0.0,
+            })()]
+
     f = tmp_path / "s.json"
     save_state(f, {"1": etat(), "999": etat()})
-    manage_once(FakeMt5(positions=(FakePos(),)), policy=ARMEE, params=P,
+    manage_once(Mt5ClotureConfirmee(positions=(FakePos(),)), policy=ARMEE, params=P,
                 state_path=f, account=compte_demo())
     assert "999" not in load_state(f), "un ticket fermé doit disparaître de l'état"
 

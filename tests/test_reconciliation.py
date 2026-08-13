@@ -124,6 +124,24 @@ def test_rapport_exact_est_vert() -> None:
     assert report["matched"] == 1
 
 
+def test_rejet_historique_couvre_lecart_sans_polluer_edge() -> None:
+    positions = aggregate_mt5_deals([
+        deal(10, entry=0, magic=14_000, time=1),
+        deal(10, entry=1, profit=-10, time=2),
+    ])
+    report = reconcile(positions, [], [{
+        "ticket": "live:10",
+        "reason": "CONTEXTE_ABSENT_CLOTURE_HISTORIQUE",
+        "coverage_only": True,
+    }])
+
+    assert report["missing_in_journal"] == []
+    assert report["missing_in_edge"] == ["10"]
+    assert report["recovered_without_context"] == ["10"]
+    assert report["accounted"] == 1
+    assert report["journal_live"] == 0
+
+
 def test_pnl_implausible_est_signale_meme_sans_risque_money() -> None:
     positions = aggregate_mt5_deals([
         deal(10, entry=0, magic=14_000, time=1),

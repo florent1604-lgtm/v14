@@ -21,6 +21,7 @@ Deux exigences dominent ces tests :
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -326,6 +327,8 @@ class FakeMt5:
             price = 1.1150
             position_id = 1
             symbol = "EURUSD"
+            entry = 1
+            profit = 0.0
         return [D()]
 
 
@@ -501,6 +504,87 @@ def test_echec_journal_conserve_etat_et_signale_ecart(tmp_path, monkeypatch):
     assert "1" in load_state(f), "le contexte doit rester disponible pour réessai"
 
 
+def test_disparition_sans_deal_sortie_conserve_etat(tmp_path):
+    class Mt5EntreeSeule(FakeMt5):
+        def history_deals_get(self, *args, **kwargs):
+            return [type("D", (), {
+                "time": 1_800_000_000,
+                "price": 1.10,
+                "position_id": 1,
+                "symbol": "EURUSD",
+                "entry": 0,
+                "profit": 0.0,
+                "commission": -1.0,
+                "swap": 0.0,
+                "fee": 0.0,
+                "magic": 14_000,
+                "comment": "titanium-v14",
+            })()]
+
+    state = tmp_path / "positions.json"
+    journal = tmp_path / "trades.ndjson"
+    save_state(state, {"1": etat()})
+
+    report = manage_once(
+        Mt5EntreeSeule(positions=()),
+        policy=ARMEE,
+        params=P,
+        state_path=state,
+        account=compte_demo(),
+        journal_path=journal,
+    )
+
+    assert report["reason"] == "JOURNAL_GAP"
+    assert report["journal_failures"] == 1
+    tracked = load_state(state)["1"]
+    assert tracked.history_missing_attempts == 1
+    assert tracked.history_missing_since
+    assert TradeJournal(journal).read_all() == []
+
+
+def test_sortie_introuvable_escalade_apres_borne(tmp_path):
+    class Mt5EntreeSeule(FakeMt5):
+        def history_deals_get(self, *args, **kwargs):
+            return [type("D", (), {
+                "time": 1_800_000_000,
+                "price": 1.10,
+                "position_id": 1,
+                "symbol": "EURUSD",
+                "entry": 0,
+                "profit": 0.0,
+                "commission": -1.0,
+                "swap": 0.0,
+                "fee": 0.0,
+                "magic": 14_000,
+                "comment": "titanium-v14",
+            })()]
+
+    state = tmp_path / "positions.json"
+    journal = tmp_path / "trades.ndjson"
+    save_state(state, {"1": etat(
+        history_missing_since=datetime.now(timezone.utc).isoformat(),
+        history_missing_attempts=14,
+    )})
+
+    report = manage_once(
+        Mt5EntreeSeule(positions=()),
+        policy=ARMEE,
+        params=P,
+        state_path=state,
+        account=compte_demo(),
+        journal_path=journal,
+    )
+
+    assert "1" not in load_state(state)
+    assert report["journal_rejected"] == 1
+    rejected = json.loads(
+        (tmp_path / "journal_rejets.ndjson").read_text(encoding="utf-8")
+    )
+    assert rejected["reason"] == "SORTIE_INTROUVABLE_APRES_15_ESSAIS"
+    assert rejected["history_missing_attempts"] == 15
+    assert TradeJournal(journal).read_all() == []
+
+
 def test_rejet_definitif_est_quarantine_sans_interblocage(tmp_path):
     f = tmp_path / "s.json"
     j = tmp_path / "trades.ndjson"
@@ -536,7 +620,7 @@ def test_journal_par_defaut_a_cote_de_letat(tmp_path):
 class TestFraisReels:
     def _deal(self, **kw):
         d = dict(time=1_800_000_000, price=1.11, commission=0.0, swap=0.0,
-                 fee=0.0, position_id=1, symbol="EURUSD")
+                 fee=0.0, position_id=1, symbol="EURUSD", entry=1)
         d.update(kw)
         return type("Deal", (), d)()
 
@@ -567,7 +651,8 @@ class TestFraisReels:
         """Certains courtiers n'exposent pas `fee`."""
         from titanium.execution.position_manager import _cloture_depuis_historique
         d = type("Deal", (), {"time": 1, "price": 1.11, "commission": -2.0,
-                               "position_id": 1, "symbol": "EURUSD"})()
+                               "position_id": 1, "symbol": "EURUSD",
+                               "entry": 1})()
         _, _, frais, _n = _cloture_depuis_historique(
             self._mt5([d]), "1", expected_symbol="EURUSD")
         assert frais == pytest.approx(-2.0)

@@ -1,83 +1,117 @@
 # Snapshot edge net V14 — Codex
 
-Date : 2026-08-12, 16:40 Paris
-Périmètre : collecte DEMO/PAPER uniquement, sans ordre forcé ni modification des gardes.
+Date : 2026-08-13, 08:00 Paris
+Périmètre : collecte DEMO/PAPER, sans ordre forcé ni modification des gardes.
 
 ## Verdict
 
-**V14 n'a toujours pas démontré de rentabilité.** La revue Prime porte sur 35
-clôtures : espérance nette **-0,3834 R/trade**, profit factor **0,361**, et
-**0/35** décomposition de coûts exacte. Le contexte le plus fourni reste à
-**3/20 clôtures**. La promotion en réel demeure fermée.
+**La relance est saine, mais V14 n'a toujours pas démontré de rentabilité.**
+Les trois services sont actifs sur le compte DEMO et le battement avance. La
+fenêtre statistiquement exploitable après correction de l'horloge ne contient
+que **6 clôtures**, une seule par contexte : aucune promotion n'est possible.
 
-## Premier fill naturel d'une limite
+## Reprise après l'arrêt non planifié
 
-Le cycle instrumenté a maintenant produit sa première preuve dynamique après
-rechargement du moteur :
+- interruption observée : environ 9 heures, du 12/08 22:15 UTC au 13/08
+  05:17 UTC ;
+- services après relance : `live_demo`, `dashboard` et `analystes` actifs ;
+- compte contrôlé en lecture seule : Axi DEMO, magic V14 `14000` ;
+- le pending USDMXN `89525897`, expiré pendant l'arrêt, a été récupéré comme
+  `expired` avec l'état broker 6 ;
+- la clôture JPN225 `89453191`, survenue pendant l'arrêt, a été récupérée avec
+  un horodatage marqué `utc` ;
+- rapprochement MT5↔journal : **43/43 lignes du journal rapprochées**, aucun
+  orphelin journal, aucun doublon, aucun écart de PnL ;
+- le rapport global reste `ok=false` à cause de **55 positions MT5 sans ligne
+  moderne** et de **43/43 coûts exacts manquants**.
 
-- **2** limites placées naturellement ;
-- **1** expirée : `GBPNOK` ;
-- **1** remplie : `ETHUSD`, ordre/position `89325926` ;
-- fill-rate provisoire : **50 %** — échantillon beaucoup trop petit pour conclure ;
-- prix marché de référence : **1896,26** ;
-- prix limite planifié : **1894,467** ;
-- prix de fill : **1894,4** ;
-- économie réalisée reconstruite : **+0,1322 R** ;
-- slippage vs prix planifié : **-0,0048 R**, donc légèrement favorable.
+L'interruption ne remet pas les compteurs à zéro. Elle doit être exclue des
+mesures de disponibilité et documentée comme trou de collecte ; les clôtures
+valides déjà marquées `utc` restent exploitables.
 
-La position ETHUSD était encore ouverte au contrôle en lecture seule, avec le
-magic V14 `14000`. Aucune clôture limite et donc aucun `pnl_r` final ne sont
-encore disponibles.
+## Nouvelle base propre après correction d'horloge
 
-## Défaut détecté et correctif prêt
+Les 37 premières clôtures n'ont pas de marqueur d'horloge et restent exclues de
+toute analyse temporelle. Les **6** lignes `horloge="utc"` donnent :
 
-La première adoption réelle a révélé que les champs de provenance de la limite
-avaient été ajoutés au chemin des ordres marché (`_attacher_contexte`) au lieu
-du chemin pending (`_memoriser_contexte_limit`). Conséquence : le fill était
-bien reconnu dans le journal append-only, mais `positions.json` conservait un
-ticket limite nul et ne pouvait pas relier proprement la future clôture.
+- somme : **-4,0455 R** ;
+- espérance provisoire : **-0,6742 R/trade** ;
+- profit factor : **0,0134** ;
+- coûts exacts : **0/6** ;
+- meilleur dénominateur par contexte : **1/20**.
 
-Le lot Codex corrige ce câblage et ajoute une réparation idempotente :
+Cet échantillon est trop petit pour estimer l'edge, mais il ne fournit aucun
+signal permettant d'assouplir les portes. La collecte continue sans optimiser.
 
-1. les nouveaux ordres limites enregistrent ticket, prix planifié, référence
-   marché et économie cible dans le contexte pending ;
-2. la réconciliation relit les événements immuables `placed` + `filled` ;
-3. si la position adoptée existe mais a perdu sa provenance, seuls les champs
-   limite manquants sont reconstruits — aucune donnée de gestion, SL, TP,
-   risque ou phase n'est modifiée ;
-4. un événement `filled_metrics` append-only conserve l'économie et le
-   slippage réparés sans doubler le dénominateur du fill-rate ;
-5. le chemin marché reste explicitement neutre sur ces champs.
+## Cycle de vie des ordres limites
 
-Après revue, commit et rechargement contrôlé par Prime, le prochain tour pourra
-réparer la position ETHUSD ouverte et permettre à sa clôture future de produire
-le lien ordre → position → PnL net.
+Mesure cumulée au dernier relevé :
 
-## État statistique et recommandations
+- **30** limites placées ;
+- **7** remplies ;
+- **22** expirées ;
+- **1** encore ouverte ;
+- fill-rate résolu : **24,14 %** (`7 / (7 + 22)`) ;
+- économie moyenne réalisée : **+0,0915 R** ;
+- slippage moyen : **-0,0017 R**, légèrement favorable ;
+- **4** positions issues de limites clôturées : **-2,9883 R** net cumulé.
 
-- La priorité reste la **preuve d'edge directionnel** du signal, pas
-  l'assouplissement des portes.
-- Le contrefactuel favorable de breakeven à 0,30 R reste négatif
-  (**-0,1746 R/trade**) : la gestion de sortie seule ne sauve pas le système.
-- Les 35 horodatages historiques sont décalés de +3 h ; le correctif vaut pour
-  les prochaines clôtures, mais toute analyse temporelle passée doit être
-  refaite.
-- Continuer la collecte sans optimisation jusqu'à au moins 20 clôtures propres
-  par contexte, puis exiger 60 observations par cellule, ≥90 % de coûts exacts,
-  bootstrap et validation hors échantillon avant toute promotion.
-- Ne pas utiliser le fill-rate de 50 % ni l'économie de +0,1322 R comme preuve
-  d'edge : ce sont respectivement 2 placements et 1 fill.
+Le chiffre initial de 66,7 % provenait de seulement 3 placements résolus. Il
+n'est pas contradictoire avec 24,14 % : le dénominateur est passé à 29. Le gain
+d'entrée moyen ne compense pas, à ce stade, la perte directionnelle des trades.
+
+Le nouveau fill AUS200 `89754001` a été adopté normalement avec son contexte
+`AUS200|long|continuation|3p` et une économie réalisée de **+0,0847 R**.
+
+## Erreur identifiée : fill puis clôture avant le tour suivant
+
+Le rapprochement a révélé EURAUD `89198681`, ordre V14 au magic 14000 :
+
+- ouverture et stop séparés d'environ **0,388 seconde** ;
+- perte comptable : **-22,48 EUR** ;
+- aucune ligne dans `trades.ndjson`.
+
+Le risque existe aussi pour une limite remplie puis clôturée entre deux tours
+de 60 secondes : elle n'apparaît plus ni dans `orders_get` ni dans
+`positions_get`. Le pending pouvait alors finir classé `unknown`, ce qui perdait
+le contexte et le résultat.
+
+Le correctif Codex préparé pour revue Prime :
+
+1. ne modifie pas `_order_issue`, classé HIGH par GitNexus ;
+2. reconnaît séparément un ordre historique uniquement si son état broker est
+   `FILLED` et si un `position_id` positif est présent ;
+3. restaure le contexte pending dans `positions.json` et écrit l'événement
+   append-only `filled` ;
+4. laisse `manage_once` relire MT5 et journaliser la clôture au même tour ;
+5. reste fail-closed si le ticket de position ou le prix de fill manque.
+
+Cette réparation protège les prochains cas. Elle n'invente pas rétroactivement
+le contexte EURAUD, désormais perdu.
+
+## Axes d'amélioration recommandés
+
+1. Intégrer puis recharger le correctif de fill ultra-court après revue Prime.
+2. Continuer jusqu'à 20 clôtures propres par contexte sans changer les seuils.
+3. Séparer dans le dashboard les clôtures `utc` des 37 lignes historiques dont
+   l'heure est inconnue, pour éviter une agrégation silencieusement invalide.
+4. Ajouter un indicateur explicite de couverture du journal :
+   `journalisées / positions stratégie MT5` sur la période moderne.
+5. Obtenir les coûts exacts depuis les fills ; tant que la couverture reste à
+   0 %, l'analyse nette des coûts demeure incomplète.
+6. Conserver le préenregistrement OOS par classe d'actifs : l'énergie et les
+   métaux sont des hypothèses à confirmer, pas des univers à sélectionner sur
+   les données déjà vues.
 
 ## Validation
 
-- tests ciblés télémétrie/limites : **79 réussis, 0 échec** ;
-- suite complète : **1 633 réussis, 2 ignorés, 0 échec** ;
+- tests ciblés limites/télémétrie/journal : **78 réussis, 0 échec** ;
+- suite complète : **1 703 réussis, 2 ignorés, 0 échec** ;
 - sous-tests : **69 réussis** ;
-- lint critique Ruff (`E9,F63,F7,F82`) : **vert** ;
-- impact direct pré-édition des fonctions modifiées : **LOW** ; analyse finale
-  du lot partagé : **MEDIUM**, 4 flux de réconciliation affectés et couverts ;
-- aucun seuil, quorum, garde, `.env` ou service modifié par Codex.
+- Ruff critique (`E9,F63,F7,F82`) : vert ;
+- impact de `reconcile_pending_contexts` : LOW, 1 flux affecté ;
+- `_order_issue` : impact HIGH, volontairement laissé intact ;
+- aucun seuil, quorum, `.env`, service ou ordre modifié par Codex.
 
-Statut : correctif prêt pour revue Prime. La tâche reste `in_progress` jusqu'à
-la clôture naturelle de la première position issue d'une limite et au calcul
-de son PnL net.
+Statut : collecte edge `in_progress`; cycle limite et correctif ultra-court en
+`review` jusqu'à intégration Prime et observation d'une nouvelle clôture.

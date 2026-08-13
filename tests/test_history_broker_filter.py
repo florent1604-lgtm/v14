@@ -133,7 +133,7 @@ class TestFiltreCourtierIgnore:
         prix, _, _, net = _cloture_depuis_historique(
             _mt5_qui_ignore_le_filtre(deals), str(TICKET),
             expected_symbol=SYMBOLE)
-        assert prix == pytest.approx(0.85700)
+        assert prix is None
         assert net == pytest.approx(0.0)
 
     def test_aucun_deal_coherent_rend_fail_closed(self):
@@ -155,6 +155,24 @@ class TestFiltreCourtierIgnore:
         assert quand == ""
         assert frais == pytest.approx(0.0)
         assert net == pytest.approx(0.0)
+
+    def test_deal_entree_seul_ne_devient_jamais_fausse_cloture(self):
+        """Une disparition transitoire de positions_get ne prouve pas la sortie."""
+        deals = [_deal(
+            time=10,
+            entry=0,
+            price=0.85700,
+            commission=-1.5,
+            profit=0.0,
+        )]
+
+        result = _cloture_depuis_historique(
+            _mt5_qui_ignore_le_filtre(deals),
+            str(TICKET),
+            expected_symbol=SYMBOLE,
+        )
+
+        assert result == (None, "", 0.0, 0.0)
 
     def test_historique_complet_du_compte_ne_deborde_pas(self):
         """Volume réel : 115 deals, 32 symboles, 61 position_id.

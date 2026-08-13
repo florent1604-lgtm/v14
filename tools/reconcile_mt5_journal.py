@@ -79,13 +79,21 @@ def main() -> int:
         open_position_ids=open_ids,
     )
     journal = TradeJournal(ROOT / "results" / "trades.ndjson").read_all()
+    rejected_path = ROOT / "results" / "journal_rejets.ndjson"
+    rejections = []
+    if rejected_path.exists():
+        for line in rejected_path.read_text(encoding="utf-8").splitlines():
+            try:
+                rejections.append(json.loads(line))
+            except (json.JSONDecodeError, AttributeError):
+                continue
     report = {
         "generated_at": now.isoformat(),
         "since": since.isoformat(),
         "until": until.isoformat(),
         "account": _masked(account.login),
         "magic": args.magic,
-        **reconcile(positions, journal),
+        **reconcile(positions, journal, rejections),
     }
 
     output = Path(args.output)

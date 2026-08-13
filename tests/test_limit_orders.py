@@ -313,6 +313,95 @@ def test_disparition_sans_historique_ne_devient_pas_une_fausse_expiration(tmp_pa
     assert limit_lifecycle_summary(lifecycle_path)["unknown"] == 1
 
 
+def test_fill_et_cloture_entre_deux_tours_conservent_le_contexte(tmp_path):
+    """Un fill ferme avant le prochain tour ne doit pas devenir ``unknown``."""
+    pending_path = tmp_path / "pending.json"
+    lifecycle_path = tmp_path / "limit_lifecycle.ndjson"
+    state_path = tmp_path / "positions.json"
+    template = TrackedState(
+        r=0.005, symbol="EURUSD", side=1, entry=1.1000,
+        sl_initial=1.0950, tp_initial=1.1075,
+        context_key="EURUSD|long|continuation|3p", risque_devise=25.0,
+        asset_class="fx", limit_order_ticket=555,
+        limit_planned_price=1.1000, limit_market_reference_price=1.1002,
+        limit_target_saving_r=0.04,
+    )
+    save_pending_context(
+        pending_path, order_ticket=555, symbol="EURUSD", side=1,
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        state=template,
+    )
+
+    class Terminal:
+        ORDER_TYPE_BUY = 0
+        ORDER_STATE_FILLED = 4
+
+        def orders_get(self):
+            return ()
+
+        def history_orders_get(self, **kwargs):
+            return [SimpleNamespace(
+                ticket=555, state=4, position_id=999, time_done=123,
+                price_open=1.1000, price_current=1.0999,
+                sl=1.0949, tp=1.1074, comment="filled",
+            )]
+
+    report = reconcile_pending_contexts(
+        Terminal(), magic=14_000, state_path=state_path,
+        pending_path=pending_path, positions=[], lifecycle_path=lifecycle_path,
+    )
+
+    restored = load_state(state_path)["999"]
+    assert report["adopted"] == 1
+    assert report["recovered_filled"] == 1
+    assert report["unknown"] == 0
+    assert restored.context_key == template.context_key
+    assert restored.entry == pytest.approx(1.0999)
+    assert restored.r == pytest.approx(0.005)
+    assert restored.limit_realized_saving_r == pytest.approx(0.06)
+    assert restored.limit_slippage_r == pytest.approx(-0.02)
+    assert pending_path.read_text(encoding="utf-8").strip() == "{}"
+    summary = limit_lifecycle_summary(lifecycle_path)
+    assert summary["filled"] == 1
+    assert summary["unknown"] == 0
+
+
+def test_fill_historique_sans_position_id_reste_fail_closed(tmp_path):
+    pending_path = tmp_path / "pending.json"
+    template = TrackedState(
+        r=0.005, symbol="EURUSD", side=1, entry=1.1000,
+        context_key="EURUSD|long|continuation|3p", limit_order_ticket=555,
+    )
+    save_pending_context(
+        pending_path, order_ticket=555, symbol="EURUSD", side=1,
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        state=template,
+    )
+
+    class Terminal:
+        ORDER_STATE_FILLED = 4
+
+        def orders_get(self):
+            return ()
+
+        def history_orders_get(self, **kwargs):
+            return [SimpleNamespace(
+                ticket=555, state=4, position_id=0, time_done=123,
+                price_current=1.1000,
+            )]
+
+    report = reconcile_pending_contexts(
+        Terminal(), magic=14_000, state_path=tmp_path / "positions.json",
+        pending_path=pending_path, positions=[],
+        lifecycle_path=tmp_path / "lifecycle.ndjson",
+    )
+
+    assert report["adopted"] == 0
+    assert report["recovered_filled"] == 0
+    assert report["pending"] == 1
+    assert "555" in pending_path.read_text(encoding="utf-8")
+
+
 def test_fill_deja_adopte_recupere_sa_provenance_depuis_le_journal(tmp_path):
     lifecycle_path = tmp_path / "limit_lifecycle.ndjson"
     state_path = tmp_path / "positions.json"

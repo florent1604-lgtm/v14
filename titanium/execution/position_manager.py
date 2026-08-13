@@ -160,6 +160,10 @@ class TrackedState:
     limit_target_saving_r: float | None = None
     limit_realized_saving_r: float | None = None
     limit_slippage_r: float | None = None
+    # Une disparition de positions_get ne suffit pas à prouver la clôture.
+    # Ces champs persistent le retry jusqu'à confirmation ou escalade bornée.
+    history_missing_since: str = ""
+    history_missing_attempts: int = 0
 
     def to_dict(self) -> dict:
         return {"r": self.r, "phase": self.phase, "peak_fav_r": self.peak_fav_r,
@@ -179,7 +183,9 @@ class TrackedState:
                 "limit_market_reference_price": self.limit_market_reference_price,
                 "limit_target_saving_r": self.limit_target_saving_r,
                 "limit_realized_saving_r": self.limit_realized_saving_r,
-                "limit_slippage_r": self.limit_slippage_r}
+                "limit_slippage_r": self.limit_slippage_r,
+                "history_missing_since": self.history_missing_since,
+                "history_missing_attempts": self.history_missing_attempts}
 
     @classmethod
     def from_dict(cls, d: dict) -> "TrackedState":
@@ -225,6 +231,8 @@ class TrackedState:
                 None if d.get("limit_slippage_r") is None
                 else float(d.get("limit_slippage_r"))
             ),
+            history_missing_since=str(d.get("history_missing_since", "") or ""),
+            history_missing_attempts=int(d.get("history_missing_attempts", 0) or 0),
         )
 
 
@@ -358,6 +366,10 @@ MOTIF_REFUS_DEFINITIF = frozenset({
     "COUT_R_INVALIDE",
 })
 
+MOTIF_SORTIE_INTROUVABLE = "SORTIE_INTROUVABLE"
+MAX_SORTIE_INTROUVABLE_TOURS = 15
+MAX_SORTIE_INTROUVABLE_SECONDES = 15 * 60
+
 # Suffixes ajoutes par les courtiers a un instrument logique. La comparaison
 # reste stricte sur l'identite de base : seul un suffixe connu est neutralise.
 _BROKER_SYMBOL_SUFFIXES = (".cash", ".spot", ".pro", ".fs")
@@ -462,7 +474,11 @@ def _cloture_depuis_historique(
                 sortie = d
 
         if sortie is None:
-            sortie = max(deals, key=lambda d: getattr(d, "time", 0))
+            # Une disparition de ``positions_get`` peut être transitoire. Le
+            # deal d'entrée ne prouve jamais une clôture et ne doit surtout
+            # pas devenir son propre prix de sortie. L'état reste alors
+            # disponible pour un nouvel essai au tour suivant.
+            return None, "", 0.0, 0.0
 
         # `deal.time` est en heure SERVEUR. L'etiqueter "+00:00" a rendu
         # fausses de trois heures les 35 premieres cloture du journal et a
@@ -704,6 +720,8 @@ def _quarantiner_rejet(st: TrackedState, ticket: str, *, reason: str,
                 "risk_money": st.risque_devise,
                 "context": st.context_key,
                 "source": "live",
+                "history_missing_since": st.history_missing_since,
+                "history_missing_attempts": st.history_missing_attempts,
             }, ensure_ascii=False) + "\n")
         return True
     except Exception:  # noqa: BLE001 — l'appelant conserve l'état pour réessai
@@ -878,6 +896,11 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                     account=str(getattr(account, "login", "") or ""),
                     timeframe="")
                 etat[snap.ticket] = st
+            elif st.history_missing_attempts:
+                # La position a réapparu : la disparition précédente était un
+                # snapshot transitoire, pas une clôture.
+                st.history_missing_since = ""
+                st.history_missing_attempts = 0
 
             if not manage_stops:
                 continue
@@ -919,6 +942,51 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
         st = etat[tk]
         prix, quand, frais, net = _cloture_depuis_historique(
             mt5, tk, expected_symbol=st.symbol)
+        if prix is None or not quand:
+            # L'absence de position dans un snapshot n'est pas une preuve de
+            # clôture. Sans deal OUT explicite, conserver le contexte et
+            # réessayer évite à la fois une fausse ligne et une quarantaine
+            # définitive injustifiée.
+            maintenant = datetime.now(timezone.utc)
+            st.history_missing_attempts += 1
+            if not st.history_missing_since:
+                st.history_missing_since = maintenant.isoformat()
+            try:
+                debut_manquant = datetime.fromisoformat(
+                    st.history_missing_since.replace("Z", "+00:00"))
+                if debut_manquant.tzinfo is None:
+                    debut_manquant = debut_manquant.replace(tzinfo=timezone.utc)
+                age_manquant = (maintenant - debut_manquant).total_seconds()
+            except (TypeError, ValueError):
+                age_manquant = 0.0
+
+            escalade = (
+                st.history_missing_attempts >= MAX_SORTIE_INTROUVABLE_TOURS
+                or age_manquant >= MAX_SORTIE_INTROUVABLE_SECONDES
+            )
+            if escalade and _quarantiner_rejet(
+                st,
+                tk,
+                reason=(
+                    f"{MOTIF_SORTIE_INTROUVABLE}_APRES_"
+                    f"{st.history_missing_attempts}_ESSAIS"
+                ),
+                journal_path=cible_journal,
+                ts_exit="",
+            ):
+                etat.pop(tk, None)
+                rapport["journal_rejected"] = rapport.get("journal_rejected", 0) + 1
+                rapport["details"].append(
+                    f"#{tk} sortie introuvable après "
+                    f"{st.history_missing_attempts} essais — quarantaine")
+            else:
+                rapport["journal_failures"] = rapport.get("journal_failures", 0) + 1
+                rapport["reason"] = "JOURNAL_GAP"
+                rapport["history_missing"] = rapport.get("history_missing", 0) + 1
+                rapport["details"].append(
+                    f"#{tk} {MOTIF_SORTIE_INTROUVABLE} — essai "
+                    f"{st.history_missing_attempts}/{MAX_SORTIE_INTROUVABLE_TOURS}")
+            continue
         # Convention unique live/backtest : cost_r est une decomposition
         # complete (spread + commission + swap + fee), jamais un ajustement
         # implicite. None signifie inconnu ; zero signifie mesure nulle.
@@ -980,5 +1048,29 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
         save_state(state_path, etat)
     except Exception:  # noqa: BLE001 — perdre l'état ne doit pas casser la gestion
         rapport["details"].append("sauvegarde de l'état impossible")
+
+    # Filet de couverture : une position peut naître et mourir entre deux
+    # tours. Son contexte est alors inconnaissable ; on conserve la preuve
+    # comptable hors edge, sans inventer de R ni de piliers.
+    try:
+        from titanium.execution.history_recovery import recover_unobserved_closures
+
+        recovery = recover_unobserved_closures(
+            mt5,
+            magic=policy.magic,
+            journal_path=cible_journal,
+            open_position_ids=vivants,
+            protected_position_ids=etat,
+        )
+        rapport["history_recovery"] = recovery
+        if recovery["recovered"]:
+            rapport["details"].append(
+                f"{recovery['recovered']} clôture(s) MT5 récupérée(s) hors edge")
+    except Exception as exc:  # noqa: BLE001 - jamais casser la boucle
+        rapport["history_recovery"] = {
+            "recovered": 0,
+            "scanned": 0,
+            "reason": f"RECOVERY_ERROR:{type(exc).__name__}",
+        }
 
     return rapport

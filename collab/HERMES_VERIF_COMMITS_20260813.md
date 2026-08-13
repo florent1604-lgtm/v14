@@ -5,7 +5,7 @@ changement de seuil, aucun ordre déclenché par cette vérification.
 
 ## Résultat global
 
-- suite complète intégrée : **1785 passed, 2 skipped, 0 failed** ;
+- suite complète intégrée : **1787 passed, 2 skipped, 0 failed** ;
 - suite ciblée horloge/quarantaine : **146 passed** ;
 - rapprochement MT5 réel, après alignement d'horloge : **107/107 clôtures
   comptabilisées**, **52/52 lignes live appariées**, 0 orpheline et 0 mismatch ;
@@ -46,4 +46,3 @@ perdante. **Aucun réglage de sélection, TTL, distance de limite ou breakeven n
 doit être promu** avant une cohorte plus grande, des coûts exacts et une
 validation hors échantillon. Les seules tâches encore ouvertes sont donc des
 collectes longitudinales, pas des corrections de code dissimulées.
-

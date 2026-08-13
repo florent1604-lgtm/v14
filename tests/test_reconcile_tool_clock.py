@@ -26,4 +26,3 @@ def test_filter_positions_uses_converted_utc_timestamps():
     filtered = tool._positions_in_window(positions, since, until)
 
     assert [row.position_id for row in filtered] == ["inside"]
-

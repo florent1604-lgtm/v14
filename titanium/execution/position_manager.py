@@ -609,6 +609,13 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
             f.write(json.dumps({
                 "ticket": marque, "symbol": st.symbol, "side": st.side,
                 "ts_open": st.ts_open, "ts_exit": ts_exit,
+                # Même convention que `ClosedTrade.horloge`, et plus nécessaire
+                # encore ici : ce sont CES deux horodatages qu'un rejeu croise
+                # avec des barres de marché. Sans le marqueur, un outil ne peut
+                # pas distinguer une ligne en vrai UTC d'une ligne en heure
+                # serveur étiquetée « +00:00 » — et croiser les deux produit un
+                # résultat crédible et faux.
+                "horloge": "utc",
                 "entry": st.entry, "exit": prix_sortie,
                 "r_unit": st.r, "sl_initial": st.sl_initial,
                 "tp_initial": st.tp_initial,

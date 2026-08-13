@@ -87,17 +87,41 @@ def _dt(v) -> datetime | None:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
-def charger(chemin: Path) -> list[Trade]:
-    """Trades exploitables pour un rejeu. Ne lève jamais."""
+#: Seule convention d'horloge qu'un rejeu peut croiser avec des barres.
+#:
+#: Les lignes écrites avant le 12/08/2026 portent l'heure du SERVEUR (UTC+3
+#: chez ce courtier) tout en étant étiquetées « +00:00 ». Avant le correctif
+#: `get_rates`, les barres l'étaient aussi : les deux erreurs s'annulaient et
+#: le croisement paraissait juste. Depuis que les barres sont en vrai UTC, la
+#: fenêtre de rejeu d'une ligne ancienne s'étend TROIS HEURES au-delà de la
+#: sortie réelle — un trade stoppé peut y survivre jusqu'au trailing, et la
+#: fidélité du rejeu passe de +0,105R à +0,32R (mesure Prime, 0f452c5).
+#:
+#: On refuse donc ce qu'on ne peut pas interpréter, plutôt que de croiser en
+#: silence deux horloges différentes.
+HORLOGE_ACCEPTEE = "utc"
+
+
+def charger(chemin: Path) -> tuple[list[Trade], int]:
+    """Trades rejouables, et le nombre de lignes refusées pour cause d'horloge.
+
+    Ne lève jamais.
+    """
     out: list[Trade] = []
+    refuses_horloge = 0
     if not chemin.exists():
-        return out
+        return out, 0
     for ligne in chemin.read_text(encoding="utf-8").splitlines():
         if not ligne.strip():
             continue
         try:
             d = json.loads(ligne)
         except json.JSONDecodeError:
+            continue
+        # Le refus d'horloge passe AVANT toute autre validation : une ligne
+        # dont on ne sait pas lire le temps n'a pas à être examinée plus loin.
+        if str(d.get("horloge") or "") != HORLOGE_ACCEPTEE:
+            refuses_horloge += 1
             continue
         ouv, sor = _dt(d.get("ts_open")), _dt(d.get("ts_exit"))
         r = d.get("r_unit")
@@ -118,14 +142,27 @@ def charger(chemin: Path) -> list[Trade]:
             ))
         except (KeyError, TypeError, ValueError):
             continue
-    return out
+    return out, refuses_horloge
 
 
 def barres_du_trade(t: Trade, lecteur) -> list | None:
-    """Barres M15 couvrant la vie du trade, marge comprise. None si indisponible."""
-    besoin = int((t.ts_exit - t.ts_open).total_seconds() // 900) + 2 * MARGE_BARRES + 4
+    """Barres M15 couvrant la vie du trade, marge comprise. None si indisponible.
+
+    Le nombre de barres à demander se compte depuis MAINTENANT jusqu'à
+    l'ouverture, pas sur la DURÉE du trade. Première version de cet outil :
+    `besoin = durée du trade` — un trade court d'avant-hier était alors
+    demandé sur 120 barres, soit 30 heures, qui ne remontaient pas jusqu'à
+    lui. Douze trades sur trente-sept ont été écartés pour cette raison, et
+    c'étaient les plus gros gagnants : le biais aurait exactement inversé la
+    conclusion de cet outil.
+    """
+    maintenant = datetime.now(timezone.utc)
+    anciennete = max(0.0, (maintenant - t.ts_open).total_seconds())
+    besoin = int(anciennete // 900) + 2 * MARGE_BARRES + 8
     try:
-        df = lecteur(t.symbol, "M15", max(120, min(5000, besoin * 3)))
+        # ×1.4 : les barres n'existent pas le week-end ni hors séance, donc
+        # « N barres en arrière » couvre moins de N×15 minutes calendaires.
+        df = lecteur(t.symbol, "M15", max(240, min(20000, int(besoin * 1.4))))
     except Exception:  # noqa: BLE001
         return None
     if df is None or len(df) == 0:
@@ -136,7 +173,13 @@ def barres_du_trade(t: Trade, lecteur) -> list | None:
         fenetre = df[(df.index >= debut) & (df.index <= fin)]
     except TypeError:
         return None
-    return None if len(fenetre) < 2 else fenetre
+    if len(fenetre) < 2:
+        return None
+    # La fenêtre doit COMMENCER avant l'ouverture. Sinon les premières barres
+    # du trade manquent — et ce sont elles qui décident si le breakeven s'arme.
+    if df.index[0] > t.ts_open:
+        return None
+    return fenetre
 
 
 def _chemin_intra(bar, side: int, adverse_dabord: bool) -> list[float]:
@@ -311,6 +354,26 @@ def rapport(a: dict, trades: list[Trade]) -> str:
             w(f"        coupé : {sym:<10} {av:+.3f}R -> {ap:+.3f}R")
     w("")
 
+    # Robustesse : un net positif porté par un seul trade n'est pas un
+    # résultat, c'est une anecdote. On retire le trade le plus influent.
+    w("ROBUSTESSE — le net tient-il sans son trade le plus influent ?")
+    for seuil in SEUILS:
+        if seuil == 0.80:
+            continue
+        rs_c = a["resultats"][seuil]["defavorable"]
+        rs_b = a["resultats"][0.80]["defavorable"]
+        deltas = [c - b for c, b in zip(rs_c, rs_b)]
+        net = sum(deltas)
+        if not deltas:
+            continue
+        # Le trade dont le retrait dégrade le plus le net.
+        pire = max(deltas)
+        net_sans = net - pire
+        verdict = "tient" if (net > 0) == (net_sans > 0) else "NE TIENT PAS"
+        w(f"  BE {seuil:.2f} : net {net:+7.3f}R  ·  sans le plus influent "
+          f"{net_sans:+7.3f}R  ·  {verdict}")
+    w("")
+
     # Verdict, borné par l'ambiguïté intra-barre.
     w("VERDICT")
     meilleur = min(SEUILS, key=lambda s: -(
@@ -341,11 +404,22 @@ def main() -> int:
 
     from titanium.data.mt5_vendor import get_rates, mt5_session
 
-    trades = charger(EXCURSIONS)
+    trades, refuses = charger(EXCURSIONS)
+    if refuses:
+        print(f"{refuses} ligne(s) REFUSÉE(S) : horloge ≠ « {HORLOGE_ACCEPTEE} ».")
+        print("  Écrites avant le 12/08/2026, elles portent l'heure du serveur")
+        print("  (UTC+3) sous une étiquette « +00:00 ». Les croiser avec des")
+        print("  barres en vrai UTC décale la fenêtre de trois heures.")
     if not trades:
-        print(f"aucun trade rejouable dans {EXCURSIONS}")
+        print()
+        print(f"AUCUN trade rejouable dans {EXCURSIONS}.")
+        if refuses:
+            print("Toutes les lignes disponibles sont d'avant le correctif")
+            print("d'horloge. Le rejeu redeviendra possible quand assez de")
+            print("clôtures marquées « utc » se seront accumulées — et pas")
+            print("avant : un chiffre calculé sur ces lignes serait faux.")
         return 1
-    print(f"{len(trades)} trades clos lus · chargement des barres M15…")
+    print(f"{len(trades)} trade(s) rejouable(s) · chargement des barres M15…")
 
     with mt5_session():
         res = analyser(trades, get_rates)

@@ -232,6 +232,47 @@ cherchait ailleurs.
 
 ---
 
+## E13 — Deux artefacts de mesure, tous deux flatteurs *(12/08/2026)*
+
+**Coût : aucun en euros. Deux conclusions fausses évitées de justesse.**
+
+Le même jour, deux chiffres que j'avais produits se sont révélés être des
+artefacts de mon propre code d'analyse. Ils sont réunis ici parce que ce n'est
+pas la coïncidence qui compte, c'est le motif commun.
+
+**Le premier.** Mesurant si les breaker blocks ICT pouvaient alimenter le
+pilier G4, j'ai défini « le prix est au contact de la zone » comme une
+tolérance de 0,2 % du prix. Sur EURUSD, 0,2 % vaut **6 ATR** ; sur BTCUSD,
+0,3 ATR. La même ligne de code mesurait donc deux choses différentes selon
+l'actif. Résultat annoncé : 68,7 % de passage. Résultat après reprise en
+multiples d'ATR : 57,5 %.
+
+**Le second.** Rejouant les trades clos pour chiffrer le coût d'un breakeven
+plus bas, je demandais un nombre de barres proportionnel à la **durée** du
+trade au lieu de son **ancienneté**. Un trade court ouvert l'avant-veille
+était demandé sur 120 barres M15 — trente heures, qui ne remontaient pas
+jusqu'à lui. Douze trades sur trente-sept ont été écartés « faute de barres ».
+
+Ces douze n'étaient pas un échantillon neutre : c'étaient les **plus gros
+gagnants** (JPN225 +1,331R, EURCAD +2,034R, BTCUSD +0,674R), c'est-à-dire
+précisément les trades qu'un breakeven bas peut couper. L'outil annonçait
+« 1 gagnant coupé, net +5,431R » au lieu de « 4 gagnants coupés, net
++3,427R » — bénéfice gonflé de 58 %.
+
+Le motif commun n'est pas l'erreur de calcul. C'est que **les deux artefacts
+allaient dans le sens de la conclusion attendue**, et qu'aucun des deux n'a
+été trouvé par un test : le premier parce qu'un taux de 68,7 % semblait trop
+élevé pour un signal de confluence, le second parce qu'un net de +5,4R semblait
+trop beau. Dans les deux cas, c'est l'invraisemblance du résultat qui a
+déclenché la vérification — pas une alarme.
+
+> **Règle.** Une tolérance exprimée en pourcentage d'un prix ne veut rien dire
+> d'un actif à l'autre : la normaliser par l'ATR. Et quand un filtre écarte des
+> données, **vérifier ce qu'il écarte avant de lire ce qu'il garde** — une
+> exclusion silencieuse corrélée au résultat est indistinguable d'un tri.
+
+---
+
 ## Ce qui revient dans presque toutes
 
 Trois motifs, par ordre de fréquence.
@@ -248,3 +289,10 @@ confiance dans son extension.
 **Le garde-fou écrit mais pas branché.** E2 et E4 étaient tous deux
 documentés en commentaire avant d'être commis. Écrire le danger ne protège
 pas ; seule la porte dans le chemin protège.
+
+**L'erreur qui flatte.** E13 ajoute un quatrième motif, plus insidieux que les
+trois autres parce qu'il ne ressemble pas à une panne : un défaut de l'outil de
+mesure qui pousse le résultat dans la direction espérée. Rien ne le signale —
+ni erreur, ni test rouge, ni chiffre absurde. Seule l'habitude de se méfier
+d'un résultat *trop favorable* le débusque. C'est le seul motif du registre
+contre lequel la discipline vaut mieux que l'outillage.

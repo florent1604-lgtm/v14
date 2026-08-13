@@ -4,6 +4,13 @@
 
 Artefact SHA-256 : `dd35fd15744f462965e4bd521edd9217878697df99524fb54825d5b609aa1490`.
 Source scellée : `excursions.ndjson` (`467a0659939e209cc5bde099c378c81c714a62e91420ce322591c3ce3d8c766f`).
+Borne du sceau : `live:89506157`.
+
+## Trous runtime fournis
+
+| Début UTC | Fin UTC |
+|---|---|
+| 2026-08-12T22:15:25.770935+00:00 | 2026-08-13T05:17:17.751153+00:00 |
 
 ## Cohorte
 

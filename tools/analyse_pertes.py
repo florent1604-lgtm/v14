@@ -209,6 +209,20 @@ def build_report(artifact: dict) -> str:
         "",
         f"Artefact SHA-256 : `{artifact['seal_sha256']}`.",
         f"Source scellée : `{artifact['source']['name']}` (`{artifact['source']['sha256']}`).",
+        f"Borne du sceau : `{artifact['source']['through_ticket'] or 'fin de source'}`.",
+        "",
+        "## Trous runtime fournis",
+        "",
+        "| Début UTC | Fin UTC |",
+        "|---|---|",
+    ]
+    lines.extend(
+        f"| {gap['start']} | {gap['end']} |"
+        for gap in artifact["runtime_gaps"]
+    )
+    if not artifact["runtime_gaps"]:
+        lines.append("| aucun | aucun |")
+    lines.extend([
         "",
         "## Cohorte",
         "",
@@ -216,7 +230,7 @@ def build_report(artifact: dict) -> str:
         "",
         "| Sortie | n | Cumul | Moyenne |",
         "|---|---:|---:|---:|",
-    ]
+    ])
     for reason in EXIT_REASONS:
         item = analysis["by_exit_reason"][reason]
         mean = "n/a" if item["mean_pnl_r"] is None else f"{item['mean_pnl_r']:+.4f} R"

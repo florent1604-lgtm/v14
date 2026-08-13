@@ -170,3 +170,21 @@ def test_rapport_formule_une_conclusion_descriptive_non_causale(tmp_path: Path) 
     assert conclusion in report
     assert "La gestion de sortie fonctionne" not in report
     assert artifact["seal_sha256"] in report
+
+
+def test_rapport_manifeste_les_gaps_et_la_borne_du_sceau(tmp_path: Path) -> None:
+    source = tmp_path / "excursions.ndjson"
+    _write_rows(source, [
+        _row("seal-here", "init", -1.0, 0.0, "2026-08-12T10:00:00Z", "2026-08-12T11:00:00Z"),
+    ])
+    artifact = seal_excursions(
+        source,
+        runtime_gaps=[GAP],
+        through_ticket="seal-here",
+    )
+
+    report = build_report(artifact)
+
+    assert "seal-here" in report
+    assert GAP["start"] in report
+    assert GAP["end"] in report

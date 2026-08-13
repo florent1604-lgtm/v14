@@ -36,9 +36,12 @@ def test_catalog_contains_all_v12_skills_with_valid_frontmatter() -> None:
         name = next(line.split(":", 1)[1].strip() for line in lines if line.startswith("name:"))
         names.add(name)
 
-    assert len(documents) == 48
-    assert len(names) == 48
-    assert {"trading-team", "collab-discipline"} <= names
+    # 49 depuis l'ajout de `v14-research-verifier` (Hermes, 13/08/2026). Le
+    # nombre est verrouille volontairement : un skill qui apparait ou disparait
+    # sans decision explicite doit faire echouer la suite, pas passer inapercu.
+    assert len(documents) == 49
+    assert len(names) == 49
+    assert {"trading-team", "collab-discipline", "v14-research-verifier"} <= names
 
 
 def test_claude_codex_and_hermes_mirrors_match_canonical() -> None:

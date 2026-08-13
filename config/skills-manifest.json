@@ -7,8 +7,8 @@
     "codex": ".codex/skills",
     "hermes": ".hermes/skills"
   },
-  "skill_document_count": 54,
-  "unique_skill_count": 48,
+  "skill_document_count": 49,
+  "unique_skill_count": 49,
   "skills": [
     {
       "name": "babysit",
@@ -82,58 +82,28 @@
     },
     {
       "name": "gitnexus-cli",
-      "path": "gitnexus/gitnexus-cli/SKILL.md",
-      "sha256": "9f033ba8ccc1afec441b3aea079ba2d5019365dc09cc57a48de7231dfad14e41"
-    },
-    {
-      "name": "gitnexus-debugging",
-      "path": "gitnexus/gitnexus-debugging/SKILL.md",
-      "sha256": "4a1e82aa835c52e38227d853c20ef05ea33be1dfb6aa6511474d15357f1d3f2e"
-    },
-    {
-      "name": "gitnexus-exploring",
-      "path": "gitnexus/gitnexus-exploring/SKILL.md",
-      "sha256": "ffafeaa0ce52be079e4d4b3a48c0a166728c009380a243c394c4e08f728527bb"
-    },
-    {
-      "name": "gitnexus-guide",
-      "path": "gitnexus/gitnexus-guide/SKILL.md",
-      "sha256": "40b047beeb9a7c5d47f17426b4061d2c2562c85c11288fa7f8da376d910e4f91"
-    },
-    {
-      "name": "gitnexus-impact-analysis",
-      "path": "gitnexus/gitnexus-impact-analysis/SKILL.md",
-      "sha256": "a4d6e8003c4a822c380b0e81b2fa0d642612236c734a9d51834e362c4be52f33"
-    },
-    {
-      "name": "gitnexus-refactoring",
-      "path": "gitnexus/gitnexus-refactoring/SKILL.md",
-      "sha256": "6aab994ee0266063245245483ee3280645aca66c0c5e56730ffad3f32ecbbc5c"
-    },
-    {
-      "name": "gitnexus-cli",
       "path": "gitnexus-cli/SKILL.md",
-      "sha256": "62a9aab80d307d40403c6383b93cbe739559eee96adcf22e75ea98ed69226bdf"
+      "sha256": "58f9f765306b285c661b86777e2097b3efb43dabe9e19d42f795e88faf9081a2"
     },
     {
       "name": "gitnexus-debugging",
       "path": "gitnexus-debugging/SKILL.md",
-      "sha256": "4a1e82aa835c52e38227d853c20ef05ea33be1dfb6aa6511474d15357f1d3f2e"
+      "sha256": "d8090c85e2c8faffd4767fc2dcc52aeb3f3dab3dc7218bc96b29dacf53635d64"
     },
     {
       "name": "gitnexus-exploring",
       "path": "gitnexus-exploring/SKILL.md",
-      "sha256": "ffafeaa0ce52be079e4d4b3a48c0a166728c009380a243c394c4e08f728527bb"
+      "sha256": "21b18eee1f679efff654bf45f9dc32a495c81c014d210ac7e778c58a2a204dbd"
     },
     {
       "name": "gitnexus-guide",
       "path": "gitnexus-guide/SKILL.md",
-      "sha256": "40b047beeb9a7c5d47f17426b4061d2c2562c85c11288fa7f8da376d910e4f91"
+      "sha256": "746d057790de5b034d19d603dfa77eb9b596407918025481b4b29214efee2581"
     },
     {
       "name": "gitnexus-impact-analysis",
       "path": "gitnexus-impact-analysis/SKILL.md",
-      "sha256": "a4d6e8003c4a822c380b0e81b2fa0d642612236c734a9d51834e362c4be52f33"
+      "sha256": "09e529505da155532059a3656557811f99bafff0f05c8f9e6e47bb96edc340d3"
     },
     {
       "name": "gitnexus-pr-review",
@@ -143,7 +113,7 @@
     {
       "name": "gitnexus-refactoring",
       "path": "gitnexus-refactoring/SKILL.md",
-      "sha256": "6aab994ee0266063245245483ee3280645aca66c0c5e56730ffad3f32ecbbc5c"
+      "sha256": "544841cf90c9ebe92a2f3018b034593c2bfd8617f968412d3599a22725e3c73e"
     },
     {
       "name": "how-it-works",
@@ -239,6 +209,11 @@
       "name": "using-superpowers",
       "path": "using-superpowers/SKILL.md",
       "sha256": "55379fe7c1c473a02c61961c822996bff30e1320d6921d9062509bc508482c05"
+    },
+    {
+      "name": "v14-research-verifier",
+      "path": "v14-research-verifier/SKILL.md",
+      "sha256": "4578f15bb5ad71b90c9a2d9e06096a27aa11d64ba3ff90ac48d0ad068fc604bc"
     },
     {
       "name": "verification-before-completion",

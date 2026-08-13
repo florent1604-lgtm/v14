@@ -1,5 +1,28 @@
 # Coût réel des gagnants coupés par un breakeven plus bas
 
+## Mise à jour UTC propre — 13/08/2026
+
+Le rejeu a été relancé après accumulation de nouvelles clôtures portant le
+marqueur explicite `horloge="utc"`. Il accepte désormais **9 trades sur 9** et
+refuse toujours les **43 lignes historiques** dont l'horloge n'est pas
+qualifiée. L'artefact local reproductible est
+`results/rejeu_breakeven_utc_20260813.json`.
+
+Résultat sur cette cohorte propre :
+
+- espérance réellement observée : **-0,3418 R/trade** (-3,076 R cumulé) ;
+- scénario BE 0,30 : 2 stops évités (+2,100 R), 1 gagnant coupé (-0,741 R),
+  soit **+1,359 R** face au rejeu à 0,80 ;
+- fidélité insuffisante : au seuil réellement appliqué 0,80, le rejeu s'écarte
+  encore du journal de **-0,1544 à -0,1611 R/trade** ;
+- échantillon insuffisant : **9 trades seulement**.
+
+La tâche de mesure est donc reproductible et chiffrée, mais le verdict de
+gouvernance reste **NO-GO pour toute modification du breakeven** : l'erreur de
+fidélité est du même ordre que l'effet moyen recherché, et neuf observations ne
+permettent pas une décision robuste. Il faut poursuivre la collecte UTC et
+améliorer le modèle de coûts/chronologie avant tout nouvel essai de seuil.
+
 **Tâche Prime `65541466`** · Claude · 12/08/2026
 39 clôtures rejouées · aucun seuil modifié · aucun ordre · lecture seule.
 

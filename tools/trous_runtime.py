@@ -50,9 +50,19 @@ SILENCE_MIN_S = 300.0
 #: week-end, donc son silence est une information forte.
 TEMOINS = ("EURUSD", "BTCUSD", "US500")
 
-#: Barres témoins minimales pour déclarer que le marché cotait. Une seule
-#: barre pourrait être un résidu d'ouverture ; trois marquent une séance.
-BARRES_MIN = 3
+#: Part des barres ATTENDUES qu'il faut observer pour déclarer que le marché
+#: cotait pendant le silence.
+#:
+#: ⚠️ Un seuil en NOMBRE ABSOLU de barres est faux et je l'ai écrit d'abord :
+#: « au moins 3 barres » rendait un silence de 28 minutes inclassable par
+#: construction, puisqu'une fenêtre de 28 minutes ne contient que deux barres
+#: M15. Deux silences de 28 et 38 minutes — en pleine séance européenne — ont
+#: ainsi été étiquetés « normaux » alors que leur couverture était de 100 % et
+#: 79 %. Le critère doit se rapporter à la DURÉE, jamais à un compte nu.
+COUVERTURE_MIN = 0.5
+
+#: Minutes par barre de l'unité de temps témoin.
+MINUTES_PAR_BARRE = 15.0
 
 
 def silences(chemin: Path, seuil_s: float = SILENCE_MIN_S) -> list[dict]:
@@ -102,8 +112,12 @@ def qualifier(trous: list[dict], lecteur) -> list[dict]:
         debut = datetime.fromisoformat(t["start"])
         fin = datetime.fromisoformat(t["end"])
         preuve = {s: barres_pendant(s, debut, fin, lecteur) for s in TEMOINS}
-        cotait = max(preuve.values(), default=0) >= BARRES_MIN
+        attendues = max(1.0, t["minutes"] / MINUTES_PAR_BARRE)
+        couverture = max(preuve.values(), default=0) / attendues
+        cotait = couverture >= COUVERTURE_MIN
         out.append({**t, "barres_temoins": preuve,
+                    "barres_attendues": round(attendues, 1),
+                    "couverture": round(couverture, 2),
                     "marche_cotait": cotait,
                     "verdict": "ARRET" if cotait else "silence normal"})
     return out
@@ -117,19 +131,20 @@ def rapport(qualifies: list[dict]) -> str:
     w(f"SILENCES > {int(SILENCE_MIN_S // 60)} min : {len(qualifies)}")
     w(f"  dont ARRÊTS avérés (le marché cotait) : {len(arrets)}")
     w("")
-    w(f"  {'début':<17} {'fin':<17} {'durée':>8}  "
-      + "  ".join(f"{s:>7}" for s in TEMOINS) + "   verdict")
-    w("  " + "-" * 86)
+    w(f"  {'début':<14} {'fin':<14} {'durée':>7} {'attendu':>8} "
+      + " ".join(f"{s:>7}" for s in TEMOINS) + f" {'couv.':>6}  verdict")
+    w("  " + "-" * 92)
     for t in qualifies:
-        w(f"  {t['start'][5:16]:<17} {t['end'][5:16]:<17} "
-          f"{t['minutes']:>6.0f} m  "
-          + "  ".join(f"{t['barres_temoins'][s]:>7}" for s in TEMOINS)
-          + f"   {t['verdict']}")
+        w(f"  {t['start'][5:16]:<14} {t['end'][5:16]:<14} "
+          f"{t['minutes']:>5.0f} m {t['barres_attendues']:>8.1f} "
+          + " ".join(f"{t['barres_temoins'][s]:>7}" for s in TEMOINS)
+          + f" {100*t['couverture']:>5.0f}%  {t['verdict']}")
     w("")
     w("LECTURE")
-    w("  Des barres M15 pendant le silence ⇒ le marché cotait ⇒ la boucle")
-    w("  aurait dû écrire ⇒ c'est un arrêt. Aucune barre ⇒ nuit ou week-end,")
-    w("  la boucle se tait légitimement et rien n'est à exclure.")
+    w("  `couv.` = barres observées / barres attendues pour la durée. Au-delà")
+    w(f"  de {100*COUVERTURE_MIN:.0f} %, le marché cotait pendant le silence : la boucle aurait")
+    w("  dû écrire, c'est un arrêt. En dessous, nuit ou week-end — elle se")
+    w("  tait légitimement et rien n'est à exclure.")
     w("")
     w("  BTCUSD est le témoin décisif : il cote la nuit et le week-end. Un")
     w("  silence pendant que BTCUSD cotait ne s'explique pas par l'horaire.")

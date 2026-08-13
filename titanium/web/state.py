@@ -334,6 +334,11 @@ def loop() -> dict:
         "breakeven_r": m.breakeven_r, "trail_start_r": m.trail_start_r,
         "trail_dist_r": m.trail_dist_r,
         "last_beat": None, "age_s": None, "stats": {},
+        # Incidents de lecture de `positions.json`. Vide = rien à signaler.
+        # Sans ce relais, l'incident s'arrêterait au battement : le tableau
+        # de bord ne recopie que des clés nommées, et « rendre bruyant » un
+        # défaut qui n'atteint aucun écran ne le rend pas bruyant du tout.
+        "etat_incidents": [], "etat_incidents_total": 0,
     }
 
     f = RACINE / "results" / "loop_heartbeat.json"
@@ -355,6 +360,8 @@ def loop() -> dict:
             armed=bool(b.get("armed", p.enabled)),
             running=age <= limite,
             stale=age > limite,
+            etat_incidents=list(b.get("etat_incidents") or []),
+            etat_incidents_total=int(b.get("etat_incidents_total", 0) or 0),
         )
         if out["stale"]:
             out["reason"] = (f"dernier battement il y a {age:.0f} s "

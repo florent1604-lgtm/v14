@@ -239,3 +239,27 @@ def test_le_battement_reste_muet_sans_incident(tmp_path, monkeypatch):
     d = json.loads(battement.read_text(encoding="utf-8"))
     assert d["etat_incidents"] == []
     assert d["etat_incidents_total"] == 0
+
+
+def test_le_tableau_de_bord_relaie_l_incident(tmp_path, monkeypatch):
+    """Dernier saut : le battement porte l'incident, encore faut-il que l'état
+    du tableau de bord le recopie. Il ne relaie que des clés nommées — sans ce
+    relais, « rendre bruyant » s'arrête à un fichier que personne ne lit."""
+    from datetime import datetime, timezone
+
+    from titanium.web import state as ws
+
+    (tmp_path / "results").mkdir(exist_ok=True)
+    battement = tmp_path / "results" / "loop_heartbeat.json"
+    battement.write_text(json.dumps({
+        "at": datetime.now(timezone.utc).isoformat(),
+        "intervalle": 60, "armed": True, "equity": 4000.0, "stats": {},
+        "etat_incidents": [{"genre": "illisible", "chemin": "x",
+                            "detail": "d", "at": "now"}],
+        "etat_incidents_total": 1,
+    }), encoding="utf-8")
+    monkeypatch.setattr(ws, "RACINE", tmp_path)
+
+    out = ws.loop()
+    assert out["etat_incidents_total"] == 1
+    assert out["etat_incidents"][0]["genre"] == "illisible"

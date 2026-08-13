@@ -502,7 +502,8 @@ class ClosedTrade:
     support_pillars: int = 0      # S ∈ 0..4, piliers de micro-structure ALIGNÉS
     asset_class: str = ""         # 'fx'|'indices'|'metaux'|'crypto'
     risk_money: float = 0.0       # risque en devise du compte, à l'ouverture
-    exact_cost: bool = False      # True ⇒ pnl_r vient du net en devise (deals)
+    exact_cost: bool = False      # ventilation exacte des coûts mesurés
+    exact_net: bool = False       # PnL net MT5 complet, preuve de rentabilité
 
     def to_json(self) -> str: ...   # inchangé (asdict)
 
@@ -806,7 +807,7 @@ BLOC                 = 5        # bootstrap par BLOCS : les trades sont corrél�
 FDR_Q                = 0.10
 SEGMENTS             = 3
 PART_COUT_MAX        = 0.40     # coût moyen < 40 % de l'espérance
-PART_EXACT_MIN       = 0.90     # ≥ 90 % de l'échantillon avec exact_cost=True
+PART_EXACT_MIN       = 0.90     # ≥ 90 % avec PnL net MT5 complet (exact_net=True)
 FENETRE_DEMOTION     = 30
 
 @dataclass(frozen=True)
@@ -976,7 +977,7 @@ Une cellule `(classe d'actif, S ≥ 3)` est **éligible** si et seulement si :
 |---|---|---|---|
 | **C1** | trades clos dans la cellule | **n ≥ 60** | plancher dur, dérivé en §6.3 |
 | **C2** | source | `live` uniquement, `support_pillars ≥ 3` | le backtest n'autorise rien (§3) ; la strate quorum-2 non plus (§2.6) |
-| **C3** | part de l'échantillon à coût exact | **≥ 90 %** (`exact_cost=True`) | un P&L reconstruit par les prix ignore commission et swap (§1.5) |
+| **C3** | part de l'échantillon au PnL net comptable MT5 complet | **≥ 90 %** (`exact_net=True`) | le net doit sommer `profit+commission+swap+fee` sur un historique complet ; `exact_cost` reste la ventilation diagnostique |
 | **C4** | borne basse unilatérale 95 %, bootstrap par blocs (10 000 tirages, blocs de 5) | **> +0,05 R** | pas « > 0 » : la marge remplace un facteur d'escompte qu'on ne sait pas calibrer (§6.4) |
 | **C5** | profit factor de la cellule | **≥ 1,30** | V12 exigeait 1,20 ; relevé, voir §6.4 |
 | **C6** | stabilité temporelle sur 3 segments consécutifs (`decouper_walk_forward`) | espérance > 0 sur **≥ 2 segments sur 3**, et **aucun segment < −0,10 R** | un edge présent sur un tiers seulement est un artefact — règle déjà écrite dans `titanium/backtest.py` |

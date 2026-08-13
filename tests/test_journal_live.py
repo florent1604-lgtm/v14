@@ -701,8 +701,9 @@ def test_journal_par_defaut_a_cote_de_letat(tmp_path):
 
 class TestFraisReels:
     def _deal(self, **kw):
-        d = dict(time=1_800_000_000, price=1.11, commission=0.0, swap=0.0,
-                 fee=0.0, position_id=1, symbol="EURUSD", entry=1)
+        d = dict(time=1_800_000_000, price=1.11, profit=0.0,
+                 commission=0.0, swap=0.0, fee=0.0,
+                 position_id=1, symbol="EURUSD", entry=1)
         d.update(kw)
         return type("Deal", (), d)()
 
@@ -742,6 +743,45 @@ class TestFraisReels:
             "1", expected_symbol="EURUSD", diagnostic=diagnostic,
         )
         assert diagnostic["accounting_complete"] is True
+
+    def test_inout_ne_prouve_jamais_un_net_complet(self):
+        from titanium.execution.position_manager import _cloture_depuis_historique
+        diagnostic = {}
+        _cloture_depuis_historique(
+            self._mt5([
+                self._deal(time=1, entry=0, volume=0.3),
+                self._deal(time=2, entry=2, volume=0.3),
+            ]),
+            "1", expected_symbol="EURUSD", diagnostic=diagnostic,
+        )
+        assert diagnostic["accounting_complete"] is False
+
+    def test_composante_monetaire_manquante_ne_prouve_pas_le_net(self):
+        from titanium.execution.position_manager import _cloture_depuis_historique
+        entree = self._deal(time=1, entry=0, volume=0.3)
+        sortie = type("DealSansFee", (), {
+            "time": 2, "price": 1.11, "commission": 0.0, "swap": 0.0,
+            "profit": 0.0, "position_id": 1, "symbol": "EURUSD",
+            "entry": 1, "volume": 0.3,
+        })()
+        diagnostic = {}
+        _cloture_depuis_historique(
+            self._mt5([entree, sortie]), "1", expected_symbol="EURUSD",
+            diagnostic=diagnostic,
+        )
+        assert diagnostic["accounting_complete"] is False
+
+    def test_composante_monetaire_non_finie_ne_prouve_pas_le_net(self):
+        from titanium.execution.position_manager import _cloture_depuis_historique
+        diagnostic = {}
+        _cloture_depuis_historique(
+            self._mt5([
+                self._deal(time=1, entry=0, volume=0.3),
+                self._deal(time=2, entry=1, volume=0.3, profit=float("inf")),
+            ]),
+            "1", expected_symbol="EURUSD", diagnostic=diagnostic,
+        )
+        assert diagnostic["accounting_complete"] is False
 
     def test_volumes_desequilibres_ne_prouvent_pas_le_net(self):
         from titanium.execution.position_manager import _cloture_depuis_historique

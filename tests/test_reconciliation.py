@@ -176,6 +176,43 @@ def test_rapport_exact_est_vert() -> None:
     assert report["matched"] == 1
 
 
+def test_rapport_refuse_un_journal_exact_si_historique_mt5_incomplet() -> None:
+    positions = aggregate_mt5_deals([
+        deal(10, entry=1, magic=14_000, profit=10, time=2),
+    ])
+    assert positions[0].accounting_complete is False
+    report = reconcile(positions, [ClosedTrade(
+        "ctx", 1.0, ticket="live:10", risk_money=10, exact_net=True,
+    )])
+    assert report["accounting_ok"] is True
+    assert report["edge_ok"] is False
+    assert report["exact_net_missing"] == ["10"]
+
+
+def test_inout_ne_certifie_jamais_la_completude_comptable() -> None:
+    positions = aggregate_mt5_deals([
+        deal(10, entry=0, magic=14_000, volume=1.0, time=1),
+        deal(10, entry=2, profit=10, volume=1.0, time=2),
+    ])
+    assert positions[0].accounting_complete is False
+
+
+def test_champ_monetaire_manquant_ne_certifie_pas_le_net() -> None:
+    entree = deal(10, entry=0, magic=14_000, volume=1.0, time=1)
+    sortie = deal(10, entry=1, profit=10, volume=1.0, time=2)
+    del sortie.fee
+    positions = aggregate_mt5_deals([entree, sortie])
+    assert positions[0].accounting_complete is False
+
+
+def test_champ_monetaire_non_fini_ne_certifie_pas_le_net() -> None:
+    positions = aggregate_mt5_deals([
+        deal(10, entry=0, magic=14_000, volume=1.0, time=1),
+        deal(10, entry=1, profit=float("nan"), volume=1.0, time=2),
+    ])
+    assert positions[0].accounting_complete is False
+
+
 def test_rejet_historique_couvre_lecart_sans_polluer_edge() -> None:
     positions = aggregate_mt5_deals([
         deal(10, entry=0, magic=14_000, time=1),

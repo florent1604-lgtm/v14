@@ -17,6 +17,7 @@ from titanium.data.mt5_vendor import decalage_serveur_cache, heure_serveur_en_ut
 from titanium.edge import PNL_R_MAX
 
 _ENTRY_OUT = frozenset({1, 2, 3})
+_MONETARY_FIELDS = ("profit", "commission", "swap", "fee")
 _MANUAL_REASONS = frozenset({0, 1, 2})  # terminal, mobile, web
 # Sous ce seuil, un signe oppose peut venir d'un breakeven reconstruit avant
 # quelques centiemes de R de frais. Sans risk_money, mieux vaut ne pas crier
@@ -38,6 +39,20 @@ def _number(value) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _monetary_complete(rows: Iterable) -> bool:
+    """Tous les composants du net existent et sont numeriques finis."""
+    for row in rows:
+        for field in _MONETARY_FIELDS:
+            if not hasattr(row, field):
+                return False
+            try:
+                if not math.isfinite(float(getattr(row, field))):
+                    return False
+            except (TypeError, ValueError):
+                return False
+    return True
 
 
 def _iso(epoch, server_offset_seconds: int = 0) -> str:
@@ -147,9 +162,14 @@ def aggregate_mt5_deals(
         exit_volume = sum(
             abs(_number(getattr(row, "volume", 0.0))) for row in exits
         )
+        has_inout = any(
+            int(_number(getattr(row, "entry", -1))) == 2 for row in rows
+        )
         accounting_complete = (
             bool(entries)
             and entry_volume > 0
+            and not has_inout
+            and _monetary_complete(rows)
             and math.isclose(entry_volume, exit_volume, rel_tol=1e-6, abs_tol=1e-9)
         )
         if not tagged or not exits or position_id in still_open:
@@ -253,8 +273,10 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
         trade = journal_by_id[position_id]
         risk_money = _number(getattr(trade, "risk_money", 0.0))
         journal_r = _number(getattr(trade, "pnl_r", 0.0))
-        if not bool(getattr(
-                trade, "exact_net", getattr(trade, "exact_cost", False))):
+        journal_exact = getattr(
+            trade, "exact_net", getattr(trade, "exact_cost", False),
+        ) is True
+        if not journal_exact or not mt5_row.accounting_complete:
             exact_net_missing.append(position_id)
         if not bool(getattr(trade, "exact_cost", False)):
             exact_cost_missing.append(position_id)

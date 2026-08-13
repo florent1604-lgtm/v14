@@ -141,6 +141,12 @@ class TestCriteres:
         v = evaluate_cells(lot)[0]
         assert any("C8_COUT_RELATIF" in b for b in v.bloquants)
 
+    def test_cout_totalement_inconnu_n_est_pas_assimile_a_zero(self):
+        lot = _lot(120, valeur=0.8, cost_r=None, exact_net=True)
+        v = evaluate_cells(lot)[0]
+        assert any("C8_COUT_INCONNU" in b for b in v.bloquants)
+        assert not v.eligible
+
     def test_cellule_saine_est_eligible(self):
         import random
         rng = random.Random(7)

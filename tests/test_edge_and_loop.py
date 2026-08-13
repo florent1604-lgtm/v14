@@ -191,6 +191,24 @@ def test_aller_retour(tmp_path):
     assert relu[0].closed_at, "l'horodatage doit être posé automatiquement"
 
 
+@pytest.mark.parametrize("valeur", ["false", 0, 1, None, [], {}])
+def test_marqueur_exact_net_non_booleen_reste_fail_closed(tmp_path, valeur):
+    f = tmp_path / "t.ndjson"
+    f.write_text(json.dumps({
+        "context": CTX.key(), "pnl_r": 1.0, "exact_net": valeur,
+    }) + "\n", encoding="utf-8")
+    trade_relu = TradeJournal(f).read_all()[0]
+    assert trade_relu.exact_net is False
+
+
+def test_taux_exact_compare_avant_arrondi(livre):
+    trades = [trade(exact_net=True) for _ in range(17_999)]
+    trades.extend(trade(exact_net=False) for _ in range(2_001))
+    verdict = livre(trades).verdict_for(CTX)
+    assert verdict.exact_net_rate == pytest.approx(0.9, abs=1e-4)
+    assert verdict.edge_ok is None
+
+
 def test_append_seulement(tmp_path):
     j = TradeJournal(tmp_path / "t.ndjson")
     for i in range(3):

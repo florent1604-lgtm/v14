@@ -216,7 +216,7 @@ def evaluate_cells(trades, *, rejected_lines: int = 0) -> list:
         # reste un diagnostic distinct, jamais maquille en mesure.
         v.part_exact = sum(
             1 for t in lot
-            if getattr(t, "exact_net", getattr(t, "exact_cost", False))
+            if getattr(t, "exact_net", getattr(t, "exact_cost", False)) is True
         ) / n
 
         gains = [x for x in xs if x > 0]
@@ -245,7 +245,11 @@ def evaluate_cells(trades, *, rejected_lines: int = 0) -> list:
         if positifs < 2 or pire < -0.10:
             v.bloquants.append(
                 f"C6_STABILITE({positifs}/3 positifs, pire {pire:+.3f})")
-        if v.expectancy_r > 0 and v.mean_cost_r / v.expectancy_r > PART_COUT_MAX:
+        if not couts_connus:
+            # C8 est un diagnostic de cout relatif. Une ventilation absente
+            # n'est pas un cout nul, meme si le PnL net MT5 est prouve.
+            v.bloquants.append("C8_COUT_INCONNU")
+        elif v.expectancy_r > 0 and v.mean_cost_r / v.expectancy_r > PART_COUT_MAX:
             v.bloquants.append(
                 f"C8_COUT_RELATIF({v.mean_cost_r / v.expectancy_r:.0%})")
 

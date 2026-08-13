@@ -169,12 +169,14 @@ class TradeJournal:
                 if not math.isfinite(pnl) or abs(pnl) > PNL_R_MAX:
                     self.rejected_lines += 1
                     continue
-                cout_exact = bool(d.get("exact_cost", False))
+                # Ces marqueurs sont des preuves, pas des options permissives :
+                # `"false"`, 1 ou un objet JSON restent fail-closed.
+                cout_exact = d.get("exact_cost", False) is True
                 # Compatibilite append-only : toute ancienne ligne qui
                 # prouvait une decomposition exacte prouvait necessairement
                 # aussi un net comptable exact. Les autres anciennes lignes
                 # restent fail-closed.
-                net_exact = bool(d.get("exact_net", cout_exact))
+                net_exact = d.get("exact_net", cout_exact) is True
                 brut_cout = d.get("cost_r", None)
                 cout = None if brut_cout is None else float(brut_cout)
                 # Ancien format : 0.0 et exact_cost=False signifiaient autant
@@ -260,7 +262,9 @@ class EdgeBook:
             # "inconnu" tant que sa comptabilite n'est pas assez couverte.
             v.edge_ok = False
             v.reason = f"espérance nette {esperance:+.3f} R < seuil {self.threshold_r} R"
-        elif v.exact_net_rate < EXACT_NET_RATE_MIN:
+        # Comparer le ratio non arrondi. L'arrondi appartient uniquement a
+        # l'affichage : 89,995 % ne doit jamais devenir 90 % par presentation.
+        elif nets_exacts < EXACT_NET_RATE_MIN:
             v.edge_ok = None
             v.reason = (
                 "PnL net comptable insuffisamment prouve "

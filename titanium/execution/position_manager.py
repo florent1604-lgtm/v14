@@ -492,6 +492,7 @@ _BROKER_SYMBOL_SUFFIXES = (".cash", ".spot", ".pro", ".fs")
 # Formes MT5 qui ferment au moins une partie d'une position. Cette convention
 # doit rester identique a celle de `analysis.reconciliation`.
 _DEAL_ENTRY_OUT = frozenset({1, 2, 3})
+_MONETARY_FIELDS = ("profit", "commission", "swap", "fee")
 
 
 def _symboles_mt5_equivalents(gauche: str, droite: str) -> bool:
@@ -598,9 +599,27 @@ def _cloture_depuis_historique(
             abs(float(getattr(deal, "volume", 0.0) or 0.0))
             for deal in exits
         )
+        monetary_complete = True
+        for deal in deals:
+            for field in _MONETARY_FIELDS:
+                if not hasattr(deal, field):
+                    monetary_complete = False
+                    break
+                try:
+                    if not math.isfinite(float(getattr(deal, field))):
+                        monetary_complete = False
+                        break
+                except (TypeError, ValueError):
+                    monetary_complete = False
+                    break
+            if not monetary_complete:
+                break
+        has_inout = any(int(getattr(deal, "entry", -1)) == 2 for deal in deals)
         accounting_complete = (
             bool(entries)
             and entry_volume > 0
+            and not has_inout
+            and monetary_complete
             and math.isclose(
                 entry_volume, exit_volume, rel_tol=1e-6, abs_tol=1e-9,
             )
@@ -610,6 +629,8 @@ def _cloture_depuis_historique(
                 accounting_complete=accounting_complete,
                 entry_volume=entry_volume,
                 exit_volume=exit_volume,
+                monetary_complete=monetary_complete,
+                has_inout=has_inout,
             )
 
         frais = 0.0

@@ -247,3 +247,6 @@ collab/notifications/
 tools/collab_terminal/chat_log.ndjson
 *.log
 *.png
+
+# Instantanes de sauvegarde des donnees de mesure (volumineux, locaux)
+sauvegardes/

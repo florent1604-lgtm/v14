@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -15,6 +19,7 @@ from titanium.sauvegarde import (
     purger,
     sauvegarder,
     verifier,
+    verrou,
 )
 
 FICHIERS = ("trades.ndjson", "positions.json")
@@ -107,7 +112,7 @@ def test_rotation_garde_les_plus_recents(tmp_path: Path) -> None:
     restants = [dossier.name for dossier in instantanes(destination)]
     assert len(restants) == 3
     assert restants == sorted(restants)
-    assert restants[-1] == "20260813T060400Z"
+    assert restants[-1] == "20260813T060400000000Z"
 
 
 def test_un_instantane_interrompu_n_est_pas_compte_ni_supprime(tmp_path: Path) -> None:
@@ -137,3 +142,141 @@ def test_retention_nulle_ne_supprime_rien(tmp_path: Path) -> None:
         sauvegarder(source, destination, fichiers=FICHIERS, retention=0,
                     maintenant=base + timedelta(minutes=index))
     assert len(instantanes(destination)) == 2
+
+
+def test_deux_sauvegardes_dans_la_meme_seconde_coexistent(tmp_path: Path) -> None:
+    """Une tache planifiee et un appel manuel tombent volontiers ensemble.
+
+    Avec un nom a la seconde, la seconde sauvegarde levait `FileExistsError`
+    et ne sauvegardait rien : la collision arrivait precisement quand deux
+    ecrivains s'inquietaient en meme temps des donnees.
+    """
+    source = _source(tmp_path)
+    destination = tmp_path / "sauvegardes"
+
+    meme_instant = datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc)
+    premiers = sauvegarder(source, destination, fichiers=FICHIERS,
+                           maintenant=meme_instant)
+    seconds = sauvegarder(source, destination, fichiers=FICHIERS,
+                          maintenant=meme_instant)
+
+    assert premiers["dossier"] != seconds["dossier"]
+    assert len(instantanes(destination)) == 2
+
+
+def test_verrou_refuse_deux_sauvegardes_simultanees(tmp_path: Path) -> None:
+    """Le verrou est inter-processus : `O_CREAT|O_EXCL` est atomique partout."""
+    destination = tmp_path / "sauvegardes"
+    source = _source(tmp_path)
+
+    with verrou(destination, attente_s=0.2):
+        assert (destination / ".verrou").is_file()
+        with pytest.raises(SauvegardeError):
+            sauvegarder(source, destination, fichiers=FICHIERS,
+                        attente_verrou_s=0.2)
+
+    # Verrou rendu : la sauvegarde repasse.
+    assert sauvegarder(source, destination, fichiers=FICHIERS)["fichiers"]
+    assert not (destination / ".verrou").exists()
+
+
+def test_verrou_perime_est_repris(tmp_path: Path) -> None:
+    """Un processus tue ne doit pas bloquer les sauvegardes pour toujours."""
+    destination = tmp_path / "sauvegardes"
+    destination.mkdir(parents=True)
+    abandonne = destination / ".verrou"
+    abandonne.write_text("999999", encoding="utf-8")
+    vieux = time.time() - 3600
+    os.utime(abandonne, (vieux, vieux))
+
+    rapport = sauvegarder(_source(tmp_path), destination, fichiers=FICHIERS,
+                          attente_verrou_s=0.2, verrou_perime_s=60.0)
+
+    assert rapport["fichiers"]
+    assert not abandonne.exists()
+
+
+def test_manifeste_qualifie_la_coherence(tmp_path: Path) -> None:
+    """Un instantane est crash-consistant : il doit le DIRE, pas le laisser croire."""
+    source = _source(tmp_path)
+    rapport = sauvegarder(source, tmp_path / "sauvegardes", fichiers=FICHIERS)
+
+    assert rapport["garantie"] == "crash-consistant"
+    assert rapport["coherent"] is True
+    assert rapport["sources_modifiees_pendant"] == []
+
+
+def test_source_qui_bouge_pendant_la_copie_est_nommee(tmp_path: Path) -> None:
+    """La boucle continue d'ecrire : un instantane transversal doit se signaler."""
+    source = _source(tmp_path)
+    reel = shutil.copy2
+
+    def copie_puis_ecrit(src, dst, *args, **kwargs):
+        resultat = reel(src, dst, *args, **kwargs)
+        if Path(src).name == "trades.ndjson":
+            # Une cloture arrive APRES la copie du journal, AVANT celle des
+            # positions : c'est exactement le cas que le manifeste doit avouer.
+            with Path(src).open("a", encoding="utf-8") as flux:
+                flux.write(json.dumps({"ticket": "live:99"}) + "\n")
+        return resultat
+
+    with mock.patch("titanium.sauvegarde.shutil.copy2", side_effect=copie_puis_ecrit):
+        rapport = sauvegarder(source, tmp_path / "sauvegardes", fichiers=FICHIERS)
+
+    assert rapport["coherent"] is False
+    assert rapport["sources_modifiees_pendant"] == ["trades.ndjson"]
+
+
+def test_manifeste_conserve_les_metadonnees_source_avant_et_apres(
+        tmp_path: Path) -> None:
+    """La qualification doit etre verifiable apres coup, pas seulement en RAM."""
+    source = _source(tmp_path)
+    rapport = sauvegarder(source, tmp_path / "sauvegardes", fichiers=FICHIERS)
+    manifeste = json.loads(
+        (Path(rapport["dossier"]) / "manifeste.json").read_text(encoding="utf-8"))
+
+    assert manifeste["sources_avant"]["trades.ndjson"]["octets"] > 0
+    assert manifeste["sources_apres"] == manifeste["sources_avant"]
+
+
+def test_coherence_metier_signale_un_cycle_limite_incompatible(
+        tmp_path: Path) -> None:
+    """Un snapshot stable mais causalement impossible ne doit pas etre qualifie."""
+    source = _source(tmp_path)
+    (source / "positions.json").write_text(
+        json.dumps({"42": {"limit_order_ticket": 7}}), encoding="utf-8")
+    (source / "pending_limits.json").write_text(
+        json.dumps({"7": {"symbol": "EURUSD"}}), encoding="utf-8")
+    (source / "limit_lifecycle.ndjson").write_text(
+        json.dumps({
+            "event_id": "7:filled", "event": "filled", "order_ticket": 7,
+            "position_ticket": 999,
+        }) + "\n", encoding="utf-8")
+
+    rapport = sauvegarder(
+        source, tmp_path / "sauvegardes",
+        fichiers=("trades.ndjson", "positions.json", "pending_limits.json",
+                  "limit_lifecycle.ndjson"),
+    )
+
+    assert rapport["coherent"] is False
+    assert any("position 42" in item for item in rapport["coherence_metier"]["incoherences"])
+
+
+def test_copies_ecrites_dans_un_staging_avant_la_publication(
+        tmp_path: Path) -> None:
+    """Un crash ne laisse pas de faux instantane directement dans la destination."""
+    source = _source(tmp_path)
+    destination = tmp_path / "sauvegardes"
+    reel = shutil.copy2
+    parents_observes: list[Path] = []
+
+    def copie_observant(src, dst, *args, **kwargs):
+        parents_observes.append(Path(dst).parents[1])
+        return reel(src, dst, *args, **kwargs)
+
+    with mock.patch("titanium.sauvegarde.shutil.copy2", side_effect=copie_observant):
+        sauvegarder(source, destination, fichiers=FICHIERS)
+
+    assert parents_observes
+    assert {parent.name for parent in parents_observes} == {".staging"}

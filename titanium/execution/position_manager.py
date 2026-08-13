@@ -450,7 +450,13 @@ def _cloture_depuis_historique(
                 continue
             filtres.append(deal)
 
-        deals = filtres
+        deals = sorted(
+            filtres,
+            key=lambda deal: (
+                float(getattr(deal, "time_msc", 0) or 0)
+                or float(getattr(deal, "time", 0) or 0)
+            ),
+        )
         if not deals:
             return None, "", 0.0, 0.0
 
@@ -1070,6 +1076,10 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
         rapport["history_recovery"] = {
             "recovered": 0,
             "scanned": 0,
+            "mt5_closed": 0,
+            "journal_edge": 0,
+            "missing_in_edge": 0,
+            "missing_in_edge_rate": 0.0,
             "reason": f"RECOVERY_ERROR:{type(exc).__name__}",
         }
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from titanium.execution.position_manager import TrackedState, load_state, save_state
@@ -232,7 +232,14 @@ def _order_issue(mt5, order_ticket: str) -> tuple[str, dict]:
     return issue, {"broker_state": state, "broker_comment": comment}
 
 
-def _filled_order_snapshot(mt5, order_ticket: str) -> dict | None:
+def _filled_order_snapshot(
+    mt5,
+    order_ticket: str,
+    *,
+    magic: int,
+    symbol: str,
+    side: int,
+) -> dict | None:
     """Retourne la preuve broker d'un fill disparu avant le tour suivant.
 
     Une limite peut etre remplie puis cloturee en moins d'une minute. Elle
@@ -246,21 +253,93 @@ def _filled_order_snapshot(mt5, order_ticket: str) -> dict | None:
         return None
     if not history:
         return None
-    order = max(history, key=lambda item: getattr(item, "time_done", 0) or 0)
+    try:
+        expected_ticket = int(order_ticket)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    matching_orders = []
+    for item in history:
+        try:
+            if int(getattr(item, "ticket", 0) or 0) == expected_ticket:
+                matching_orders.append(item)
+        except (TypeError, ValueError):
+            continue
+    if not matching_orders:
+        return None
+    order = max(
+        matching_orders,
+        key=lambda item: getattr(item, "time_done_msc", 0)
+        or getattr(item, "time_done", 0) or 0,
+    )
     try:
         state = int(getattr(order, "state", -1))
         filled_state = int(getattr(mt5, "ORDER_STATE_FILLED", 4))
         position_ticket = int(getattr(order, "position_id", 0) or 0)
-    except (TypeError, ValueError):
+        order_magic = int(getattr(order, "magic", 0) or 0)
+        order_type = int(getattr(order, "type", -1))
+        expected_type = int(getattr(
+            mt5,
+            "ORDER_TYPE_BUY_LIMIT" if int(side) > 0 else "ORDER_TYPE_SELL_LIMIT",
+        ))
+        order_volume = float(getattr(order, "volume_initial", 0.0) or 0.0)
+    except (AttributeError, TypeError, ValueError):
         return None
-    if state != filled_state or position_ticket <= 0:
+    if (
+        state != filled_state
+        or position_ticket <= 0
+        or order_magic != int(magic)
+        or str(getattr(order, "symbol", "") or "") != str(symbol)
+        or order_type != expected_type
+        or not math.isfinite(order_volume)
+        or order_volume <= 0
+    ):
         return None
+
+    # Le courtier a deja ignore des filtres `ticket=` et `position=`. Le deal
+    # IN relie au meme ordre est donc la preuve porteuse du fill, de son sens,
+    # de son volume et de son prix; l'ordre historique seul ne suffit pas.
     try:
-        fill_price = float(
-            getattr(order, "price_current", 0.0)
-            or getattr(order, "price_open", 0.0)
-            or 0.0
-        )
+        end = datetime.now(timezone.utc) + timedelta(days=1)
+        deals = mt5.history_deals_get(
+            end - timedelta(days=30), end, position=position_ticket,
+        ) or []
+        expected_deal_type = int(getattr(
+            mt5,
+            "DEAL_TYPE_BUY" if int(side) > 0 else "DEAL_TYPE_SELL",
+        ))
+        entry_in = int(getattr(mt5, "DEAL_ENTRY_IN", 0))
+    except Exception:  # noqa: BLE001 - preuve absente = fail-closed
+        return None
+    fills = []
+    for deal in deals:
+        try:
+            is_expected = (
+                int(getattr(deal, "position_id", 0) or 0) == position_ticket
+                and int(getattr(deal, "order", 0) or 0) == expected_ticket
+                and int(getattr(deal, "magic", 0) or 0) == int(magic)
+                and str(getattr(deal, "symbol", "") or "") == str(symbol)
+                and int(getattr(deal, "type", -1)) == expected_deal_type
+                and int(getattr(deal, "entry", -1)) == entry_in
+            )
+            volume = float(getattr(deal, "volume", 0.0) or 0.0)
+            price = float(getattr(deal, "price", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if (
+            is_expected
+            and volume > 0
+            and math.isfinite(volume)
+            and price > 0
+            and math.isfinite(price)
+        ):
+            fills.append((volume, price))
+    filled_volume = sum(volume for volume, _price in fills)
+    if not fills or not math.isclose(
+        filled_volume, order_volume, rel_tol=1e-9, abs_tol=1e-9,
+    ):
+        return None
+    fill_price = sum(volume * price for volume, price in fills) / filled_volume
+    try:
         sl = float(getattr(order, "sl", 0.0) or 0.0)
         tp = float(getattr(order, "tp", 0.0) or 0.0)
     except (TypeError, ValueError):
@@ -383,7 +462,13 @@ def reconcile_pending_contexts(mt5, *, magic: int, state_path: Path,
         for key, value in list(pending.items()):
             if key in live_orders:
                 continue
-            recovered = _filled_order_snapshot(mt5, key)
+            recovered = _filled_order_snapshot(
+                mt5,
+                key,
+                magic=magic,
+                symbol=str(value.get("symbol", "") or ""),
+                side=int(value.get("side", 0) or 0),
+            )
             if recovered is not None:
                 template = TrackedState.from_dict(value["state"])
                 position_ticket = str(recovered["position_ticket"])

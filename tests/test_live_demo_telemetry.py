@@ -9,6 +9,7 @@ from tools.live_demo import (
     _code_portabilite,
     _compter_refus_execution,
     _compter_tunnel,
+    _journal_coverage,
     _memoriser_contexte_limit,
 )
 
@@ -40,6 +41,25 @@ def test_compteur_tunnel_accepte_un_volume_et_reste_serialisable():
     _compter_tunnel(stats, "flow", "portables", 0)
     assert stats["tunnel"]["flow"] == {"catalogue": 149, "portables": 4}
     json.dumps(stats)
+
+
+def test_couverture_journal_est_stable_et_serialisable():
+    coverage = _journal_coverage({
+        "mt5_closed": 98,
+        "journal_edge": 43,
+        "missing_in_edge": 55,
+        "missing_in_edge_rate": 55 / 98,
+    })
+
+    assert coverage == {
+        "mt5_closed": 98,
+        "journal_edge": 43,
+        "missing_in_edge": 55,
+        "missing_in_edge_rate": 55 / 98,
+        "lookback_days": 7,
+        "reason": "",
+    }
+    json.dumps(coverage)
 
 
 def test_refus_execution_est_ventile_par_motif_et_porte():

@@ -105,6 +105,8 @@ def test_rapport_nomme_manquants_orphelins_et_ecart_pnl() -> None:
     ]
     report = reconcile(positions, journal)
     assert report["ok"] is False
+    assert report["accounting_ok"] is False
+    assert report["edge_ok"] is False
     assert report["missing_in_journal"] == ["11"]
     assert report["orphan_in_journal"] == ["99"]
     assert report["exact_cost_missing"] == ["10"]
@@ -121,6 +123,8 @@ def test_rapport_exact_est_vert() -> None:
     )]
     report = reconcile(positions, journal)
     assert report["ok"] is True
+    assert report["accounting_ok"] is True
+    assert report["edge_ok"] is True
     assert report["matched"] == 1
 
 
@@ -140,6 +144,9 @@ def test_rejet_historique_couvre_lecart_sans_polluer_edge() -> None:
     assert report["recovered_without_context"] == ["10"]
     assert report["accounted"] == 1
     assert report["journal_live"] == 0
+    assert report["accounting_ok"] is True
+    assert report["edge_ok"] is False
+    assert report["ok"] is False
 
 
 def test_pnl_implausible_est_signale_meme_sans_risque_money() -> None:

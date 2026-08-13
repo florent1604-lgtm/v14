@@ -259,10 +259,15 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
     ]
     strategy_rows = [row for row in mt5_rows if row.strategy_observation]
     exit_class_counts = Counter(row.exit_class for row in mt5_rows)
-    ok = not any((missing, orphan, duplicates, pnl_mismatches,
-                  pnl_implausible, exact_cost_missing))
+    accounting_ok = not any((missing, orphan, duplicates, pnl_mismatches,
+                             pnl_implausible))
+    edge_ok = accounting_ok and not any((missing_edge, exact_cost_missing))
     return {
-        "ok": ok,
+        # Alias conservateur maintenu pour les anciens consommateurs : un vert
+        # signifie desormais que la comptabilite ET la cohorte edge sont saines.
+        "ok": edge_ok,
+        "accounting_ok": accounting_ok,
+        "edge_ok": edge_ok,
         "mt5_closed": len(mt5_rows),
         "journal_live": len(live),
         "matched": len(set(mt5_by_id) & set(journal_by_id)),

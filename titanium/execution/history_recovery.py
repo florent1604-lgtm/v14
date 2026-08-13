@@ -12,8 +12,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from titanium.analysis.reconciliation import aggregate_mt5_deals
+from titanium.data.mt5_vendor import decalage_serveur
 
 _REASON = "CONTEXTE_ABSENT_CLOTURE_HISTORIQUE"
+_CLOCK_SYMBOLS = ("BTCUSD", "ETHUSD", "EURUSD", "XAUUSD")
 
 
 def _tickets(path: Path) -> set[str]:
@@ -35,6 +37,20 @@ def _tickets(path: Path) -> set[str]:
     return result
 
 
+def _server_iso_to_utc(value: str, offset_seconds: int) -> str:
+    """Ramene l'ISO encode en heure serveur vers le vrai UTC."""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return (
+            parsed.astimezone(timezone.utc)
+            - timedelta(seconds=int(offset_seconds))
+        ).isoformat()
+    except (TypeError, ValueError, OverflowError):
+        return ""
+
+
 def recover_unobserved_closures(
     mt5,
     *,
@@ -50,7 +66,15 @@ def recover_unobserved_closures(
     Les tickets protégés restent au gestionnaire normal afin qu'un échec I/O
     ne transforme jamais un trade mesurable en observation sans contexte.
     """
-    report = {"recovered": 0, "scanned": 0, "reason": ""}
+    report = {
+        "recovered": 0,
+        "scanned": 0,
+        "mt5_closed": 0,
+        "journal_edge": 0,
+        "missing_in_edge": 0,
+        "missing_in_edge_rate": 0.0,
+        "reason": "",
+    }
     history = getattr(mt5, "history_deals_get", None)
     if not callable(history):
         report["reason"] = "HISTORY_UNAVAILABLE"
@@ -59,7 +83,11 @@ def recover_unobserved_closures(
     until = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     since = until - timedelta(days=max(1, int(lookback_days)))
     try:
-        deals = history(since, until + timedelta(minutes=1))
+        # Les epochs de ce terminal sont encodes en heure serveur (UTC+3
+        # observe), bien que l'API attende des bornes UTC. Une marge symetrique
+        # evite donc de perdre les clotures recentes; le filtre UTC exact juste
+        # apres retire ce qui deborde reellement de la fenetre.
+        deals = history(since - timedelta(days=1), until + timedelta(days=1))
         if deals is None:
             report["reason"] = "HISTORY_UNAVAILABLE"
             return report
@@ -68,13 +96,37 @@ def recover_unobserved_closures(
             magic=magic,
             open_position_ids=open_position_ids,
         )
+        symbols = tuple({row.symbol for row in positions if row.symbol})
+        offset_seconds = decalage_serveur(
+            mt5,
+            symbols + _CLOCK_SYMBOLS,
+        )
+        window_end = until + timedelta(minutes=1)
+        positions = [
+            row for row in positions
+            if since <= datetime.fromisoformat(
+                _server_iso_to_utc(row.closed_at, offset_seconds),
+            ) <= window_end
+        ]
     except Exception as exc:  # noqa: BLE001 - observation fail-closed
         report["reason"] = f"HISTORY_ERROR:{type(exc).__name__}"
         return report
 
     report["scanned"] = len(positions)
+    report["mt5_closed"] = len(positions)
     rejected_path = journal_path.parent / "journal_rejets.ndjson"
-    known = _tickets(journal_path) | _tickets(rejected_path)
+    edge_tickets = _tickets(journal_path)
+    closed_tickets = {row.position_id for row in positions}
+    edge_matches = closed_tickets & edge_tickets
+    missing_edge = closed_tickets - edge_tickets
+    report["journal_edge"] = len(edge_matches)
+    report["missing_in_edge"] = len(missing_edge)
+    if positions:
+        report["missing_in_edge_rate"] = round(
+            len(missing_edge) / len(positions), 6,
+        )
+
+    known = edge_tickets | _tickets(rejected_path)
     protected = {str(value) for value in protected_position_ids}
     missing = [
         row for row in positions
@@ -91,8 +143,10 @@ def recover_unobserved_closures(
                     "ticket": f"live:{row.position_id}",
                     "symbol": row.symbol,
                     "reason": _REASON,
-                    "ts_open": row.opened_at,
-                    "ts_exit": row.closed_at,
+                    "ts_open": _server_iso_to_utc(
+                        row.opened_at, offset_seconds),
+                    "ts_exit": _server_iso_to_utc(
+                        row.closed_at, offset_seconds),
                     "net_currency": row.net_currency,
                     "profit": row.profit,
                     "commission": row.commission,

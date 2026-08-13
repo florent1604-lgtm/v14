@@ -174,6 +174,24 @@ class TestFiltreCourtierIgnore:
 
         assert result == (None, "", 0.0, 0.0)
 
+    def test_plusieurs_sorties_prennent_la_derniere_chronologique(self):
+        deals = [
+            _deal(time=10, entry=0, price=0.85700),
+            _deal(time=50, time_msc=50_000, entry=1, price=0.86200,
+                  profit=7.0),
+            _deal(time=40, time_msc=40_000, entry=1, price=0.86100,
+                  profit=5.0),
+        ]
+
+        prix, quand, _frais, net = _cloture_depuis_historique(
+            _mt5_qui_ignore_le_filtre(deals), str(TICKET),
+            expected_symbol=SYMBOLE,
+        )
+
+        assert prix == pytest.approx(0.86200)
+        assert quand.endswith("00:00:50+00:00")
+        assert net == pytest.approx(12.0)
+
     def test_historique_complet_du_compte_ne_deborde_pas(self):
         """Volume réel : 115 deals, 32 symboles, 61 position_id.
 

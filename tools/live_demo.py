@@ -158,6 +158,16 @@ def battre(stats: dict, *, armer: bool, equity: float = 0.0,
     try:
         import json
 
+        # Incidents de lecture de l'état suivi. Un fichier positions.json
+        # abîmé rendait `{}` en silence : les positions vivantes étaient
+        # réadoptées sans contexte et leurs clôtures partaient en quarantaine.
+        # Le battement est le seul canal que le tableau de bord relit déjà.
+        try:
+            from titanium.execution.position_manager import incidents_etat
+            incidents = incidents_etat()
+        except Exception:  # noqa: BLE001
+            incidents = []
+
         BATTEMENT.parent.mkdir(parents=True, exist_ok=True)
         tmp = BATTEMENT.with_suffix(".tmp")
         tmp.write_text(json.dumps({
@@ -167,10 +177,26 @@ def battre(stats: dict, *, armer: bool, equity: float = 0.0,
             "equity": equity,
             "portables": portables,
             "stats": dict(stats),
+            "etat_incidents": incidents[-5:],
+            "etat_incidents_total": len(incidents),
         }, ensure_ascii=False), encoding="utf-8")
         tmp.replace(BATTEMENT)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _journal_coverage(recovery: dict | None) -> dict:
+    """Normalise la couverture MT5 -> journal pour le heartbeat."""
+    recovery = recovery or {}
+    return {
+        "mt5_closed": int(recovery.get("mt5_closed", 0) or 0),
+        "journal_edge": int(recovery.get("journal_edge", 0) or 0),
+        "missing_in_edge": int(recovery.get("missing_in_edge", 0) or 0),
+        "missing_in_edge_rate": float(
+            recovery.get("missing_in_edge_rate", 0.0) or 0.0),
+        "lookback_days": 7,
+        "reason": str(recovery.get("reason", "") or ""),
+    }
 
 
 def _compter_tunnel(stats: dict, etape: str, motif: str, nombre: int = 1) -> None:
@@ -908,6 +934,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     account=compte,
                     journal_path=RACINE / "results" / "trades.ndjson",
                     manage_stops=armer and politique.enabled,
+                )
+                stats["journal_coverage"] = _journal_coverage(
+                    r.get("history_recovery"),
                 )
                 if r.get("moved"):
                     print(f"    gestion : {r['moved']} stop(s) déplacé(s)", flush=True)

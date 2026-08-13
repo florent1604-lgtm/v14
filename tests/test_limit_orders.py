@@ -334,7 +334,12 @@ def test_fill_et_cloture_entre_deux_tours_conservent_le_contexte(tmp_path):
 
     class Terminal:
         ORDER_TYPE_BUY = 0
+        ORDER_TYPE_BUY_LIMIT = 2
+        ORDER_TYPE_SELL_LIMIT = 3
         ORDER_STATE_FILLED = 4
+        DEAL_TYPE_BUY = 0
+        DEAL_TYPE_SELL = 1
+        DEAL_ENTRY_IN = 0
 
         def orders_get(self):
             return ()
@@ -342,8 +347,16 @@ def test_fill_et_cloture_entre_deux_tours_conservent_le_contexte(tmp_path):
         def history_orders_get(self, **kwargs):
             return [SimpleNamespace(
                 ticket=555, state=4, position_id=999, time_done=123,
+                magic=14_000, symbol="EURUSD", type=2, volume_initial=0.1,
                 price_open=1.1000, price_current=1.0999,
                 sl=1.0949, tp=1.1074, comment="filled",
+            )]
+
+        def history_deals_get(self, *_args, **_kwargs):
+            return [SimpleNamespace(
+                position_id=999, order=555, magic=14_000,
+                symbol="EURUSD", type=0, entry=0,
+                volume=0.1, price=1.0999,
             )]
 
     report = reconcile_pending_contexts(
@@ -364,6 +377,64 @@ def test_fill_et_cloture_entre_deux_tours_conservent_le_contexte(tmp_path):
     summary = limit_lifecycle_summary(lifecycle_path)
     assert summary["filled"] == 1
     assert summary["unknown"] == 0
+
+
+@pytest.mark.parametrize("bad_field,bad_value", [
+    ("ticket", 999),
+    ("magic", 7),
+    ("symbol", "GBPUSD"),
+    ("type", 3),
+])
+def test_fill_historique_identite_broker_incoherente_reste_fail_closed(
+    tmp_path, bad_field, bad_value,
+):
+    pending_path = tmp_path / "pending.json"
+    template = TrackedState(
+        r=0.005, symbol="EURUSD", side=1, entry=1.1000,
+        context_key="EURUSD|long|continuation|3p", limit_order_ticket=555,
+    )
+    save_pending_context(
+        pending_path, order_ticket=555, symbol="EURUSD", side=1,
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        state=template,
+    )
+
+    class Terminal:
+        ORDER_TYPE_BUY_LIMIT = 2
+        ORDER_TYPE_SELL_LIMIT = 3
+        ORDER_STATE_FILLED = 4
+        DEAL_TYPE_BUY = 0
+        DEAL_TYPE_SELL = 1
+        DEAL_ENTRY_IN = 0
+
+        def orders_get(self):
+            return ()
+
+        def history_orders_get(self, **_kwargs):
+            values = {
+                "ticket": 555, "state": 4, "position_id": 999,
+                "time_done": 123, "magic": 14_000, "symbol": "EURUSD",
+                "type": 2, "volume_initial": 0.1, "sl": 1.095, "tp": 1.1075,
+            }
+            values[bad_field] = bad_value
+            return [SimpleNamespace(**values)]
+
+        def history_deals_get(self, *_args, **_kwargs):
+            return [SimpleNamespace(
+                position_id=999, order=555, magic=14_000,
+                symbol="EURUSD", type=0, entry=0,
+                volume=0.1, price=1.0999,
+            )]
+
+    report = reconcile_pending_contexts(
+        Terminal(), magic=14_000, state_path=tmp_path / "positions.json",
+        pending_path=pending_path, positions=[],
+        lifecycle_path=tmp_path / "lifecycle.ndjson",
+    )
+
+    assert report["adopted"] == 0
+    assert report["recovered_filled"] == 0
+    assert report["pending"] == 1
 
 
 def test_fill_historique_sans_position_id_reste_fail_closed(tmp_path):

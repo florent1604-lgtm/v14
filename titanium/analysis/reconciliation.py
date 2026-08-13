@@ -12,8 +12,8 @@ import math
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 
+from titanium.data.mt5_vendor import decalage_serveur_cache, heure_serveur_en_utc
 from titanium.edge import PNL_R_MAX
 
 _ENTRY_OUT = frozenset({1, 2, 3})
@@ -40,9 +40,9 @@ def _number(value) -> float:
         return 0.0
 
 
-def _iso(epoch) -> str:
+def _iso(epoch, server_offset_seconds: int = 0) -> str:
     try:
-        return datetime.fromtimestamp(float(epoch), tz=timezone.utc).isoformat()
+        return heure_serveur_en_utc(float(epoch), server_offset_seconds)
     except (TypeError, ValueError, OSError):
         return ""
 
@@ -73,6 +73,11 @@ class Mt5ClosedPosition:
     strategy_observation: bool
     censored: bool
     deal_count: int
+    exit_price: float = 0.0
+    entry_deal_count: int = 0
+    entry_volume: float = 0.0
+    exit_volume: float = 0.0
+    accounting_complete: bool = False
 
     def __post_init__(self) -> None:
         # Invariant de mesure : une sortie interrompue manuellement ne décrit
@@ -94,6 +99,7 @@ def aggregate_mt5_deals(
     magic: int = 14_000,
     comment_marker: str = "titanium-v14",
     open_position_ids: Iterable[str | int] = (),
+    server_offset_seconds: int | None = None,
 ) -> list[Mt5ClosedPosition]:
     """Agrège les deals par position et garde les positions attribuables à V14.
 
@@ -107,6 +113,15 @@ def aggregate_mt5_deals(
         if position_id == "0":
             continue
         groups.setdefault(position_id, []).append(deal)
+
+    if server_offset_seconds is None:
+        symbols = tuple({
+            str(getattr(row, "symbol", "") or "")
+            for rows in groups.values()
+            for row in rows
+            if str(getattr(row, "symbol", "") or "")
+        })
+        server_offset_seconds = decalage_serveur_cache(symbols)
 
     still_open = {str(value) for value in open_position_ids}
     marker = str(comment_marker or "").lower()
@@ -122,6 +137,21 @@ def aggregate_mt5_deals(
             row for row in rows
             if int(_number(getattr(row, "entry", -1))) in _ENTRY_OUT
         ]
+        entries = [
+            row for row in rows
+            if int(_number(getattr(row, "entry", -1))) == 0
+        ]
+        entry_volume = sum(
+            abs(_number(getattr(row, "volume", 0.0))) for row in entries
+        )
+        exit_volume = sum(
+            abs(_number(getattr(row, "volume", 0.0))) for row in exits
+        )
+        accounting_complete = (
+            bool(entries)
+            and entry_volume > 0
+            and math.isclose(entry_volume, exit_volume, rel_tol=1e-6, abs_tol=1e-9)
+        )
         if not tagged or not exits or position_id in still_open:
             continue
 
@@ -153,8 +183,10 @@ def aggregate_mt5_deals(
         result.append(Mt5ClosedPosition(
             position_id=position_id,
             symbol=str(getattr(rows[0], "symbol", "") or ""),
-            opened_at=_iso(getattr(rows[0], "time", 0)),
-            closed_at=_iso(getattr(exits[-1], "time", 0)),
+            opened_at=_iso(
+                getattr(rows[0], "time", 0), server_offset_seconds),
+            closed_at=_iso(
+                getattr(exits[-1], "time", 0), server_offset_seconds),
             net_currency=round(profit + commission + swap + fee, 8),
             profit=round(profit, 8),
             commission=round(commission, 8),
@@ -167,6 +199,11 @@ def aggregate_mt5_deals(
             strategy_observation=not manual,
             censored=manual,
             deal_count=len(rows),
+            exit_price=_number(getattr(exits[-1], "price", 0.0)),
+            entry_deal_count=len(entries),
+            entry_volume=entry_volume,
+            exit_volume=exit_volume,
+            accounting_complete=accounting_complete,
         ))
 
     return sorted(result, key=lambda row: (row.closed_at, row.position_id))

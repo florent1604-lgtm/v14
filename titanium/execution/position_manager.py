@@ -483,7 +483,6 @@ MOTIF_REFUS_DEFINITIF = frozenset({
 })
 
 MOTIF_SORTIE_INTROUVABLE = "SORTIE_INTROUVABLE"
-MAX_SORTIE_INTROUVABLE_TOURS = 15
 MAX_SORTIE_INTROUVABLE_SECONDES = 15 * 60
 
 # Suffixes ajoutes par les courtiers a un instrument logique. La comparaison
@@ -817,7 +816,8 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
 
 
 def _quarantiner_rejet(st: TrackedState, ticket: str, *, reason: str,
-                       journal_path: Path, ts_exit: str) -> bool:
+                       journal_path: Path, ts_exit: str,
+                       age_seconds: float | None = None) -> bool:
     """Conserve un rejet définitif sans le faire passer pour une mesure d'edge."""
     try:
         path = journal_path.parent / "journal_rejets.ndjson"
@@ -830,8 +830,8 @@ def _quarantiner_rejet(st: TrackedState, ticket: str, *, reason: str,
                 except (json.JSONDecodeError, AttributeError):
                     continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({
+        recoverable = reason.startswith(MOTIF_SORTIE_INTROUVABLE)
+        payload = {
                 "ticket": marque,
                 "symbol": st.symbol,
                 "reason": reason,
@@ -844,7 +844,15 @@ def _quarantiner_rejet(st: TrackedState, ticket: str, *, reason: str,
                 "source": "live",
                 "history_missing_since": st.history_missing_since,
                 "history_missing_attempts": st.history_missing_attempts,
-            }, ensure_ascii=False) + "\n")
+        }
+        if recoverable:
+            payload.update(
+                quarantine_recoverable=True,
+                tracked_state=st.to_dict(),
+                history_missing_age_seconds=max(0, int(age_seconds or 0)),
+            )
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
         return True
     except Exception:  # noqa: BLE001 — l'appelant conserve l'état pour réessai
         return False
@@ -1082,19 +1090,17 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
             except (TypeError, ValueError):
                 age_manquant = 0.0
 
-            escalade = (
-                st.history_missing_attempts >= MAX_SORTIE_INTROUVABLE_TOURS
-                or age_manquant >= MAX_SORTIE_INTROUVABLE_SECONDES
-            )
+            escalade = age_manquant >= MAX_SORTIE_INTROUVABLE_SECONDES
             if escalade and _quarantiner_rejet(
                 st,
                 tk,
                 reason=(
                     f"{MOTIF_SORTIE_INTROUVABLE}_APRES_"
-                    f"{st.history_missing_attempts}_ESSAIS"
+                    f"{int(age_manquant)}_SECONDES"
                 ),
                 journal_path=cible_journal,
                 ts_exit="",
+                age_seconds=age_manquant,
             ):
                 etat.pop(tk, None)
                 rapport["journal_rejected"] = rapport.get("journal_rejected", 0) + 1
@@ -1107,7 +1113,7 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                 rapport["history_missing"] = rapport.get("history_missing", 0) + 1
                 rapport["details"].append(
                     f"#{tk} {MOTIF_SORTIE_INTROUVABLE} — essai "
-                    f"{st.history_missing_attempts}/{MAX_SORTIE_INTROUVABLE_TOURS}")
+                    f"{st.history_missing_attempts}, age={int(age_manquant)} s")
             continue
         # Convention unique live/backtest : cost_r est une decomposition
         # complete (spread + commission + swap + fee), jamais un ajustement

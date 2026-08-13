@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from titanium.analysis.reconciliation import aggregate_mt5_deals, reconcile
@@ -8,7 +9,7 @@ from titanium.edge import ClosedTrade, PNL_R_MAX
 
 def deal(position, *, entry, magic=0, reason=3, profit=0.0,
          commission=0.0, swap=0.0, fee=0.0, comment="", time=1,
-         symbol="EURUSD"):
+         symbol="EURUSD", volume=1.0):
     return SimpleNamespace(
         position_id=position,
         entry=entry,
@@ -22,6 +23,7 @@ def deal(position, *, entry, magic=0, reason=3, profit=0.0,
         time=time,
         time_msc=time * 1000,
         symbol=symbol,
+        volume=volume,
     )
 
 
@@ -34,6 +36,48 @@ def test_sortie_serveur_magic_zero_reste_attribuee_a_v14() -> None:
     assert rows[0].position_id == "42"
     assert rows[0].close_reason == "SL"
     assert rows[0].manual_intervention is False
+
+
+def test_aggregation_convertit_l_horloge_serveur_en_utc() -> None:
+    instant_utc = int(datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc).timestamp())
+    offset_ete = 3 * 3600
+
+    rows = aggregate_mt5_deals([
+        deal(42, entry=0, magic=14_000, time=instant_utc + offset_ete),
+        deal(42, entry=1, profit=1, time=instant_utc + offset_ete + 60),
+    ], server_offset_seconds=offset_ete)
+
+    assert rows[0].opened_at == "2026-08-12T12:00:00+00:00"
+    assert rows[0].closed_at == "2026-08-12T12:01:00+00:00"
+
+
+def test_aggregation_accepte_le_decalage_hiver_sans_regle_locale() -> None:
+    instant_utc = int(datetime(2026, 12, 12, 12, 0, tzinfo=timezone.utc).timestamp())
+    offset_hiver = 2 * 3600
+
+    rows = aggregate_mt5_deals([
+        deal(43, entry=0, magic=14_000, time=instant_utc + offset_hiver),
+        deal(43, entry=1, profit=1, time=instant_utc + offset_hiver + 60),
+    ], server_offset_seconds=offset_hiver)
+
+    assert rows[0].opened_at == "2026-12-12T12:00:00+00:00"
+    assert rows[0].closed_at == "2026-12-12T12:01:00+00:00"
+
+
+def test_aggregation_mesure_l_horloge_par_defaut(monkeypatch) -> None:
+    import titanium.analysis.reconciliation as reconciliation
+
+    instant_utc = int(datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc).timestamp())
+    monkeypatch.setattr(
+        reconciliation, "decalage_serveur_cache", lambda symbols: 3 * 3600,
+    )
+
+    rows = aggregate_mt5_deals([
+        deal(44, entry=0, magic=14_000, time=instant_utc + 3 * 3600),
+        deal(44, entry=1, profit=1, time=instant_utc + 3 * 3600 + 60),
+    ])
+
+    assert rows[0].opened_at == "2026-08-12T12:00:00+00:00"
 
 
 def test_position_legacy_est_acceptee_comme_position_id() -> None:

@@ -542,7 +542,7 @@ def test_disparition_sans_deal_sortie_conserve_etat(tmp_path):
     assert TradeJournal(journal).read_all() == []
 
 
-def test_sortie_introuvable_escalade_apres_borne(tmp_path):
+def test_sortie_introuvable_ne_s_escalade_pas_sur_le_nombre_de_tours(tmp_path):
     class Mt5EntreeSeule(FakeMt5):
         def history_deals_get(self, *args, **kwargs):
             return [type("D", (), {
@@ -575,14 +575,62 @@ def test_sortie_introuvable_escalade_apres_borne(tmp_path):
         journal_path=journal,
     )
 
+    tracked = load_state(state)["1"]
+    assert tracked.history_missing_attempts == 15
+    assert report["history_missing"] == 1
+    assert not (tmp_path / "journal_rejets.ndjson").exists()
+    assert TradeJournal(journal).read_all() == []
+
+
+def test_sortie_introuvable_escalade_sur_age_et_conserve_snapshot_complet(tmp_path):
+    class Mt5EntreeSeule(FakeMt5):
+        def history_deals_get(self, *args, **kwargs):
+            return [type("D", (), {
+                "time": 1_800_000_000,
+                "price": 1.10,
+                "position_id": 1,
+                "symbol": "EURUSD",
+                "entry": 0,
+                "profit": 0.0,
+                "commission": -1.0,
+                "swap": 0.0,
+                "fee": 0.0,
+                "magic": 14_000,
+                "comment": "titanium-v14",
+            })()]
+
+    state = tmp_path / "positions.json"
+    journal = tmp_path / "trades.ndjson"
+    missing_since = datetime.now(timezone.utc).timestamp() - 16 * 60
+    original = etat(
+        history_missing_since=datetime.fromtimestamp(
+            missing_since, timezone.utc,
+        ).isoformat(),
+        history_missing_attempts=1,
+    )
+    save_state(state, {"1": original})
+
+    report = manage_once(
+        Mt5EntreeSeule(positions=()),
+        policy=ARMEE,
+        params=P,
+        state_path=state,
+        account=compte_demo(),
+        journal_path=journal,
+    )
+
     assert "1" not in load_state(state)
     assert report["journal_rejected"] == 1
     rejected = json.loads(
         (tmp_path / "journal_rejets.ndjson").read_text(encoding="utf-8")
     )
-    assert rejected["reason"] == "SORTIE_INTROUVABLE_APRES_15_ESSAIS"
-    assert rejected["history_missing_attempts"] == 15
-    assert TradeJournal(journal).read_all() == []
+    assert rejected["reason"].startswith("SORTIE_INTROUVABLE_APRES_")
+    assert rejected["history_missing_attempts"] == 2
+    assert rejected["history_missing_age_seconds"] >= 15 * 60
+    assert rejected["quarantine_recoverable"] is True
+    assert rejected["tracked_state"] == original.to_dict() | {
+        "history_missing_attempts": 2,
+    }
 
 
 def test_rejet_definitif_est_quarantine_sans_interblocage(tmp_path):

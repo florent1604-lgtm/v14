@@ -7,13 +7,14 @@ changement de seuil, aucun ordre déclenché par cette vérification.
 
 - suite complète intégrée : **1787 passed, 2 skipped, 0 failed** ;
 - suite ciblée horloge/quarantaine : **146 passed** ;
-- rapprochement MT5 réel, après alignement d'horloge : **107/107 clôtures
-  comptabilisées**, **52/52 lignes live appariées**, 0 orpheline et 0 mismatch ;
+- rapprochement MT5 réel post-rechargement, après alignement d'horloge :
+  **108/108 clôtures comptabilisées**, **53/53 lignes live appariées**, 0
+  orpheline et 0 mismatch ;
 - l'état `edge_ok=false` est attendu : 55 clôtures historiques restent
   `coverage_only`, sans contexte inventé, et 52 clôtures n'ont pas encore de
   coût courtier exact ;
-- services observés avant intégration finale : `live_demo`, `dashboard` et
-  `analystes` actifs, heartbeat armé et frais.
+- rechargement unique exécuté par Prime après le commit final : `live_demo`,
+  `dashboard` et `analystes` ont de nouveaux PID, heartbeat armé et frais.
 
 ## Commits reproduits
 
@@ -24,7 +25,7 @@ changement de seuil, aucun ordre déclenché par cette vérification.
 | `5612487`, `ed2d2eb` | analyse des pertes | 44 sources, 2 exclusions runtime, 42 propres ; `sum(bins)==n==25`, sceau déterministe |
 | `52ca98d` | horloge et quarantaine | offsets UTC+3/UTC+2, escalade à l'âge réel, snapshot conservé, résolution append-only avec IN/OUT équilibrés |
 | `9aa4c6f`, `b4cdd3d` | trous runtime | qualification par couverture temporelle et 13 tests ; aucun compte absolu de barres |
-| `bc44ef1` | rapprochement réel | le CLI utilisait encore des bornes UTC brutes ; corrigé pour l'horloge serveur, puis vérifié sur MT5 : faux 5 orphelins supprimé |
+| `bc44ef1` | rapprochement réel | le CLI utilisait encore des bornes UTC brutes ; corrigé pour l'horloge serveur, puis vérifié sur MT5 : cinq faux orphelins supprimés |
 | `ed0c256` | rejeu breakeven | 9/9 lignes UTC rejouées, 43 anciennes refusées ; résultat mesuré mais NO-GO à cause de la fidélité et de la taille |
 
 ## Mesures économiques au moment de la clôture

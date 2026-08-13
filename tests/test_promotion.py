@@ -25,13 +25,14 @@ class _T:
     """Trade clos minimal, avec les seuls champs que le protocole lit."""
 
     def __init__(self, pnl_r, *, classe="fx", support=3, source="live",
-                 cost_r=0.01, exact=True):
+                 cost_r=0.01, exact_net=True, exact_cost=False):
         self.pnl_r = pnl_r
         self.asset_class = classe
         self.support_pillars = support
         self.source = source
         self.cost_r = cost_r
-        self.exact_cost = exact
+        self.exact_net = exact_net
+        self.exact_cost = exact_cost
 
 
 def _lot(n, valeur=0.4, **kw):
@@ -106,10 +107,17 @@ class TestCriteres:
         """Un symbole non classé ne doit pas ouvrir le mode réel."""
         assert evaluate_cells(_lot(80, classe="")) == []
 
-    def test_cout_non_mesure_refuse(self):
-        lot = _lot(70, exact=False)
+    def test_pnl_net_non_comptable_refuse(self):
+        lot = _lot(70, exact_net=False)
         v = evaluate_cells(lot)[0]
-        assert any("C3_COUT_MESURE" in b for b in v.bloquants)
+        assert any("C3_PNL_NET_COMPTABLE" in b for b in v.bloquants)
+
+    def test_spread_estime_ne_bloque_pas_un_pnl_net_comptable(self):
+        """La ventilation du spread reste diagnostique : le net MT5 inclut
+        deja spread, commission, swap et fee dans le resultat promu."""
+        lot = _lot(120, exact_net=True, exact_cost=False)
+        v = evaluate_cells(lot)[0]
+        assert not any("C3_" in b for b in v.bloquants)
 
     def test_esperance_negative_refusee(self):
         v = evaluate_cells(_lot(80, valeur=-0.2))[0]

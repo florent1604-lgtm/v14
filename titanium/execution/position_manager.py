@@ -512,7 +512,8 @@ def _symboles_mt5_equivalents(gauche: str, droite: str) -> bool:
 
 def _cloture_depuis_historique(
         mt5, ticket: str, *,
-        expected_symbol: str) -> tuple[float | None, str, float, float]:
+        expected_symbol: str,
+        diagnostic: dict | None = None) -> tuple[float | None, str, float, float]:
     """Prix, horodatage et FRAIS de clôture, lus dans l'historique des deals.
 
     Une position purgée n'est plus dans ``positions_get()`` — son prix de sortie
@@ -526,6 +527,8 @@ def _cloture_depuis_historique(
     Le total est rendu en devise ; la conversion en R appartient à l'appelant,
     seul à connaître la valeur du risque engagé.
     """
+    if diagnostic is not None:
+        diagnostic["accounting_complete"] = False
     try:
         from datetime import timedelta
 
@@ -574,6 +577,40 @@ def _cloture_depuis_historique(
         )
         if not deals:
             return None, "", 0.0, 0.0
+
+        # La preuve de completude porte uniquement sur les deals deja filtres
+        # par position ET symbole. Un adaptateur MT5 peut ignorer le filtre
+        # `position=` et rendre tout le compte ; les volumes d'un autre actif
+        # ne doivent jamais completer artificiellement cette position.
+        entries = [
+            deal for deal in deals
+            if int(getattr(deal, "entry", -1)) == 0
+        ]
+        exits = [
+            deal for deal in deals
+            if int(getattr(deal, "entry", -1)) in _DEAL_ENTRY_OUT
+        ]
+        entry_volume = sum(
+            abs(float(getattr(deal, "volume", 0.0) or 0.0))
+            for deal in entries
+        )
+        exit_volume = sum(
+            abs(float(getattr(deal, "volume", 0.0) or 0.0))
+            for deal in exits
+        )
+        accounting_complete = (
+            bool(entries)
+            and entry_volume > 0
+            and math.isclose(
+                entry_volume, exit_volume, rel_tol=1e-6, abs_tol=1e-9,
+            )
+        )
+        if diagnostic is not None:
+            diagnostic.update(
+                accounting_complete=accounting_complete,
+                entry_volume=entry_volume,
+                exit_volume=exit_volume,
+            )
 
         frais = 0.0
         brut = 0.0
@@ -629,6 +666,7 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
                         prix_sortie: float | None, ts_exit: str,
                         journal_path: Path, cost_r: float | None = None,
                         net_devise: float | None = None,
+                        exact_net: bool = False,
                         diagnostic: dict | None = None) -> bool:
     """Écrit UNE ligne immuable pour une position qui vient de se fermer.
 
@@ -729,7 +767,15 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
             risk_money=st.risque_devise,
             # Exact seulement si le PnL comptable ET la decomposition complete
             # du cout (spread + frais MT5) sont tous deux mesures.
-            exact_cost=cout_total is not None and st.spread_exact,
+            exact_cost=(
+                bool(exact_net)
+                and cout_total is not None
+                and st.spread_exact
+            ),
+            # `net_devise` est obligatoire plus haut : ce marqueur distingue
+            # la preuve de rentabilite nette de sa ventilation de cout, dont
+            # le spread reste aujourd'hui estime.
+            exact_net=bool(exact_net),
             pnl_r=round(pnl_r, 4),
             closed_at=ts_exit or datetime.now(timezone.utc).isoformat(),
             ticket=marque,
@@ -1070,8 +1116,10 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
     cible_journal = journal_path or (state_path.parent / "trades.ndjson")
     for tk in [t for t in etat if t not in vivants]:
         st = etat[tk]
+        diagnostic_historique: dict = {}
         prix, quand, frais, net = _cloture_depuis_historique(
-            mt5, tk, expected_symbol=st.symbol)
+            mt5, tk, expected_symbol=st.symbol,
+            diagnostic=diagnostic_historique)
         if prix is None or not quand:
             # L'absence de position dans un snapshot n'est pas une preuve de
             # clôture. Sans deal OUT explicite, conserver le contexte et
@@ -1130,6 +1178,7 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
             st, tk, prix_sortie=prix, ts_exit=quand,
             journal_path=cible_journal, cost_r=cout_r,
             net_devise=net if historique_exact else None,
+            exact_net=bool(diagnostic_historique.get("accounting_complete")),
             diagnostic=diagnostic,
         )
         deja_vu = False

@@ -65,15 +65,16 @@ def main() -> int:
               " câblage, elles ne compteront pas")
     verdicts.append(("strate renseignée", ok1))
 
-    # ── 2. Le coût est-il MESURÉ, et non reconstruit ?
-    exacts = sum(1 for t in trades if t.exact_cost)
+    # ── 2. Le PnL est-il le net comptable MT5, et non reconstruit ?
+    exacts = sum(1 for t in trades if t.exact_net)
     part = exacts / len(trades)
-    print(f"\n2. COÛT EXACT : {exacts}/{len(trades)} ({part:.0%})")
+    print(f"\n2. PNL NET COMPTABLE : {exacts}/{len(trades)} ({part:.0%})")
     if part < 0.9:
         print("   ⚠️  sous 90 %, le critère C3 bloquera la promotion.")
-        print("   Le PnL reste net comptable, mais la décomposition complète")
-        print("   spread + commission + swap + fee n'est pas encore exacte.")
-    verdicts.append(("coût mesuré ≥ 90 %", part >= 0.9))
+    couts_exacts = sum(1 for t in trades if t.exact_cost)
+    print(f"   Ventilation exacte des coûts (diagnostic) : "
+          f"{couts_exacts}/{len(trades)}")
+    verdicts.append(("PnL net comptable ≥ 90 %", part >= 0.9))
 
     # ── 3. Le mode et le quorum sont-ils cohérents ?
     modes = Counter(t.mode for t in trades)

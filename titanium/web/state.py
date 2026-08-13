@@ -777,6 +777,7 @@ def promotion() -> dict:
         "total_trades": len(trades),
         "journal_rejected": journal.rejected_lines,
         "strate_haute": sum(1 for t in trades if t.support_pillars >= 3),
+        "net_exact": sum(1 for t in trades if t.exact_net),
         "cout_exact": sum(1 for t in trades if t.exact_cost),
         "sans_classe": sum(1 for t in trades if not t.asset_class),
         "promues": list(promues),

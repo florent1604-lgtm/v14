@@ -47,8 +47,11 @@ def livre(tmp_path):
     return _make
 
 
-def trade(ctx="GER40|long|continuation|3p", pnl=1.0, cout=0.1) -> ClosedTrade:
-    return ClosedTrade(context=ctx, pnl_r=pnl, cost_r=cout)
+def trade(ctx="GER40|long|continuation|3p", pnl=1.0, cout=0.1,
+          exact_net=True) -> ClosedTrade:
+    return ClosedTrade(
+        context=ctx, pnl_r=pnl, cost_r=cout, exact_net=exact_net,
+    )
 
 
 CTX = Context("GER40", 1, "continuation", 3)
@@ -93,11 +96,27 @@ def test_edge_positif_reconnu(livre):
     assert v.expectancy_r == pytest.approx(1.0)
 
 
+def test_edge_positif_non_prouve_reste_inconnu(livre):
+    lb = livre([
+        trade(pnl=1.0, exact_net=False) for _ in range(MIN_SAMPLES)
+    ])
+    v = lb.verdict_for(CTX)
+    assert v.edge_ok is None
+    assert "net comptable" in v.reason
+
+
 def test_edge_negatif_reconnu(livre):
     lb = livre([trade(pnl=-0.5) for _ in range(MIN_SAMPLES)])
     v = lb.verdict_for(CTX)
     assert v.edge_ok is False
     assert v.expectancy_r < 0
+
+
+def test_edge_negatif_non_prouve_reste_bloque(livre):
+    lb = livre([
+        trade(pnl=-0.5, exact_net=False) for _ in range(MIN_SAMPLES)
+    ])
+    assert lb.verdict_for(CTX).edge_ok is False
 
 
 def test_cout_inconnu_ne_saffiche_pas_comme_gratuit(livre):
@@ -114,6 +133,7 @@ def test_couverture_des_couts_est_mesuree(livre):
     assert v.mean_cost_r == pytest.approx(0.2)
     assert v.known_cost_rate == pytest.approx(0.25)
     assert v.exact_cost_rate == pytest.approx(0.25)
+    assert v.exact_net_rate == pytest.approx(0.25)
 
 
 def test_esperance_nulle_ne_suffit_pas(livre):

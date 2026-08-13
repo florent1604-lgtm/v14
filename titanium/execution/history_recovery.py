@@ -110,6 +110,7 @@ def _resolve_quarantines(
                 journal_path=journal_path,
                 cost_r=cost_r,
                 net_devise=position.net_currency,
+                exact_net=True,
             )
         if not already_edge:
             continue

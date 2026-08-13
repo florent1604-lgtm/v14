@@ -245,6 +245,7 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
     duplicates = sorted(ticket for ticket, count in ticket_counts.items() if count > 1)
     pnl_mismatches = []
     pnl_implausible = []
+    exact_net_missing = []
     exact_cost_missing = []
 
     for position_id in sorted(set(mt5_by_id) & set(journal_by_id)):
@@ -252,6 +253,9 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
         trade = journal_by_id[position_id]
         risk_money = _number(getattr(trade, "risk_money", 0.0))
         journal_r = _number(getattr(trade, "pnl_r", 0.0))
+        if not bool(getattr(
+                trade, "exact_net", getattr(trade, "exact_cost", False))):
+            exact_net_missing.append(position_id)
         if not bool(getattr(trade, "exact_cost", False)):
             exact_cost_missing.append(position_id)
 
@@ -298,7 +302,10 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
     exit_class_counts = Counter(row.exit_class for row in mt5_rows)
     accounting_ok = not any((missing, orphan, duplicates, pnl_mismatches,
                              pnl_implausible))
-    edge_ok = accounting_ok and not any((missing_edge, exact_cost_missing))
+    # Le net comptable exact suffit a prouver la rentabilite apres tous les
+    # couts. La decomposition exacte du spread reste reportee separement :
+    # elle ne doit ni etre inventee, ni rendre la collecte impossible.
+    edge_ok = accounting_ok and not any((missing_edge, exact_net_missing))
     return {
         # Alias conservateur maintenu pour les anciens consommateurs : un vert
         # signifie desormais que la comptabilite ET la cohorte edge sont saines.
@@ -322,6 +329,7 @@ def reconcile(mt5_positions: Iterable[Mt5ClosedPosition], journal_trades: Iterab
         "duplicate_journal_tickets": duplicates,
         "pnl_mismatches": pnl_mismatches,
         "pnl_implausible": pnl_implausible,
+        "exact_net_missing": exact_net_missing,
         "exact_cost_missing": exact_cost_missing,
         "manual_censored_mt5": manual,
         "explicit_titanium_close_mt5": explicit_batch,

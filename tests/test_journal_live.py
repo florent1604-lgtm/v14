@@ -386,21 +386,55 @@ def test_la_cloture_produit_une_ligne_de_journal(tmp_path):
     assert "1" not in load_state(f), "le ticket doit être purgé de l'état"
 
 
+def test_cloture_complete_marque_le_net_comptable_exact(tmp_path):
+    class Mt5Complet(FakeMt5):
+        def history_deals_get(self, *a, **k):
+            base = {
+                "position_id": 1, "symbol": "EURUSD", "volume": 0.1,
+                "commission": 0.0, "swap": 0.0, "fee": 0.0,
+            }
+            return [
+                type("D", (), {
+                    **base, "time": 1_770_000_000, "price": 1.1000,
+                    "entry": 0, "profit": 0.0,
+                })(),
+                type("D", (), {
+                    **base, "time": 1_770_000_100, "price": 1.1150,
+                    "entry": 1, "profit": 100.0,
+                })(),
+            ]
+
+    f = tmp_path / "s.json"
+    j = tmp_path / "trades.ndjson"
+    save_state(f, {"1": etat()})
+    rapport = manage_once(
+        Mt5Complet(positions=()), policy=ARMEE, params=P,
+        state_path=f, account=compte_demo(), journal_path=j,
+    )
+    assert rapport["journalises"] == 1
+    trade = TradeJournal(j).read_all()[0]
+    assert trade.exact_net is True
+    assert trade.exact_cost is False
+
+
 def test_cloture_symbole_a_suffixe_courtier_est_journalisee(tmp_path):
     """NAS100 logique et NAS100.fs courtier designent le meme instrument."""
     class Mt5Suffixe(FakeMt5):
         def history_deals_get(self, *a, **k):
-            return [type("D", (), {
-                "time": 1_800_000_000,
-                "price": 20_100.0,
-                "entry": 1,
-                "position_id": 1,
-                "symbol": "NAS100.fs",
-                "profit": 110.0,
-                "commission": -10.0,
-                "swap": 0.0,
-                "fee": 0.0,
-            })()]
+            base = {
+                "position_id": 1, "symbol": "NAS100.fs", "volume": 0.1,
+                "swap": 0.0, "fee": 0.0,
+            }
+            return [
+                type("D", (), {
+                    **base, "time": 1_799_999_900, "price": 20_000.0,
+                    "entry": 0, "profit": 0.0, "commission": 0.0,
+                })(),
+                type("D", (), {
+                    **base, "time": 1_800_000_000, "price": 20_100.0,
+                    "entry": 1, "profit": 110.0, "commission": -10.0,
+                })(),
+            ]
 
     f = tmp_path / "s.json"
     j = tmp_path / "trades.ndjson"
@@ -687,6 +721,53 @@ class TestFraisReels:
             mt5, "1", expected_symbol="EURUSD")
         assert frais == pytest.approx(-6.0)
 
+    def test_sortie_seule_ne_prouve_pas_un_net_complet(self):
+        from titanium.execution.position_manager import _cloture_depuis_historique
+        diagnostic = {}
+        _cloture_depuis_historique(
+            self._mt5([self._deal(entry=1, volume=0.1)]),
+            "1", expected_symbol="EURUSD", diagnostic=diagnostic,
+        )
+        assert diagnostic["accounting_complete"] is False
+
+    def test_entree_et_sorties_equilibrees_prouvent_le_net(self):
+        from titanium.execution.position_manager import _cloture_depuis_historique
+        diagnostic = {}
+        _cloture_depuis_historique(
+            self._mt5([
+                self._deal(time=1, entry=0, volume=0.3),
+                self._deal(time=2, entry=1, volume=0.1),
+                self._deal(time=3, entry=1, volume=0.2),
+            ]),
+            "1", expected_symbol="EURUSD", diagnostic=diagnostic,
+        )
+        assert diagnostic["accounting_complete"] is True
+
+    def test_volumes_desequilibres_ne_prouvent_pas_le_net(self):
+        from titanium.execution.position_manager import _cloture_depuis_historique
+        diagnostic = {}
+        _cloture_depuis_historique(
+            self._mt5([
+                self._deal(time=1, entry=0, volume=0.3),
+                self._deal(time=2, entry=1, volume=0.1),
+            ]),
+            "1", expected_symbol="EURUSD", diagnostic=diagnostic,
+        )
+        assert diagnostic["accounting_complete"] is False
+
+    def test_volume_autre_position_ne_complete_pas_le_net(self):
+        from titanium.execution.position_manager import _cloture_depuis_historique
+        diagnostic = {}
+        _cloture_depuis_historique(
+            self._mt5([
+                self._deal(time=1, entry=0, volume=0.2, position_id=2),
+                self._deal(time=2, entry=0, volume=0.1, position_id=1),
+                self._deal(time=3, entry=1, volume=0.2, position_id=1),
+            ]),
+            "1", expected_symbol="EURUSD", diagnostic=diagnostic,
+        )
+        assert diagnostic["accounting_complete"] is False
+
     def test_prix_vient_du_deal_de_sortie(self):
         from titanium.execution.position_manager import _cloture_depuis_historique
         mt5 = self._mt5([self._deal(time=1, price=1.10),
@@ -819,9 +900,10 @@ class TestVoieExacte:
         from titanium.execution.position_manager import journaliser_cloture
         j = tmp_path / "t.ndjson"
         journaliser_cloture(self._etat(), "1", prix_sortie=1.12, ts_exit="",
-                            journal_path=j, net_devise=75.0)
+                            journal_path=j, net_devise=75.0, exact_net=True)
         t = TradeJournal(j).read_all()[0]
         assert t.pnl_r == pytest.approx(1.5)      # 75 / 50
+        assert t.exact_net is True
         assert t.cost_r is None
         assert t.exact_cost is False
 
@@ -841,9 +923,11 @@ class TestVoieExacte:
         from titanium.execution.position_manager import journaliser_cloture
         j = tmp_path / "t.ndjson"
         journaliser_cloture(self._etat(spread_exact=True), "1", prix_sortie=1.12, ts_exit="",
-                            journal_path=j, net_devise=75.0, cost_r=0.3)
+                            journal_path=j, net_devise=75.0, cost_r=0.3,
+                            exact_net=True)
         t = TradeJournal(j).read_all()[0]
         assert t.pnl_r == pytest.approx(1.5)
+        assert t.exact_net is True
         assert t.cost_r == pytest.approx(0.3)
         assert t.exact_cost is True
 
@@ -854,8 +938,23 @@ class TestVoieExacte:
         journaliser_cloture(
             self._etat(spread_r=0.2, spread_exact=False), "1",
             prix_sortie=1.12, ts_exit="", journal_path=j,
-            net_devise=75.0, cost_r=0.3)
-        assert TradeJournal(j).read_all()[0].exact_cost is False
+            net_devise=75.0, cost_r=0.3, exact_net=True)
+        trade = TradeJournal(j).read_all()[0]
+        assert trade.exact_net is True
+        assert trade.exact_cost is False
+
+    def test_cout_exact_ne_contourne_pas_un_net_non_prouve(self, tmp_path):
+        from titanium.edge import TradeJournal
+        from titanium.execution.position_manager import journaliser_cloture
+        j = tmp_path / "t.ndjson"
+        journaliser_cloture(
+            self._etat(spread_exact=True), "1",
+            prix_sortie=1.12, ts_exit="", journal_path=j,
+            net_devise=75.0, cost_r=0.3, exact_net=False,
+        )
+        trade = TradeJournal(j).read_all()[0]
+        assert trade.exact_net is False
+        assert trade.exact_cost is False
 
     def test_sans_net_comptable_est_refuse(self, tmp_path):
         from titanium.execution.position_manager import journaliser_cloture

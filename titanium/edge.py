@@ -43,6 +43,9 @@ MIN_SAMPLES = 20
 #: Strictement positive : un contexte à espérance nulle ne paie pas le risque.
 EDGE_THRESHOLD_R = 0.05
 
+#: Couverture minimale de PnL nets comptables MT5 avant tout verdict positif.
+EXACT_NET_RATE_MIN = 0.90
+
 #: Borne de plausibilite absolue partagee avec la journalisation live.
 #: Une valeur finie mais superieure a ce plafond reste une donnee corrompue :
 #: elle ne doit ni contaminer l'esperance, ni ouvrir la porte PROD.
@@ -86,9 +89,13 @@ class ClosedTrade:
     asset_class: str = ""        # 'fx' | 'indices' | 'metaux' | 'crypto' | ...
     timeframe: str = ""          # échelle réellement analysée à l'entrée
     risk_money: float = 0.0      # risque en devise, figé à l'ouverture
-    #: True ⇒ `pnl_r` vient du net en devise ET `cost_r` contient toutes
-    #: les composantes mesurées. Le protocole exige 90 % de trades exacts.
+    #: True ⇒ `cost_r` contient la decomposition complete et mesuree du
+    #: spread, de la commission, du swap et des fees.
     exact_cost: bool = False
+    #: True ⇒ `pnl_r` vient du resultat net comptable MT5 divise par le
+    #: risque monetaire fige a l'ouverture. C'est la preuve necessaire pour
+    #: mesurer la rentabilite ; elle n'affirme rien sur la ventilation du cout.
+    exact_net: bool = False
     #: Convention d'horloge de `closed_at`. Les lignes ecrites avant le
     #: 12/08/2026 portent l'heure du SERVEUR (UTC+3 chez ce courtier) tout en
     #: etant etiquetees "+00:00" : elles valent "" et ne doivent pas etre
@@ -99,6 +106,12 @@ class ClosedTrade:
     #: seul ce champ, journalisé à la CLÔTURE, permettra de comparer les deux
     #: sources sur des RÉSULTATS et non sur des taux de passage.
     candle_source: str = ""
+
+    def __post_init__(self) -> None:
+        # Une decomposition complete des couts implique necessairement que le
+        # PnL net comptable est exact. L'inverse est faux et reste distinct.
+        if self.exact_cost:
+            self.exact_net = True
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -115,6 +128,7 @@ class EdgeVerdict:
     mean_cost_r: float | None = None
     known_cost_rate: float = 0.0
     exact_cost_rate: float = 0.0
+    exact_net_rate: float = 0.0
     reason: str = ""
 
     def to_dict(self) -> dict:
@@ -156,6 +170,11 @@ class TradeJournal:
                     self.rejected_lines += 1
                     continue
                 cout_exact = bool(d.get("exact_cost", False))
+                # Compatibilite append-only : toute ancienne ligne qui
+                # prouvait une decomposition exacte prouvait necessairement
+                # aussi un net comptable exact. Les autres anciennes lignes
+                # restent fail-closed.
+                net_exact = bool(d.get("exact_net", cout_exact))
                 brut_cout = d.get("cost_r", None)
                 cout = None if brut_cout is None else float(brut_cout)
                 # Ancien format : 0.0 et exact_cost=False signifiaient autant
@@ -180,6 +199,7 @@ class TradeJournal:
                     timeframe=str(d.get("timeframe", "")),
                     risk_money=float(d.get("risk_money", 0.0) or 0.0),
                     exact_cost=cout_exact,
+                    exact_net=net_exact,
                     candle_source=str(d.get("candle_source", "") or ""),
                     horloge=str(d.get("horloge", "") or "")))
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
@@ -222,22 +242,33 @@ class EdgeBook:
         cout = sum(couts) / len(couts) if couts else None
         connus = len(couts) / n
         exacts = sum(1 for t in trades if t.exact_cost) / n
+        nets_exacts = sum(1 for t in trades if t.exact_net) / n
 
         v = EdgeVerdict(context=cle, samples=n,
                         expectancy_r=round(esperance, 4),
                         win_rate=round(gagnants / n, 4),
                         mean_cost_r=(round(cout, 4) if cout is not None else None),
                         known_cost_rate=round(connus, 4),
-                        exact_cost_rate=round(exacts, 4))
+                        exact_cost_rate=round(exacts, 4),
+                        exact_net_rate=round(nets_exacts, 4))
         if n < self.min_samples:
             v.edge_ok = None
             v.reason = f"échantillon insuffisant ({n}/{self.min_samples})"
-        elif esperance >= self.threshold_r:
-            v.edge_ok = True
-            v.reason = f"espérance nette {esperance:+.3f} R sur {n} trades"
-        else:
+        elif esperance < self.threshold_r:
+            # Une preuve incomplete ne doit jamais effacer une contre-preuve
+            # deja defavorable. Seul un edge apparemment positif reste
+            # "inconnu" tant que sa comptabilite n'est pas assez couverte.
             v.edge_ok = False
             v.reason = f"espérance nette {esperance:+.3f} R < seuil {self.threshold_r} R"
+        elif v.exact_net_rate < EXACT_NET_RATE_MIN:
+            v.edge_ok = None
+            v.reason = (
+                "PnL net comptable insuffisamment prouve "
+                f"({v.exact_net_rate:.0%}/{EXACT_NET_RATE_MIN:.0%})"
+            )
+        else:
+            v.edge_ok = True
+            v.reason = f"espérance nette {esperance:+.3f} R sur {n} trades"
         return v
 
     def verdict_for(self, ctx: Context) -> EdgeVerdict:

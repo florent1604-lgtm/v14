@@ -31,6 +31,8 @@ import math
 import random
 from dataclasses import dataclass, field
 
+from titanium.edge import EXACT_NET_RATE_MIN
+
 # ── Constantes du protocole. Chacune répond à une faiblesse identifiée.
 STRATE_MIN_SUPPORT = 3       # la strate mesurée est celle du quorum PROD
 MIN_TRADES_CELLULE = 60      # puissance ~62 % contre un edge de +0.30 R, σ=1
@@ -41,7 +43,7 @@ BLOC = 5                     # longueur de bloc : absorbe l'autocorrélation
 FDR_Q = 0.10
 SEGMENTS = 3
 PART_COUT_MAX = 0.40         # le coût ne doit pas manger 40 % de l'espérance
-PART_EXACT_MIN = 0.90        # 90 % des trades doivent porter un coût mesuré
+PART_EXACT_MIN = EXACT_NET_RATE_MIN
 FENETRE_DEMOTION = 30
 
 
@@ -207,8 +209,15 @@ def evaluate_cells(trades, *, rejected_lines: int = 0) -> list:
         v.mean_cost_r = (
             sum(couts_connus) / len(couts_connus) if couts_connus else 0.0
         )
-        v.part_exact = sum(1 for t in lot
-                           if getattr(t, "exact_cost", False)) / n
+        # La rentabilite se mesure sur le net comptable MT5, qui incorpore
+        # deja spread, commission, swap et fee. Exiger en plus une ventilation
+        # exacte du spread rendrait le protocole impossible : MT5 ne fournit
+        # pas cette decomposition dans les deals historiques. `exact_cost`
+        # reste un diagnostic distinct, jamais maquille en mesure.
+        v.part_exact = sum(
+            1 for t in lot
+            if getattr(t, "exact_net", getattr(t, "exact_cost", False))
+        ) / n
 
         gains = [x for x in xs if x > 0]
         pertes = [x for x in xs if x < 0]
@@ -225,7 +234,7 @@ def evaluate_cells(trades, *, rejected_lines: int = 0) -> list:
             v.bloquants.append(f"C1_TAILLE({n}/{MIN_TRADES_CELLULE})")
         if v.part_exact < PART_EXACT_MIN:
             v.bloquants.append(
-                f"C3_COUT_MESURE({v.part_exact:.0%}/{PART_EXACT_MIN:.0%})")
+                f"C3_PNL_NET_COMPTABLE({v.part_exact:.0%}/{PART_EXACT_MIN:.0%})")
         if v.lower_95_r <= BORNE_BASSE_PLANCHER:
             v.bloquants.append(
                 f"C4_BORNE_BASSE({v.lower_95_r:+.3f}<={BORNE_BASSE_PLANCHER})")

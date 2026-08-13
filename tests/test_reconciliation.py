@@ -143,9 +143,9 @@ def test_rapport_nomme_manquants_orphelins_et_ecart_pnl() -> None:
     ])
     journal = [
         ClosedTrade("ctx", 0.5, ticket="live:10", risk_money=10,
-                    exact_cost=False),
+                    exact_net=False, exact_cost=False),
         ClosedTrade("ctx", 1.0, ticket="live:99", risk_money=10,
-                    exact_cost=True),
+                    exact_net=True, exact_cost=True),
     ]
     report = reconcile(positions, journal)
     assert report["ok"] is False
@@ -153,6 +153,7 @@ def test_rapport_nomme_manquants_orphelins_et_ecart_pnl() -> None:
     assert report["edge_ok"] is False
     assert report["missing_in_journal"] == ["11"]
     assert report["orphan_in_journal"] == ["99"]
+    assert report["exact_net_missing"] == ["10"]
     assert report["exact_cost_missing"] == ["10"]
     assert report["pnl_mismatches"][0]["position_id"] == "10"
 
@@ -163,12 +164,15 @@ def test_rapport_exact_est_vert() -> None:
         deal(10, entry=1, profit=10, time=2),
     ])
     journal = [ClosedTrade(
-        "ctx", 1.0, ticket="live:10", risk_money=10, exact_cost=True,
+        "ctx", 1.0, ticket="live:10", risk_money=10,
+        exact_net=True, exact_cost=False,
     )]
     report = reconcile(positions, journal)
     assert report["ok"] is True
     assert report["accounting_ok"] is True
     assert report["edge_ok"] is True
+    assert report["exact_net_missing"] == []
+    assert report["exact_cost_missing"] == ["10"]
     assert report["matched"] == 1
 
 

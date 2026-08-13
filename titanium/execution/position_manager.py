@@ -323,13 +323,129 @@ def decide_new_sl(pos: PositionSnapshot, state: TrackedState,
 
 # ─────────────────────────── persistance de l'état ──────────────────────────
 
-def load_state(chemin: Path) -> dict[str, TrackedState]:
-    """Charge l'état suivi. Un fichier illisible n'empêche jamais de trader."""
+#: Incidents de lecture de l'état suivi, depuis le démarrage du processus.
+#:
+#: `load_state` ne peut pas lever — cinq appelants en dépendent et une position
+#: vivante ne doit jamais être bloquée par un fichier abîmé. Le signal passe
+#: donc PAR CE CANAL, hors du retour de la fonction : le battement le publie,
+#: le tableau de bord le montre, et l'incident cesse d'être silencieux.
+_INCIDENTS_ETAT: list[dict] = []
+
+#: Nombre d'incidents conservés en mémoire. Au-delà, les plus anciens sortent :
+#: un fichier durablement illisible ne doit pas faire enfler le processus.
+_MAX_INCIDENTS = 50
+
+
+def incidents_etat() -> list[dict]:
+    """Copie des incidents de lecture d'état. Vide = tout va bien."""
+    return [dict(i) for i in _INCIDENTS_ETAT]
+
+
+def _consigner_incident(chemin: Path, genre: str, detail: str, **extra) -> dict:
+    """Enregistre un incident en mémoire ET sur disque. Ne lève jamais."""
+    inc = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "genre": genre,
+        "chemin": str(chemin),
+        "detail": detail[:300],
+        **extra,
+    }
+    _INCIDENTS_ETAT.append(inc)
+    del _INCIDENTS_ETAT[:-_MAX_INCIDENTS]
     try:
-        brut = json.loads(Path(chemin).read_text(encoding="utf-8"))
-        return {k: TrackedState.from_dict(v) for k, v in brut.items()}
+        jrn = Path(chemin).parent / "etat_incidents.ndjson"
+        jrn.parent.mkdir(parents=True, exist_ok=True)
+        with jrn.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(inc, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 — journaliser ne casse jamais la lecture
+        pass
+    return inc
+
+
+def _sauvegarder_avant_ecrasement(chemin: Path) -> str:
+    """Copie horodatée d'un fichier d'état abîmé. Rend le chemin, ou "".
+
+    Sans cette copie, la séquence est fatale : le fichier est illisible, on
+    repart d'un état vide, le tour suivant réécrit `positions.json` — et la
+    seule trace du contexte des positions vivantes est écrasée. L'horodatage
+    évite qu'un second incident détruise la preuve du premier.
+    """
+    src = Path(chemin)
+    try:
+        if not src.exists():
+            return ""
+        # Horodatage à la MILLISECONDE, et suffixe numérique en dernier
+        # recours. Une marque à la seconde suffisait à ce que deux incidents
+        # rapprochés portent le même nom : la seconde copie écrasait la
+        # première, donc la sauvegarde ne sauvegardait rien dans le cas
+        # exact — deux échecs coup sur coup — où elle sert le plus.
+        marque = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")[:-3]
+        dest = src.with_suffix(src.suffix + f".bak-{marque}")
+        n = 1
+        while dest.exists():
+            dest = src.with_suffix(src.suffix + f".bak-{marque}-{n}")
+            n += 1
+        dest.write_bytes(src.read_bytes())
+        return str(dest)
     except Exception:  # noqa: BLE001
+        return ""
+
+
+def load_state(chemin: Path) -> dict[str, TrackedState]:
+    """Charge l'état suivi. Un fichier illisible n'empêche jamais de trader.
+
+    CE QUI EST BRUYANT, ET POURQUOI
+    --------------------------------
+    Rendre `{}` en silence sur un fichier abîmé est le pire moment pour se
+    taire : après un arrêt brutal, les positions vivantes sont réadoptées sans
+    `context_key`, leurs clôtures partent en quarantaine `CONTEXTE_INCONNU`, et
+    la donnée d'edge est perdue définitivement — l'historique de perception ne
+    se reconstitue pas après coup.
+
+    Trois cas, désormais distingués :
+
+    * **fichier absent** — normal au premier démarrage, aucun incident ;
+    * **fichier illisible** — anomalie : copie de sauvegarde, incident consigné,
+      état vide rendu ;
+    * **entrées partiellement illisibles** — on garde ce qui se lit. Perdre
+      quatre positions parce que la cinquième est malformée serait une perte
+      auto-infligée : `from_dict` exige `d["r"]`, et une seule `KeyError`
+      emportait tout le dictionnaire.
+    """
+    p = Path(chemin)
+    if not p.exists():
+        return {}                      # premier démarrage : rien à signaler
+
+    try:
+        brut = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        _consigner_incident(
+            p, "illisible", f"{type(exc).__name__}: {exc}",
+            sauvegarde=_sauvegarder_avant_ecrasement(p),
+            entrees_lues=0, entrees_perdues=0)
         return {}
+
+    if not isinstance(brut, dict):
+        _consigner_incident(
+            p, "illisible", f"racine de type {type(brut).__name__}, dict attendu",
+            sauvegarde=_sauvegarder_avant_ecrasement(p),
+            entrees_lues=0, entrees_perdues=0)
+        return {}
+
+    etat: dict[str, TrackedState] = {}
+    perdues: list[str] = []
+    for cle, valeur in brut.items():
+        try:
+            etat[str(cle)] = TrackedState.from_dict(valeur)
+        except Exception as exc:  # noqa: BLE001
+            perdues.append(f"{cle} ({type(exc).__name__})")
+
+    if perdues:
+        _consigner_incident(
+            p, "entrees_perdues", "tickets illisibles : " + ", ".join(perdues[:8]),
+            sauvegarde=_sauvegarder_avant_ecrasement(p),
+            entrees_lues=len(etat), entrees_perdues=len(perdues))
+    return etat
 
 
 def save_state(chemin: Path, state: dict[str, TrackedState]) -> None:

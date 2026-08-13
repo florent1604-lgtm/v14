@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import time
+import uuid
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -97,6 +98,11 @@ def _horodatage(maintenant: datetime | None = None) -> str:
     return instant.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
 
+def _identifiant(maintenant: datetime | None = None) -> str:
+    """Nom ordonnable et unique, meme avec un instant injecte en test."""
+    return f"{_horodatage(maintenant)}-{uuid.uuid4().hex}"
+
+
 @contextmanager
 def verrou(destination: Path, *, attente_s: float = 30.0,
            perime_s: float = 300.0):
@@ -161,6 +167,121 @@ def _empreinte_source(chemin: Path) -> tuple[int, int] | None:
     return (st.st_size, st.st_mtime_ns)
 
 
+def _metadonnees(empreinte_source: tuple[int, int] | None) -> dict | None:
+    """Rend les releves avant/apres persistables dans le manifeste."""
+    if empreinte_source is None:
+        return None
+    octets, mtime_ns = empreinte_source
+    return {"octets": octets, "mtime_ns": mtime_ns}
+
+
+def _lire_objet_json(chemin: Path, *, nom: str,
+                      incoherences: list[str]) -> dict | None:
+    """Lit un etat JSON sans fabriquer de donnees en cas de dommage."""
+    if not chemin.is_file():
+        return None
+    try:
+        valeur = json.loads(chemin.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        incoherences.append(f"{nom}: JSON illisible ({type(exc).__name__})")
+        return None
+    if not isinstance(valeur, dict):
+        incoherences.append(f"{nom}: racine non objet")
+        return None
+    return valeur
+
+
+def _lire_ndjson(chemin: Path, *, nom: str,
+                 incoherences: list[str]) -> list[dict] | None:
+    """Lit un journal NDJSON; une ligne invalide rend le snapshot non coherent."""
+    if not chemin.is_file():
+        return None
+    lignes: list[dict] = []
+    try:
+        contenu = chemin.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        incoherences.append(f"{nom}: lecture impossible ({type(exc).__name__})")
+        return None
+    for numero, brute in enumerate(contenu, start=1):
+        if not brute.strip():
+            continue
+        try:
+            ligne = json.loads(brute)
+        except json.JSONDecodeError:
+            incoherences.append(f"{nom}: ligne {numero} illisible")
+            continue
+        if not isinstance(ligne, dict):
+            incoherences.append(f"{nom}: ligne {numero} non objet")
+            continue
+        lignes.append(ligne)
+    return lignes
+
+
+def _coherence_metier(dossier: Path) -> dict:
+    """Controle les liens explicitement portes par les quatre artefacts.
+
+    Ce n'est pas une reconstitution : un fichier absent reste inconnu et ne
+    produit aucune donnee imaginaire. Quand les deux extremites sont presentes,
+    un lien causal impossible est conserve dans le manifeste.
+    """
+    incoherences: list[str] = []
+    positions = _lire_objet_json(dossier / "positions.json", nom="positions.json",
+                                 incoherences=incoherences)
+    pending = _lire_objet_json(dossier / "pending_limits.json",
+                               nom="pending_limits.json", incoherences=incoherences)
+    trades = _lire_ndjson(dossier / "trades.ndjson", nom="trades.ndjson",
+                          incoherences=incoherences)
+    lifecycle = _lire_ndjson(dossier / "limit_lifecycle.ndjson",
+                             nom="limit_lifecycle.ndjson", incoherences=incoherences)
+
+    tickets_trades: set[str] | None = None
+    if trades is not None:
+        tickets_trades = set()
+        for ligne in trades:
+            ticket = str(ligne.get("ticket", "") or "")
+            if not ticket:
+                incoherences.append("trades.ndjson: ticket absent")
+                continue
+            tickets_trades.add(ticket)
+
+    filled: set[tuple[str, str]] = set()
+    terminaux: set[str] = set()
+    if lifecycle is not None:
+        for ligne in lifecycle:
+            evenement = str(ligne.get("event", "") or "").strip().lower()
+            ordre = str(ligne.get("order_ticket", "") or "")
+            attendu = f"{ordre}:{evenement}" if ordre and evenement else ""
+            if not ordre or not evenement or ligne.get("event_id") != attendu:
+                incoherences.append("limit_lifecycle.ndjson: event_id incoherent")
+                continue
+            position = str(ligne.get("position_ticket", "") or "")
+            if evenement == "filled" and position:
+                filled.add((ordre, position))
+            if evenement in {"filled", "expired", "canceled", "closed"}:
+                terminaux.add(ordre)
+            if (evenement == "closed" and tickets_trades is not None and position
+                    and f"live:{position}" not in tickets_trades):
+                incoherences.append(
+                    f"limit_lifecycle.ndjson: cloture {ordre} sans trade live:{position}")
+
+    if positions is not None:
+        for ticket, etat in positions.items():
+            if not isinstance(etat, dict):
+                incoherences.append(f"positions.json: position {ticket} non objet")
+                continue
+            ordre = str(etat.get("limit_order_ticket", "") or "")
+            if ordre and lifecycle is not None and (ordre, str(ticket)) not in filled:
+                incoherences.append(
+                    f"positions.json: position {ticket} sans filled pour ordre {ordre}")
+    if pending is not None and lifecycle is not None:
+        for ordre in pending:
+            if str(ordre) in terminaux:
+                incoherences.append(
+                    f"pending_limits.json: ordre {ordre} aussi terminal dans lifecycle")
+
+    return {"ok": not incoherences, "incoherences": incoherences}
+
+
 def sauvegarder(source: Path, destination: Path, *,
                 fichiers: tuple[str, ...] = FICHIERS_PAR_DEFAUT,
                 retention: int = RETENTION_PAR_DEFAUT,
@@ -194,8 +315,10 @@ def sauvegarder(source: Path, destination: Path, *,
 
     with verrou(destination, attente_s=attente_verrou_s,
                 perime_s=verrou_perime_s):
-        dossier = destination / _horodatage(maintenant)
-        dossier.mkdir(parents=True, exist_ok=False)
+        identifiant = _identifiant(maintenant)
+        dossier = destination / identifiant
+        staging = destination / ".staging" / identifiant
+        staging.mkdir(parents=True, exist_ok=False)
 
         avant = {nom: _empreinte_source(source / nom) for nom in fichiers}
 
@@ -207,7 +330,7 @@ def sauvegarder(source: Path, destination: Path, *,
             if not origine.is_file():
                 absents.append(nom)
                 continue
-            cible = dossier / nom
+            cible = staging / nom
             cible.parent.mkdir(parents=True, exist_ok=True)
             # Trois empreintes, parce que deux ne suffisent pas a distinguer
             # une copie corrompue d'une source qui bouge. La boucle ecrit
@@ -239,6 +362,7 @@ def sauvegarder(source: Path, destination: Path, *,
         bouges = sorted(
             set(mouvantes) | {nom for nom in fichiers if avant[nom] != apres[nom]})
 
+        coherence_metier = _coherence_metier(staging)
         manifeste = {
             "cree_le": (maintenant or datetime.now(timezone.utc))
                        .astimezone(timezone.utc).isoformat(),
@@ -246,15 +370,25 @@ def sauvegarder(source: Path, destination: Path, *,
             "fichiers": [asdict(copie) for copie in copies],
             "absents": absents,
             "octets_total": sum(copie.octets for copie in copies),
+            "sources_avant": {nom: _metadonnees(valeur)
+                              for nom, valeur in avant.items()},
+            "sources_apres": {nom: _metadonnees(valeur)
+                              for nom, valeur in apres.items()},
             # Qualification explicite plutot que promesse implicite.
             "garantie": "crash-consistant",
-            "coherent": not bouges,
+            "coherent": not bouges and coherence_metier["ok"],
             "sources_modifiees_pendant": bouges,
+            "coherence_metier": coherence_metier,
         }
         # Le manifeste est ecrit EN DERNIER : sa presence signe un instantane
         # complet. La rotation ne supprime que des dossiers manifestes.
-        (dossier / "manifeste.json").write_text(
+        (staging / "manifeste.json").write_text(
             json.dumps(manifeste, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Le staging et le manifeste complet rendent l'instantane publiable en
+        # une operation atomique sur le meme volume. Si le processus tombe
+        # avant, il reste ignore sous `.staging`, jamais presente comme backup.
+        staging.replace(dossier)
 
         manifeste["dossier"] = str(dossier)
         manifeste["supprimes"] = [str(chemin) for chemin in

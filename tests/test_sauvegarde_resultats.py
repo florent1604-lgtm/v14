@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -112,7 +114,7 @@ def test_rotation_garde_les_plus_recents(tmp_path: Path) -> None:
     restants = [dossier.name for dossier in instantanes(destination)]
     assert len(restants) == 3
     assert restants == sorted(restants)
-    assert restants[-1] == "20260813T060400000000Z"
+    assert restants[-1].startswith("20260813T060400000000Z-")
 
 
 def test_un_instantane_interrompu_n_est_pas_compte_ni_supprime(tmp_path: Path) -> None:
@@ -178,6 +180,32 @@ def test_verrou_refuse_deux_sauvegardes_simultanees(tmp_path: Path) -> None:
     # Verrou rendu : la sauvegarde repasse.
     assert sauvegarder(source, destination, fichiers=FICHIERS)["fichiers"]
     assert not (destination / ".verrou").exists()
+
+
+def test_verrou_refuse_vraiment_un_autre_processus(tmp_path: Path) -> None:
+    """La garantie ne depend pas d'un simple verrou de thread Python."""
+    destination = tmp_path / "sauvegardes"
+    source = _source(tmp_path)
+    enfant = "\n".join((
+        "import sys",
+        "import time",
+        "from pathlib import Path",
+        "from titanium.sauvegarde import verrou",
+        "with verrou(Path(sys.argv[1])):",
+        "    print('PRET', flush=True)",
+        "    time.sleep(.4)",
+    ))
+    processus = subprocess.Popen(
+        [sys.executable, "-c", enfant, str(destination)],
+        cwd=Path(__file__).resolve().parents[1], text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert processus.stdout is not None
+    assert processus.stdout.readline().strip() == "PRET"
+    with pytest.raises(SauvegardeError):
+        sauvegarder(source, destination, fichiers=FICHIERS, attente_verrou_s=0.1)
+    assert processus.wait(timeout=3) == 0, processus.stderr.read() if processus.stderr else ""
+    assert sauvegarder(source, destination, fichiers=FICHIERS)["fichiers"]
 
 
 def test_verrou_perime_est_repris(tmp_path: Path) -> None:

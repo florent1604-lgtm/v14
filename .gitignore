@@ -245,6 +245,10 @@ __pycache__/
 *.egg-info/
 collab/notifications/
 tools/collab_terminal/chat_log.ndjson
+# Verrous compagnons locaux des journaux append-only.
+collab/*.ndjson.lock
+collab/.test-tasks-*.ndjson
+collab/.test-tasks-*.ndjson.lock
 *.log
 *.png
 

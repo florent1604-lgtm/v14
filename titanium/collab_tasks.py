@@ -11,7 +11,9 @@ import json
 import os
 import re
 import threading
+import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +27,8 @@ RESPONSABLES = ("florent", "claude", "codex", "hermes", "prime", "team")
 ACTEURS = set(RESPONSABLES) | {"dashboard", "system"}
 
 _LOCK = threading.Lock()
+_LOCK_TIMEOUT_S = 15.0
+_LOCK_RETRY_S = 0.01
 _SECRET = (
     re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b"),
     re.compile(
@@ -133,6 +137,58 @@ def snapshot(path: Path = JOURNAL) -> dict:
     }
 
 
+@contextmanager
+def _process_lock(path: Path):
+    """Verrou exclusif inter-processus dédié à un journal.
+
+    Windows ne garantit pas l'atomicité de ``O_APPEND`` entre processus. Un
+    octet du fichier compagnon reste verrouillé pendant tout l'ajout. Sur POSIX,
+    ``flock`` fournit le même contrat aux outils de développement hors Windows.
+    """
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+b")
+    deadline = time.monotonic() + _LOCK_TIMEOUT_S
+    acquired = False
+    try:
+        while not acquired:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    handle.seek(0)
+                    if handle.read(1) == b"":
+                        handle.seek(0)
+                        handle.write(b"\0")
+                        handle.flush()
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"verrou du journal indisponible: {lock_path.name}",
+                    ) from exc
+                time.sleep(_LOCK_RETRY_S)
+        yield
+    finally:
+        if acquired:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
 def _append(event: dict, path: Path) -> None:
     resolved = path.resolve()
     allowed = (RACINE / "collab").resolve()
@@ -141,13 +197,15 @@ def _append(event: dict, path: Path) -> None:
     payload = (json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     with _LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY)
-        try:
-            written = os.write(fd, payload)
-            if written != len(payload):
-                raise OSError("ecriture partielle du journal de taches")
-        finally:
-            os.close(fd)
+        with _process_lock(path):
+            fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY)
+            try:
+                written = os.write(fd, payload)
+                if written != len(payload):
+                    raise OSError("ecriture partielle du journal de taches")
+                os.fsync(fd)
+            finally:
+                os.close(fd)
 
 
 def create_task(data: dict, *, path: Path = JOURNAL) -> dict:

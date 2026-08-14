@@ -1,0 +1,30 @@
+{
+  "run_id": "5e5d19719c358317",
+  "seed": 14082026,
+  "engine": "titanium.backtest.rejouer@b9d2e07",
+  "data_version": "mt5:XAUUSD:M15:791bd329fe141bf5:H4:ececc459cf57b436",
+  "config": {
+    "symbol": "XAUUSD",
+    "ltf": "M15",
+    "htf": "H4",
+    "bars_ltf": 1499,
+    "bars_htf": 499,
+    "spread_price": 0.16,
+    "pas": 5,
+    "sl_atr_k": 1.5,
+    "rr_ratio": 2.0
+  },
+  "with_cost": {
+    "trades": 46,
+    "expectancy_r": 0.1468,
+    "profit_factor": 1.412,
+    "mean_cost_r": 0.0145,
+    "walk_forward_expectancy_r": [0.0735, 0.131, 0.2303]
+  },
+  "without_cost": {
+    "trades": 50,
+    "expectancy_r": 0.268,
+    "profit_factor": 1.939
+  },
+  "note": "Read-only MT5 snapshot hash and result; raw broker history is not redistributed."
+}

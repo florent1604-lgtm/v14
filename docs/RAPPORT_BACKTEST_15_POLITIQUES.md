@@ -292,11 +292,14 @@ membres sont identiques dans 80 à 98 % des scénarios. Rien ne justifie de
 préférer `cancel_replace` à `limit_passive`, et `iceberg` n'apporte
 mesurablement rien.
 
-**Ce qui est hors de portée.** `pegged` domine tout — z 6,96, positive dans tous
-les régimes — mais suppose un carnet de référence, et Axi ne diffuse pas de L2
-(`market_book_add` rend `False`, vérifié). Même chose pour `iceberg` et
-`market_making`. Trois politiques sur quinze ne seront jamais validables chez ce
-courtier, quelles que soient les données qu'on accumule.
+**Ce qui est hors de portée chez Axi.** `pegged` domine tout — z 6,96, positive
+dans tous les régimes — mais suppose un carnet de référence, et Axi ne diffuse
+pas de L2 (`market_book_add` rend `False`, vérifié). Même chose pour `iceberg`
+et `market_making`. Ces trois-là ne seront jamais validables **chez ce
+courtier**, quelles que soient les données qu'on accumule.
+
+⚠️ Cette phrase est vraie pour Axi et fausse en général : voir la section 10.
+Binance expose un carnet L2, et le code qui le maintient existe déjà.
 
 **Ce qui est faisable maintenant.** Le trio `market` / `limit_passive` /
 `adaptive` n'a besoin que du L1. Mais **rien n'archive les quotes** :
@@ -319,3 +322,111 @@ confrontée au réel.
 
 Aucune de ces mesures n'autorise un passage live. Cette matrice compare des
 politiques dans un simulateur ; elle ne prouve aucun edge réel.
+
+---
+
+## 10. Réévaluation : et avec le carnet L2 de Binance ?
+
+Ajouté le 15/08/2026 sur objection de Florent. La conclusion de la section 9
+— « jamais validables » — était scopée à Axi sans le dire. Binance change le
+tableau, mais pas comme on pourrait l'espérer.
+
+### Ce qui existe déjà, et qui tourne
+
+`ingestion/market/orderbook_ws.py` (V12, 267 lignes) maintient un **vrai carnet
+L2** : snapshot REST initial puis diffs `@depth@100ms`, spot **et** futures, le
+carnet complet tenu en dictionnaires prix→quantité pour que les diffs restent
+exacts. Profondeur configurée : **100 niveaux spot, 1 000 niveaux futures**.
+
+Ce n'est pas un prototype : `poles/indicators/orderbook.py` et
+`poles/smc/signal_engine.py` le consomment, et `tests/test_orderbook_l2.py`
+verrouille l'application des diffs.
+
+Donc oui — la donnée qui manque chez Axi existe chez Binance, et le code pour la
+lire est écrit.
+
+### Ce que Binance ne donne pas : le L3
+
+`@depth` est **agrégé par niveau de prix**. Aucun identifiant d'ordre, aucune
+file individuelle. **La position dans la file reste invisible.**
+
+C'est précisément ce dont dépendent `post_only`, `cancel_replace` et `iceberg` —
+et c'est la raison de leurs fidélités de 0,45 à 0,50. Le L2 fait monter cette
+fidélité de façon importante ; il ne la ferme pas. La seule manière d'observer
+sa propre position de file reste de poster de vrais ordres et de mesurer ses
+propres fills.
+
+Corollaire : la première place de `cancel_replace` resterait indéterminée même
+avec le L2 Binance, puisqu'elle vient entièrement du modèle de replacement.
+
+### Ce qui n'est toujours pas archivé — mais qui est réparable
+
+Le carnet vit **en RAM** : `OrderBookState.history` est un anneau de
+`ORDERBOOK_HISTORY_SIZE = 30` snapshots, top 20 niveaux. Rien sur disque, aucun
+NDJSON, aucune base. Deux symboles suivis : `BTC/USDT` et `PAXG/USDT`.
+
+Aujourd'hui il y a donc **zéro historique L2 exploitable**, comme chez Axi —
+mais pour une raison opposée, et c'est ce qui compte :
+
+| | Axi / MT5 | Binance |
+|---|---|---|
+| le L2 existe-t-il ? | **non** (`market_book_add` → `False`) | **oui**, 100 ms |
+| le reçoit-on ? | — | **oui**, déjà branché |
+| l'archive-t-on ? | non | **non — on le jette** |
+| réparable ? | jamais | **oui, en écrivant ce qui passe déjà** |
+
+Chez Axi la donnée n'existe pas. Chez Binance elle arrive et on la laisse
+tomber. Le second cas se corrige.
+
+### Le piège qui décide : la place de marché
+
+Titanium exécute via **MT5 / Axi**, et Axi est un **dealer CFD** : il n'y a pas
+de carnet central. On ne poste pas dans une file, il n'y a ni rebate maker, ni
+post-only, ni quantité affichée d'iceberg. MT5 offre des ordres en attente et
+des modes de remplissage IOC/FOK — pas les types d'ordres d'une place.
+
+Donc valider `pegged`, `iceberg`, `post_only` ou `market_making` sur le carnet
+Binance validerait des politiques **inexécutables sur le compte où l'on trade**.
+
+La question n'est plus « peut-on les tester » — elle devient **« veut-on
+exécuter sur Binance »**, ce qui est un changement de place de marché : nouveau
+compte, nouvel exécuteur, mur démo↔réel à reconstruire, régime fiscal et
+contrepartie différents. C'est une décision de Florent, pas un réglage.
+
+### Reclassement des 15
+
+| politique | statut chez Axi | statut avec le L2 Binance |
+|---|---|---|
+| market, limit passive | exécutable et mesurable | inchangé |
+| IOC, FOK | exécutables (modes de remplissage MT5) | inchangé |
+| TWAP, VWAP, POV | ordonnanceurs, indépendants du carnet | inchangé |
+| multi-jambes ×2 | limité par la synchronisation, pas par le carnet | marginal — résultat déjà catastrophique |
+| **post-only** | **inexécutable** | **validable**, fidélité en hausse, file toujours inconnue |
+| **cancel/replace** | approximable par annuler+replacer | **validable**, mais son avantage vient du modèle de file : indéterminé même avec le L2 |
+| **pegged** | **inexécutable** | **validable** — et c'est la mieux classée du lot |
+| **iceberg** | **inexécutable** | **validable** — et enfin distinguable de `limit passive`, ce qu'elle n'est pas ici |
+| **market making** | **inexécutable** | **validable**, la plus dépendante du carnet |
+
+Cinq politiques passent de « hors de portée » à « validable, sur une autre
+place ». Aucune ne passe à « exécutable sur Axi ».
+
+### Ce que je recommande
+
+1. **Archiver le carnet Binance qui passe déjà** — au minimum `BTC/USDT`,
+   niveaux et horodatage, plus le flux `@aggTrade` qui donne les transactions
+   avec le côté maker. Les flux de marché publics de Binance ne demandent
+   **aucune clé API** : un enregistreur peut vivre dans V14, sans toucher V12 ni
+   aucun compte. C'est le seul geste qui crée de la donnée irremplaçable, et
+   chaque jour sans lui est un jour perdu.
+2. **En parallèle, archiver les ticks L1 Axi** — recommandation inchangée, et
+   c'est l'autre moitié : le L1 Axi valide ce qu'on peut réellement exécuter, le
+   L2 Binance valide ce qu'on ne peut pas encore.
+3. **Rejouer les six politiques dépendantes du carnet** une fois quelques
+   semaines accumulées, avec une fidélité **mesurée** au lieu de postulée.
+4. **Ne pas confondre validation et exécution.** Un bon résultat sur Binance ne
+   justifie pas un ordre sur Axi, et ne justifie pas non plus d'ouvrir Binance :
+   ce serait une décision distincte, à prendre pour elle-même.
+
+Réserve de méthode : la microstructure de `BTCUSDT` sur Binance n'est pas celle
+du CFD `BTCUSD` chez Axi. Même validées sur un vrai carnet, ces politiques
+resteraient mesurées sur un marché qui n'est pas celui où l'argent est engagé.

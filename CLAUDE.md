@@ -361,8 +361,12 @@ acquis d'une session à l'autre.
   deux règles : les lanceurs passent `--cwd` (sans lui l'agent analyse le mauvais dossier
   et répond faux **sans erreur**), et après tout changement de variable d'environnement il
   faut `prime-agent shutdown --force` — sinon le client se rattache à l'ancien démon.
-- Modèle actif : **`claude-sonnet-5`** via l'abonnement Claude Pro/Max (connecté le
-  09/08/2026, facturé en usage supplémentaire au token). Gemini reste le secours.
+- Modèle actif : **`claude-opus-5`** via l'abonnement Claude Pro/Max (connecté le
+  09/08/2026, facturé en usage supplémentaire au token). Gemini reste le secours —
+  et depuis le 15/08/2026 ce repli s'annonce, au lieu de se produire en silence.
+  `PRIME_V14.bat` codait `claude-sonnet-5` alors que `.prime/agent/settings.json`
+  disait `claude-opus-5` : le drapeau explicite passé au binaire gagne toujours sur
+  le fichier de réglages, donc le réglage projet ne servait à rien.
 - Détail complet, fournisseurs et limites : **`docs/PRIME_AGENT.md`**.
 
 ## L'interface de contrôle
@@ -943,7 +947,7 @@ lot backfill et de la réparation contrôlée du journal :
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (7491 symbols, 16096 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (7501 symbols, 16106 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

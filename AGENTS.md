@@ -56,7 +56,14 @@ outil de developpement : il ecrit du code et de la documentation, il n'a aucune 
 de trading et n'est cable a aucune boucle d'execution.
 
 - Lancer : `PRIME_V14.bat` ou `tools/prime_agent_v14.sh` (jamais `prime-agent` nu : le
-  lanceur fixe la racine, la cle Gemini et le python du kernel).
+  lanceur fixe la racine, la cle Gemini et le python du kernel). Un `prime-agent` nu
+  demarre avec `cwd` = dossier personnel : Prime ne voit alors ni AGENTS.md, ni CLAUDE.md,
+  ni `collab/`, et son kernel n'est pas designe. Panne constatee le 15/08/2026.
+- Session neuve sur Opus 5 :
+  `PRIME_V14.bat --provider anthropic --model claude-opus-5`. Sans argument, le lanceur
+  se rattache a la session vivante de la racine et **herite du modele de sa creation**.
+- Derniere note de reprise (etat V14, resultats d'execution mesures, taches ouvertes) :
+  `collab/PRIME_RELANCE_20260815.md`.
 - Reglages projet : `.prime/agent/settings.json`. Skill projet :
   `.prime/agent/skills/v14-boucle-dev/SKILL.md`.
 - Installation, bug Windows du kernel et garde-fous : `docs/PRIME_AGENT.md`.
@@ -68,7 +75,7 @@ de trading et n'est cable a aucune boucle d'execution.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (7491 symbols, 16096 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (7501 symbols, 16106 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

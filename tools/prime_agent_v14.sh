@@ -75,9 +75,14 @@ if [ "$choix_explicite" -eq 0 ]; then
   fi
 
   if [ "$claude_connecte" -eq 1 ]; then
+    # claude-opus-5, comme .prime/agent/settings.json. Un drapeau explicite
+    # passe au binaire ecrase toujours le reglage projet : les deux doivent
+    # nommer le meme modele, sinon le fichier ne sert plus a rien.
     set -- --provider anthropic \
-           --model "${PRIME_V14_CLAUDE_MODEL:-claude-sonnet-5}" "$@"
+           --model "${PRIME_V14_CLAUDE_MODEL:-claude-opus-5}" "$@"
   else
+    echo "Abonnement Claude non detecte : repli sur Gemini." >&2
+    echo "Pour retrouver Opus 5 : /login dans l'interface, puis relancer." >&2
     set -- --provider google \
            --model "${PRIME_V14_GEMINI_MODEL:-gemini-2.5-flash}" "$@"
   fi

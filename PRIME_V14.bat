@@ -103,24 +103,44 @@ if exist ".env" (
 
 REM --- Fournisseur : Claude si l'abonnement Pro/Max est connecte, sinon Gemini.
 REM --- Une simple cle API dans auth.json ne declenche PAS la bascule.
-if not defined PRIME_V14_CLAUDE_MODEL set "PRIME_V14_CLAUDE_MODEL=claude-sonnet-5"
+REM --- Le modele Claude par defaut est claude-opus-5, comme .prime\agent\settings.json.
+REM --- Il valait claude-sonnet-5 ici, ce qui ecrasait silencieusement le reglage
+REM --- projet : le drapeau explicite passe au binaire gagne toujours sur le fichier.
+if not defined PRIME_V14_CLAUDE_MODEL set "PRIME_V14_CLAUDE_MODEL=claude-opus-5"
 if not defined PRIME_V14_GEMINI_MODEL set "PRIME_V14_GEMINI_MODEL=gemini-2.5-flash"
 set "PRIME_ARGS=--provider google --model %PRIME_V14_GEMINI_MODEL%"
 set "MODELE_AFFICHE=%PRIME_V14_GEMINI_MODEL%, cle du .env"
+set "REPLI_GEMINI=1"
+
+REM --- La sonde a besoin de node. Sans node dans le PATH elle echoue comme si
+REM --- l'abonnement etait absent, et Prime bascule sur Gemini sans rien dire.
+REM --- Cette confusion a coute une session le 15/08/2026 : on distingue donc
+REM --- "pas d'abonnement" de "sonde impossible a executer".
+where node >nul 2>&1
+if errorlevel 1 (
+  set "MODELE_AFFICHE=%PRIME_V14_GEMINI_MODEL%, node introuvable donc sonde impossible"
+  goto :modele_fin
+)
 node "tools\prime_auth_probe.mjs" "%USERPROFILE%\.prime\agent\auth.json" >nul 2>&1
-if not errorlevel 1 set "PRIME_ARGS=--provider anthropic --model %PRIME_V14_CLAUDE_MODEL%"
-if not errorlevel 1 set "MODELE_AFFICHE=%PRIME_V14_CLAUDE_MODEL%, abonnement Claude Pro/Max"
+if errorlevel 1 goto :modele_fin
+set "PRIME_ARGS=--provider anthropic --model %PRIME_V14_CLAUDE_MODEL%"
+set "MODELE_AFFICHE=%PRIME_V14_CLAUDE_MODEL%, abonnement Claude Pro/Max"
+set "REPLI_GEMINI="
+
+:modele_fin
 
 REM --- Un choix explicite de l'utilisateur l'emporte sur tout ce qui precede.
 echo %* | findstr /c:"--provider" >nul 2>&1
 if not errorlevel 1 (
   set "PRIME_ARGS="
   set "MODELE_AFFICHE=choix explicite via arguments"
+  set "REPLI_GEMINI="
 )
 echo %* | findstr /c:"--model" >nul 2>&1
 if not errorlevel 1 (
   set "PRIME_ARGS="
   set "MODELE_AFFICHE=choix explicite via arguments"
+  set "REPLI_GEMINI="
 )
 
 echo.
@@ -129,9 +149,18 @@ echo     PRIME AGENT - V14
 echo   ============================================
 echo     racine    : %CD%
 echo     contexte  : AGENTS.md + CLAUDE.md + .prime\agent\skills
+echo     reprise   : collab\PRIME_RELANCE_20260815.md
 echo     modele    : %MODELE_AFFICHE%
 echo     regle     : PAPER/DEMO, aucun ordre reel, .env en lecture seule
 echo.
+
+REM --- Un repli Gemini silencieux fait croire a une panne de Prime alors que
+REM --- c'est une panne d'authentification. Constate le 15/08/2026 : signale.
+if defined REPLI_GEMINI (
+  echo   ATTENTION : abonnement Claude non detecte, repli sur Gemini.
+  echo   Pour retrouver Opus 5 : /login dans l'interface, puis relancer.
+  echo.
+)
 
 REM --- --cwd est indispensable : le kernel et les outils heritent du repertoire
 REM --- du DEMON, pas de celui du client. Sans lui, un comptage de fichiers dans
@@ -151,8 +180,14 @@ if "%PRIME_ACTIVE_ID%"=="__ERROR__" (
   exit /b 1
 )
 if "%PRIME_ACTIVE_ID%"=="__NONE__" set "PRIME_ACTIVE_ID="
+REM --- Un attachement herite du modele de la session d'origine : le "modele"
+REM --- affiche plus haut ne s'applique QU'a une session neuve. Pour imposer
+REM --- Opus 5, lancer avec des arguments explicites (voir docs\PRIME_AGENT.md).
 if defined PRIME_ACTIVE_ID (
   echo   session   : %PRIME_ACTIVE_ID% ^(attachement, aucun nouveau worker^)
+  echo   note      : le modele de cette session est celui de sa creation.
+  echo               Session neuve sur Opus 5 : PRIME_V14.bat --provider anthropic --model claude-opus-5
+  echo.
   prime-agent attach "%PRIME_ACTIVE_ID%"
   set "PRIME_EXIT=%ERRORLEVEL%"
   goto :prime_fin

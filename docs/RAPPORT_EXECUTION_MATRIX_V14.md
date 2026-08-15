@@ -82,3 +82,13 @@ disposer de trades/L2 synchronisés et de statuts broker horodatés.
 Cette matrice distingue l'alpha (même intention et même prix d'arrivée pour
 toutes les politiques) du delta d'exécution. Elle ne prouve aucun edge réel et
 n'autorise aucun passage live.
+
+## Suite — 15/08/2026
+
+Le tiers hors échantillon annoncé « rapporté séparément » ci-dessus ne l'avait
+jamais été. Il l'est maintenant, avec la comparaison appariée contre `market`,
+la conditionnalité par régime et une réserve qui change la lecture du classement
+(les membres de la famille passive sont identiques dans 80 à 98 % des
+scénarios) : **`docs/RAPPORT_BACKTEST_15_POLITIQUES.md`**.
+
+Reproduction : `python tools/rapport_politiques_execution.py`.

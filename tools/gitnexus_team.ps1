@@ -57,26 +57,45 @@ function Start-TeamMcp {
 
     $node = (Get-Command node.exe -ErrorAction Stop).Source
     $cli = Get-GitNexusCliPath
-    $process = Start-Process -FilePath $node `
-        -ArgumentList @($cli, "mcp", "--http", "--host", "127.0.0.1", "--port", "$Port") `
-        -WorkingDirectory $Root -WindowStyle Hidden -PassThru `
-        -RedirectStandardOutput $OutLog -RedirectStandardError $ErrLog
-    [IO.File]::WriteAllText($PidPath, [string]$process.Id, [Text.Encoding]::ASCII)
+
+    # Le serveur est lance par Win32_Process.Create, et non par Start-Process.
+    #
+    # Pourquoi : Start-Process cree l'enfant avec heritage de handles. Le serveur
+    # MCP heritait donc du tube de sortie de L'APPELANT de ce script, et comme il
+    # vit indefiniment, ce tube ne se fermait jamais. Le script se terminait
+    # normalement, mais quiconque l'appelait en capturant sa sortie restait
+    # bloque pour toujours. Le 16/08/2026, Prime Agent a passe 2 h fige sur
+    # `gitnexus_team.ps1 sync` pour cette raison : le serveur allait bien, c'est
+    # l'appel qui ne revenait pas. Tuer l'intermediaire ne suffit meme pas --
+    # le petit-fils tient encore le tube.
+    #
+    # Win32_Process.Create n'herite d'aucun handle. La redirection est confiee a
+    # cmd, qui ouvre lui-meme les journaux. Verifie : l'appelant recupere sa
+    # sortie en moins d'une seconde.
+    $lignes = 'cmd.exe /c ""{0}" "{1}" mcp --http --host 127.0.0.1 --port {2} > "{3}" 2> "{4}""' `
+        -f $node, $cli, $Port, $OutLog, $ErrLog
+    $creation = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+        -Arguments @{ CommandLine = $lignes; CurrentDirectory = $Root }
+    if ($creation.ReturnValue -ne 0) {
+        throw "Lancement du MCP GitNexus refuse par Win32_Process.Create (code $($creation.ReturnValue))."
+    }
 
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     do {
         Start-Sleep -Milliseconds 250
         $listener = Get-TeamMcpProcess
         if ($listener -and $listener.IsGitNexus) {
+            # Le PID retenu est celui qui ECOUTE, pas celui du lanceur : cmd rend
+            # la main aussitot, et enregistrer son PID donnerait un fichier de
+            # service pointant sur un processus mort.
+            [IO.File]::WriteAllText($PidPath, [string]$listener.ProcessId, [Text.Encoding]::ASCII)
             Write-Output "GitNexus MCP actif: http://127.0.0.1:$Port/mcp (PID $($listener.ProcessId))."
             return
         }
-        if ($process.HasExited) {
-            $details = if (Test-Path -LiteralPath $ErrLog) { Get-Content -LiteralPath $ErrLog -Raw } else { "" }
-            throw "GitNexus MCP s'est arrete au demarrage. $details"
-        }
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw "GitNexus MCP n'ecoute pas sur le port $Port apres 20 secondes."
+
+    $details = if (Test-Path -LiteralPath $ErrLog) { Get-Content -LiteralPath $ErrLog -Raw } else { "" }
+    throw "GitNexus MCP n'ecoute pas sur le port $Port apres 20 secondes. $details"
 }
 
 function Stop-TeamMcp {

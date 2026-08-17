@@ -86,7 +86,20 @@ LOT_PAR_TOUR = 60
 _curseur = 0
 LTF, HTF = "M15", "H4"
 BARRES = 400
-MAX_POSITIONS = 8        # positions simultanées, tous actifs confondus
+#: Positions simultanées, tous actifs confondus. **0 = illimité.**
+#:
+#: Porté de 8 à illimité le 17/08/2026, à la demande de Florent, pour lever le
+#: goulot d'accumulation MESURÉ : `results/shadow_prod.ndjson` compte 3391
+#: setups ENTER uniques du 10 au 17/08 pour 128 ordres envoyés — 3.8 %. Le
+#: plafond de créneaux, pas la sélectivité, décidait de ce qui était joué, et
+#: il servait les actifs les plus rapides de la rotation plutôt que les
+#: meilleurs. La crypto n'a obtenu que 4 ordres pour 189 ENTER.
+#:
+#: ⚠️ Le compteur de positions ne borne PAS le risque : c'est
+#: `MAX_RISQUE_CUMULE_PCT` qui devient le SEUL garde-fou global d'exposition,
+#: avec `MAX_PAR_SYMBOLE` et l'arbre de corrélation. Retirer le plafond de
+#: créneaux sans ce budget reviendrait à multiplier un pari unique.
+MAX_POSITIONS = 0        # 0 = illimité (le budget de risque borne l'exposition)
 # Une seule limite passive peut réserver du risque à la fois. Tant que le
 # risque des ordres non exécutés n'est pas valorisé par le moteur global, ce
 # verrou empêche plusieurs limites de se déclencher ensemble et de dépasser
@@ -125,6 +138,21 @@ MAX_PAR_SYMBOLE = 1
 #: promotion est censurée par sa propre rareté — le biais identifié dans la
 #: conception du deadlock edge_ok.
 RESERVE_S3 = 2
+
+#: Suspension des ventes à découvert sur le FX, décidée le 17/08/2026 sur les
+#: 128 trades clos du 10 au 17/08.
+#:
+#: 51 des 53 shorts du journal sont des shorts FX : −23.5 R pour 29 % de
+#: réussite, intervalle de confiance bootstrap [−0.67 ; −0.23] R par trade —
+#: il exclut zéro, la perte n'est pas du bruit. Les 14 shorts FX restés sur
+#: les majeures après le filtre de liquidité perdent encore −0.36 R en
+#: moyenne. Les longs, eux, sont à −0.04 R par trade sur l'univers filtré.
+#:
+#: ⚠️ Une semaine de mesure ne prouve pas qu'un short FX ne vaut jamais rien :
+#: c'est une SUSPENSION, pas une loi. À rouvrir dès que l'échantillon long
+#: montre une espérance positive stable, ou après 40 shadow-shorts FX
+#: mesurés en observation (le verdict continue d'être journalisé).
+FX_SHORTS_SUSPENDUS = True
 
 #: Hiérarchie de balayage écrite par tools/classement_backtest.py.
 SELECTION_PATH = Path(__file__).resolve().parent.parent / "results" / "selection_actifs.json"
@@ -779,6 +807,22 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     catalogue_initial = len(catalogue)
     _compter_tunnel(stats, "flow", "catalogue", catalogue_initial)
 
+    # ── Filtre de liquidité FX. Élargir l'univers à tout le catalogue a fait
+    #    entrer 42 trades sur croisements et exotiques : −21.3 R, soit 73 %
+    #    de la perte des 128 trades clos du 10 au 17/08/2026, pour un taux de
+    #    réussite de 26 % et un coût moyen 37 % plus élevé que sur les
+    #    majeures. Le même échantillon privé de ces actifs passe de −29.3 R
+    #    à −8.0 R et de 43 % à 52 % de réussite, avec un tiers de trades en
+    #    moins. Ce n'est PAS un réglage de stratégie : c'est la surface de
+    #    balayage qu'on ramène aux marchés dont le spread laisse une chance
+    #    au stop. Voir docs/RECALIBRAGE_20260817.md.
+    from titanium.edge import fx_illiquide as _fx_illiquide
+
+    ecartes = [s for s in catalogue if _fx_illiquide(s)]
+    if ecartes:
+        catalogue = [s for s in catalogue if s not in set(ecartes)]
+        _compter_tunnel(stats, "flow", "fx_illiquides_ecartes", len(ecartes))
+
     # Rotation : on examine une tranche par tour, en repartant là où le tour
     # précédent s'était arrêté. Les positions ouvertes sont TOUJOURS incluses —
     # leur gestion ne doit pas attendre son tour de rotation.
@@ -964,8 +1008,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     except Exception:  # noqa: BLE001
         pass
 
-    if ouvertes >= MAX_POSITIONS or risque_engage >= MAX_RISQUE_CUMULE_PCT:
-        motif = ("plafond de positions" if ouvertes >= MAX_POSITIONS
+    plafond_atteint = MAX_POSITIONS > 0 and ouvertes >= MAX_POSITIONS
+    if plafond_atteint or risque_engage >= MAX_RISQUE_CUMULE_PCT:
+        motif = ("plafond de positions" if plafond_atteint
                  else f"budget de risque ({risque_engage:.1f} %)")
         print(f"    {ouvertes} positions · risque engagé {risque_engage:.1f} % — "
               f"{motif} atteint, aucun nouvel ordre", flush=True)
@@ -1024,7 +1069,10 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             # analystes et au contexte figé, tous sur le chemin ENTER. On le
             # recalcule donc pour les ~10 % qui entrent, pas pour les 90 %
             # qui sont écartés. Balayage 6× plus rapide, décision identique.
-            feats = build_feats(ltf, htf, with_indicators=False)
+            # La crypto cote en continu : le blocage week-end ne la vise pas
+            # (voir titanium.features.builder._weekend_block).
+            feats = build_feats(ltf, htf, with_indicators=False,
+                                marche_continu=asset_class_of(sym) == "crypto")
             _marquer_echelle(feats, unite, haute)
         except Exception as exc:  # noqa: BLE001
             # ⚠️ NE JAMAIS avaler en silence. Un `continue` muet a masqué un
@@ -1058,7 +1106,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
 
         # Le setup entre : MAINTENANT le panel vaut son coût.
         try:
-            feats = build_feats(ltf, htf, with_indicators=True)
+            feats = build_feats(ltf, htf, with_indicators=True,
+                                marche_continu=asset_class_of(sym) == "crypto")
             _marquer_echelle(feats, unite, haute)
         except Exception:  # noqa: BLE001 — sans panel, on trade quand même
             pass
@@ -1091,6 +1140,16 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                   f"sur cet actif", flush=True)
             continue
 
+        # ── Suspension des shorts FX (voir FX_SHORTS_SUSPENDUS).
+        if FX_SHORTS_SUSPENDUS and int(getattr(out, "side", 0) or 0) < 0:
+            from titanium.edge import asset_class_of as _classe
+
+            if _classe(sym) == "fx":
+                _compter_tunnel(stats, "post_enter_refusal", "FX_SHORT_SUSPENDU")
+                print(f"    {sym:8} ENTER ignoré — shorts FX suspendus "
+                      f"(recalibrage 17/08/2026)", flush=True)
+                continue
+
         if out.risk_verdict == "DENY":
             _compter_tunnel(stats, "post_enter_refusal", "RISKGATE_DENY")
             print(f"    {sym:8} ENTER mais RiskGate refuse : {out.reason}", flush=True)
@@ -1099,7 +1158,10 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         # ── Réserve S≥3. Les derniers créneaux appartiennent à la strate qui
         #    nourrit la promotion : rare (~10 % des ENTER), elle serait sinon
         #    censurée par les S=2, plus nombreux et plus rapides à remplir.
-        if ouvertes >= MAX_POSITIONS - RESERVE_S3 and c["support"] < 3:
+        # Sans plafond de créneaux, il n'y a plus de dernière place à
+        # réserver : la strate S≥3 n'est plus censurée par les S=2.
+        if (MAX_POSITIONS > 0 and ouvertes >= MAX_POSITIONS - RESERVE_S3
+                and c["support"] < 3):
             _compter_tunnel(stats, "post_enter_refusal", "RESERVE_S3")
             print(f"    {sym:8} ENTER différé — créneaux restants réservés à la "
                   f"strate S>=3 (setup {c['support']}/4)", flush=True)
@@ -1271,7 +1333,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 if not chk["passed"]:
                     print(f"             {chk['gate']} — {chk['detail']}", flush=True)
 
-        if ouvertes >= MAX_POSITIONS:
+        if MAX_POSITIONS > 0 and ouvertes >= MAX_POSITIONS:
             break
         # Le budget se recalcule après chaque envoi : huit positions à 1.75 %
         # feraient 14 % d'exposition, dont une bonne part sur le même pari.
@@ -1323,7 +1385,8 @@ def main() -> None:
     print(f"  mur        : armé={politique.enabled} · "
           f"login attendu={politique.expected_demo_login} · "
           f"réel={'AUTORISÉ' if politique.allow_real_account else 'interdit'}")
-    print(f"  intervalle : {args.intervalle:.0f} s · max {MAX_POSITIONS} positions "
+    print(f"  intervalle : {args.intervalle:.0f} s · "
+          f"{'positions illimitées' if MAX_POSITIONS <= 0 else f'max {MAX_POSITIONS} positions'} "
           f"· budget de risque {MAX_RISQUE_CUMULE_PCT:.0f} %")
 
     if args.armer and not politique.enabled:

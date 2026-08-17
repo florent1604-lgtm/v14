@@ -358,6 +358,57 @@ ASSET_CLASSES = {
 }
 
 
+#: Paires FX réellement négociables par la boucle live.
+#:
+#: ⚠️ Recalibrage du 17/08/2026, sur les 128 trades clos du 10 au 17/08 (démo
+#: 10055401, mode explore). L'élargissement de l'univers à TOUT le catalogue a
+#: fait entrer des croisements et exotiques (EURJPY hors majeures, AUDCAD,
+#: USDZAR, SGDJPY, EURCAD, EURHUF, CHFSEK, GBPNOK, USDSEK, AUDNZD…) :
+#:   · 42 trades, −21.3 R, soit 73 % de la perte totale (−29.3 R) ;
+#:   · taux de réussite 26 % contre 52 % sur le reste de l'univers ;
+#:   · coût moyen 0.111 R par trade contre 0.081 R sur les majeures.
+#: Ce sont des marchés à spread large où le stop est atteint avant l'objectif.
+#: L'univers FX revient donc aux paires de `ASSET_CLASSES["fx"]`, les seules
+#: qui aient une classe mesurable et une liquidité de premier rang.
+FX_NEGOCIABLES = frozenset(ASSET_CLASSES["fx"])
+
+
+def _racine_symbole(symbole: str) -> str:
+    """`EURUSD.fs` → `EURUSD`. Le courtier suffixe ses variantes."""
+    return str(symbole or "").upper().split(".")[0].split("_")[0]
+
+
+#: Codes ISO des devises vues dans le catalogue du courtier. Sert UNIQUEMENT à
+#: reconnaître une paire FX quand MT5 n'est pas joignable : hors session, le
+#: groupe est vide et `asset_class_of` rend "", donc un filtre qui se fierait à
+#: lui seul laisserait passer USDZAR dans tout outil lancé hors terminal.
+_DEVISES = frozenset({
+    "AUD", "CAD", "CHF", "CNH", "CZK", "DKK", "EUR", "GBP", "HKD", "HUF",
+    "ILS", "JPY", "MXN", "NOK", "NZD", "PLN", "RUB", "SEK", "SGD", "THB",
+    "TRY", "USD", "ZAR",
+})
+
+
+def est_paire_fx(symbole: str) -> bool:
+    """Vrai si le symbole est une paire de devises, avec ou sans MT5."""
+    if asset_class_of(symbole) == "fx":
+        return True
+    racine = _racine_symbole(symbole)
+    return (len(racine) == 6 and racine[:3] in _DEVISES
+            and racine[3:] in _DEVISES)
+
+
+def fx_illiquide(symbole: str) -> bool:
+    """Vrai si le symbole est une paire FX hors des paires négociables.
+
+    Ne juge QUE le FX : indices, métaux, énergie et crypto sont déjà bornés
+    par le filtre de coût de `titanium.sizing`.
+    """
+    if not est_paire_fx(symbole):
+        return False
+    return _racine_symbole(symbole) not in FX_NEGOCIABLES
+
+
 #: Groupes MT5 → classes. Le courtier range déjà ses symboles ; s'appuyer sur
 #: son classement évite d'entretenir une liste qui dérive à chaque ajout.
 GROUPES_MT5 = {

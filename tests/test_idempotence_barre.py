@@ -114,7 +114,9 @@ def test_le_plafond_par_symbole_est_serre():
     """Une seule position par actif. C'est le filet indépendant de la clé."""
     from tools.live_demo import MAX_PAR_SYMBOLE, MAX_POSITIONS
     assert MAX_PAR_SYMBOLE == 1
-    assert MAX_POSITIONS >= MAX_PAR_SYMBOLE
+    # 0 = illimité (17/08/2026) : le plafond de créneaux ne borne plus rien,
+    # c'est MAX_RISQUE_CUMULE_PCT qui porte l'exposition.
+    assert MAX_POSITIONS == 0 or MAX_POSITIONS >= MAX_PAR_SYMBOLE
 
 
 @pytest.mark.parametrize("deja,attendu", [(0, True), (1, False), (3, False)])
@@ -149,21 +151,35 @@ class TestMeriteEtReserve:
         assert c[0]["sym"] == "B"
 
     def test_la_reserve_protege_la_strate_haute(self):
-        """Les S≥3 font ~10 % des ENTER. Sans réserve, les S=2 remplissent
-        les huit créneaux avant qu'un S=3 se présente — la strate qui
-        nourrit la promotion serait censurée par sa propre rareté."""
+        """Les S≥3 font ~10 % des ENTER. Quand un plafond de créneaux existe,
+        les S=2 les rempliraient avant qu'un S=3 se présente — la strate qui
+        nourrit la promotion serait censurée par sa propre rareté.
+
+        Depuis le 17/08/2026, `MAX_POSITIONS = 0` (illimité) : la réserve
+        n'a plus de dernière place à protéger, elle devient inerte. Le test
+        vérifie la règle telle qu'elle est écrite dans la boucle, dans les
+        deux régimes.
+        """
         from tools.live_demo import MAX_POSITIONS, RESERVE_S3
-        assert 0 < RESERVE_S3 < MAX_POSITIONS
-        seuil = MAX_POSITIONS - RESERVE_S3
-        # Un S=2 est refusé une fois le seuil atteint…
-        assert seuil >= 6 and 2 < 3
-        # …mais un S=3 passe toujours.
-        for ouvertes in range(seuil, MAX_POSITIONS):
-            differe_s2 = ouvertes >= seuil and 2 < 3
-            differe_s3 = ouvertes >= seuil and 3 < 3
-            assert differe_s2 and not differe_s3
+
+        def differe(ouvertes: int, support: int, plafond: int) -> bool:
+            return (plafond > 0 and ouvertes >= plafond - RESERVE_S3
+                    and support < 3)
+
+        assert RESERVE_S3 > 0
+        if MAX_POSITIONS <= 0:
+            # Illimité : aucun candidat n'est jamais différé par la réserve.
+            assert not any(differe(n, 2, MAX_POSITIONS) for n in range(0, 50))
+        else:
+            seuil = MAX_POSITIONS - RESERVE_S3
+            assert 0 < RESERVE_S3 < MAX_POSITIONS
+            for ouvertes in range(seuil, MAX_POSITIONS):
+                assert differe(ouvertes, 2, MAX_POSITIONS)
+                assert not differe(ouvertes, 3, MAX_POSITIONS)
 
     def test_la_reserve_ne_bloque_pas_avant_le_seuil(self):
         from tools.live_demo import MAX_POSITIONS, RESERVE_S3
+        if MAX_POSITIONS <= 0:
+            return  # illimité : rien à différer, testé au-dessus
         seuil = MAX_POSITIONS - RESERVE_S3
         assert not (seuil - 1 >= seuil)

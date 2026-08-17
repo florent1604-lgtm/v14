@@ -214,11 +214,24 @@ def _setup_family(setup_side: int | None, trend: int) -> str | None:
     return "continuation" if trend in (-1, 1) and setup_side == trend else "reversal"
 
 
-def _weekend_block(now: datetime) -> bool:
+def _weekend_block(now: datetime, marche_continu: bool = False) -> bool:
     """Vendredi soir et week-end : frais de portage, edge non prouvé.
 
     Vendredi à partir de 20 h UTC, plus samedi et dimanche.
+
+    ⚠️ `marche_continu=True` désarme la règle. Elle a été écrite pour les
+    marchés qui FERMENT : le vendredi soir on paie le portage, on subit le
+    gap du dimanche soir, et le stop n'est pas gardé pendant 48 h. Rien de
+    tout cela ne vaut pour la crypto, qui cote en continu — or c'est le SEUL
+    marché ouvert pendant cette fenêtre. Mesuré le 17/08/2026 sur
+    `results/shadow_prod.ndjson` : 3391 setups ENTER du 10 au 17/08, et
+    **zéro** les 15 et 16/08. Le week-end n'était pas calme, il était éteint,
+    et la crypto payait un garde-fou conçu contre un risque qu'elle ne court
+    pas. Le plafond de coût de `titanium.sizing` continue, lui, d'écarter
+    les cryptos à spread large (24 des 31 symboles du catalogue).
     """
+    if marche_continu:
+        return False
     jour, heure = now.weekday(), now.hour
     if jour == 4 and heure >= 20:
         return True
@@ -230,6 +243,7 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
                 emotion: dict | None = None,
                 edge_ok: bool | None = None,
                 now: datetime | None = None,
+                marche_continu: bool = False,
                 min_bars_ltf: int = 60,
                 min_bars_htf: int = 60,
                 with_indicators: bool = False) -> dict:
@@ -244,6 +258,8 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
         edge_ok: edge mesuré pour ce contexte. **None = inconnu**, ce qui bloque
             en mode PROD. Ne passer True que sur mesure réelle.
         now: horodatage (tests, rejeu).
+        marche_continu: True pour un marché qui ne ferme pas (crypto). Désarme
+            le blocage week-end, qui ne protège que des marchés fermés.
         min_bars_ltf / min_bars_htf: en-dessous, `data_valid=False`.
 
     Returns:
@@ -257,7 +273,8 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
     invalide = {
         "data_valid": False,
         "emotion": dict(emotion or NEUTRAL_EMOTION),
-        "cost": {"edge_ok": edge_ok, "weekend_block": _weekend_block(maintenant)},
+        "cost": {"edge_ok": edge_ok,
+                 "weekend_block": _weekend_block(maintenant, marche_continu)},
         "_trace": {"version": BUILDER_VERSION,
                    "decided_at": maintenant.isoformat(),
                    "reason": "donnees_insuffisantes"},
@@ -330,7 +347,8 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
         "candle": candle_dir,
         "emotion": dict(emotion or NEUTRAL_EMOTION),
         # edge_ok=None ⇒ inconnu ⇒ BLOCK en PROD. Jamais True par défaut.
-        "cost": {"edge_ok": edge_ok, "weekend_block": _weekend_block(maintenant)},
+        "cost": {"edge_ok": edge_ok,
+                 "weekend_block": _weekend_block(maintenant, marche_continu)},
         "strengths": {
             "trend_sr": round(float(sr_ctx.get("on_level_strength", 0.0)), 3),
             "fair_value": 0.5 if vp_ctx.get("on_fair_price_zone") else 0.0,

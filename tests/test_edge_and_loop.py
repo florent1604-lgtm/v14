@@ -11,9 +11,12 @@ Deux exigences dominent :
 
 from __future__ import annotations
 
+import importlib
 import json
 
 import pytest
+
+from tradingagents import default_config as default_config_module
 
 from titanium.edge import (
     EDGE_THRESHOLD_R,
@@ -389,7 +392,49 @@ def test_arret_pendant_le_delai_de_demarrage(tmp_path):
     assert b.stats["passages"] == 0
 
 
-def test_parametres_lus_dans_la_config(tmp_path):
+def test_parametres_lus_dans_la_config(tmp_path, monkeypatch):
+    """La boucle lit ses paramètres dans LA config, pas dans des valeurs en dur.
+
+    Ce test affirmait ``expected_demo_login is not None`` sur un environnement
+    non maîtrisé : la valeur venait du `.env` du poste, absent du dépôt. Il
+    passait donc en local et échouait en CI, et surtout il ne vérifiait rien —
+    il constatait que la machine du développeur était configurée. C'est le
+    piège que `env_var_names()` existe pour fermer, et trois tests y avaient
+    échappé.
+
+    On repart d'un environnement propre, on injecte une valeur TÉMOIN, et on
+    exige qu'elle ressorte à l'autre bout. C'est strictement plus fort que
+    ``is not None`` : un `from_config` qui renverrait une constante passerait
+    l'ancienne version et tombe sur celle-ci.
+
+    Un ``skipif`` aurait rendu le test inerte plutôt que correct.
+    """
+    for cle in default_config_module.env_var_names():
+        monkeypatch.delenv(cle, raising=False)
+    monkeypatch.setenv("TITANIUM_DEMO_LOGIN", "99887766")
+    importlib.reload(default_config_module)
+
     b = ManageLoop(state_path=tmp_path / "s.json")
+
     assert b.params.breakeven_r == 0.8
-    assert b.policy.expected_demo_login is not None
+    assert b.policy.expected_demo_login == 99887766, (
+        "la politique doit refleter la config, pas une valeur en dur"
+    )
+
+
+def test_login_absent_de_la_config_desarme(tmp_path, monkeypatch):
+    """Sans login déclaré, la politique reste None — et donc le mur refuse.
+
+    Corollaire du test précédent : c'est le cas que la CI rencontrait et que
+    personne ne voyait. Il doit être un comportement attendu et verrouillé, pas
+    un accident de configuration. Règle de conception V14 : une variable absente
+    ou mal orthographiée DÉSARME, elle n'arme jamais.
+    """
+    for cle in default_config_module.env_var_names():
+        monkeypatch.delenv(cle, raising=False)
+    importlib.reload(default_config_module)
+
+    b = ManageLoop(state_path=tmp_path / "s.json")
+
+    assert b.policy.expected_demo_login is None
+    assert not b.policy.enabled

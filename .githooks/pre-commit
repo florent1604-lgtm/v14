@@ -10,7 +10,10 @@ else
 fi
 
 echo "[pre-commit] Ruff critical errors"
-"$PYTHON" -m ruff check --select E9,F63,F7,F82 tradingagents titanium tools tests
+# Porte unique, partagee avec la CI : voir tools/lint_gate.sh. Ne pas remettre
+# un `ruff check` en dur ici -- c'est la divergence entre ce hook et la CI qui
+# a laisse le voyant rouge en permanence.
+sh tools/lint_gate.sh
 
 echo "[pre-commit] Fast safety tests"
 "$PYTHON" -m pytest -q \

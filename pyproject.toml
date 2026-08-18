@@ -77,7 +77,15 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-extend-exclude = ["results", "worklog"]
+# Les quatre miroirs de skills (.agents/.claude/.codex/.hermes) sont du code
+# VENDORISE : 25 fichiers .py identiques au md5 dans chacun, regeneres par
+# tools/sync_llm_skills.py. Les corriger les ferait diverger de l'amont et le
+# prochain sync ecraserait la correction. Ils representaient 84 des 174 fichiers
+# en erreur, soit la moitie du bruit, pour zero ligne de code V14.
+extend-exclude = [
+    "results", "worklog",
+    ".agents", ".claude", ".codex", ".hermes",
+]
 
 [tool.ruff.lint]
 # Standard "good defaults" rule set (pyflakes + pycodestyle + isort + bugbear +

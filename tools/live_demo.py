@@ -451,18 +451,24 @@ def _journaliser_grappes(candidats, equity: float) -> int:
 
         from titanium.correlation import risque_par_grappe
 
-        # MetaTrader5 n'est importe QUE si on s'en sert. L'import etait
-        # inconditionnel alors que l'usage, lui, est conditionne a _GRAPPES :
-        # sur une machine sans le paquet, l'ImportError etait avalee par le
-        # `except` de fin et la mesure disparaissait EN SILENCE, y compris la
-        # part qui n'a besoin d'aucun courtier. Constate le 18/08/2026 sur le
-        # runner Linux de la CI, ou la fonction rendait 0 au lieu de 1.
-        # Une mesure qui ne bloque jamais la boucle ne doit pas non plus
-        # s'eteindre sans le dire.
+        # L'absence de MetaTrader5 ne doit PAS effacer la mesure. L'import
+        # etait inconditionnel et son ImportError etait avalee par le `except`
+        # de fin : sur une machine sans le paquet, tout le journal de grappes
+        # disparaissait en silence, y compris les champs qui n'ont besoin
+        # d'aucun courtier. Constate le 18/08/2026 sur le runner Linux de la
+        # CI, ou la fonction rendait 0 au lieu de 1.
+        #
+        # On degrade au lieu de disparaitre : sans terminal, le risque engage
+        # par grappe est simplement inconnu -- `risque_par_grappe` ne leve
+        # jamais et rend {} -- mais la ligne est ecrite quand meme. Une mesure
+        # qui ne bloque jamais la boucle ne doit pas non plus s'eteindre sans
+        # le dire.
         risques = {}
         if _GRAPPES is not None:
-            import MetaTrader5 as mt5  # noqa: N813
-
+            try:
+                import MetaTrader5 as mt5  # noqa: N813
+            except ImportError:
+                mt5 = None
             risques = risque_par_grappe(mt5, _GRAPPES, equity)
         lignes = []
         for candidat in candidats:

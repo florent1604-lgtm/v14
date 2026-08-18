@@ -98,7 +98,53 @@ def test_sans_login_declare_refuse():
 
 
 def test_compte_demo_attendu_passe():
-    assert_can_trade(armee(), compte()) is None
+    # ⚠️ Cette ligne était `assert_can_trade(...) is None` SANS `assert` : une
+    # comparaison jetée, donc un test qui ne vérifiait que l'absence d'exception
+    # (unique B015 du dépôt). Le mur rend maintenant le compte validé.
+    assert assert_can_trade(armee(), compte()) is not None
+
+
+def test_desarme_ne_lit_jamais_le_compte(monkeypatch):
+    """Invariant : désarmé, le mur ne demande RIEN au courtier.
+
+    Défaut relevé par Claude le 18/08/2026 : les appelants lisaient le snapshot
+    AVANT le mur. Un exécuteur désarmé interrogeait donc MT5 et prenait son
+    verrou pour rien, et si le terminal était injoignable, le `except Exception`
+    générique transformait un `EXEC_DISARMED` propre en `WALL_ERREUR` opaque —
+    le motif de refus nommait une cause fausse.
+    """
+    def _interdit():
+        raise AssertionError("account_snapshot appelé alors que l'exécution est désarmée")
+
+    monkeypatch.setattr(ex, "account_snapshot", _interdit)
+
+    with pytest.raises(ExecutionRefused) as e:
+        assert_can_trade(ExecutionPolicy(enabled=False))
+    assert e.value.code == WALL_DISARMED
+
+
+def test_ordre_marche_desarme_nomme_la_bonne_cause(monkeypatch):
+    """MT5 injoignable + désarmé ⇒ EXEC_DISARMED, jamais WALL_ERREUR."""
+    def _mt5_mort():
+        raise RuntimeError("terminal MT5 injoignable")
+
+    monkeypatch.setattr(ex, "account_snapshot", _mt5_mort)
+
+    r = place_market_order(symbol="EURUSD", side=1, stop_distance=0.0010,
+                           risk_money=10.0, policy=ExecutionPolicy(enabled=False))
+    assert r.reason == WALL_DISARMED
+    assert not r.sent
+
+
+def test_le_mur_rend_le_compte_valide():
+    """Le mur rend le snapshot qu'il a validé : un seul aller-retour MT5.
+
+    C'est ce qui permet d'appeler le mur AVANT la lecture du compte sans payer
+    une seconde lecture sur le chemin armé.
+    """
+    acc = assert_can_trade(armee(), compte())
+    assert acc is not None
+    assert int(acc.login) == DEMO_LOGIN
 
 
 def test_ordre_des_verrous():

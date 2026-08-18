@@ -64,8 +64,9 @@ def wall() -> dict:
         "detail": "",
     }
     try:
-        from titanium.data.mt5_vendor import account_snapshot
-        assert_can_trade(p, account_snapshot())
+        # Le mur d'abord : désarmé, le tableau de bord affiche EXEC_DISARMED
+        # au lieu d'un « INDISPONIBLE » qui accusait MT5 à tort.
+        assert_can_trade(p)
         out["open"] = True
         out["code"] = "OUVERT"
     except ExecutionRefused as exc:

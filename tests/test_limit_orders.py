@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from titanium.data.mt5_vendor import AccountSnapshot, SymbolSpec
-from titanium.execution import limit_orders as lo
+from titanium.execution import limit_orders as lo, mt5_executor as ex
 from titanium.execution.limit_orders import place_limit_order, plan_limit_entry
 from titanium.execution.mt5_executor import ExecutionPolicy
 from titanium.execution.pending_context import (
@@ -89,7 +89,10 @@ def install(monkeypatch, mt5=None, acc=None):
     def session():
         yield terminal
 
-    monkeypatch.setattr(lo, "account_snapshot", lambda: acc or account())
+    # Le compte est lu par le mur (mt5_executor), plus par limit_orders : depuis
+    # le 18/08/2026 `assert_can_trade` est appelé AVANT toute lecture MT5 et rend
+    # le snapshot qu'il a validé, donc c'est là qu'il faut le fournir.
+    monkeypatch.setattr(ex, "account_snapshot", lambda: acc or account())
     monkeypatch.setattr(lo, "ensure_symbol", lambda symbol: spec())
     monkeypatch.setattr(lo, "mt5_session", session)
     return terminal

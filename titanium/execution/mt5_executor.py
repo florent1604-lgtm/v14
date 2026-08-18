@@ -146,12 +146,30 @@ class OrderResult:
         self.checks.append({"gate": gate, "passed": bool(passed), "detail": detail})
 
 
-def assert_can_trade(policy: ExecutionPolicy, account=None) -> None:
+def assert_can_trade(policy: ExecutionPolicy, account=None):
     """Applique le mur. Lève ``ExecutionRefused`` au premier verrou fermé.
+
+    ⚠️ **Appeler CE mur avant de lire le compte, jamais l'inverse.** Le premier
+    verrou est `policy.enabled` et il ne demande rien au courtier : un exécuteur
+    désarmé ne doit pas interroger MT5 ni prendre son verrou. Les appelants qui
+    lisaient le snapshot d'abord transformaient en plus un `EXEC_DISARMED`
+    propre en `WALL_ERREUR` opaque dès que MT5 était injoignable — un motif de
+    refus est un dataset, il doit nommer la cause réelle. Défaut relevé par
+    Claude le 18/08/2026 sur `mt5_executor` et `limit_orders`, plus un troisième
+    appelant, `titanium/web/state.py`, qui rendait « INDISPONIBLE » au lieu de
+    « désarmé » sur le tableau de bord.
+
+    Pour que l'ordre correct ne coûte pas un second aller-retour, la fonction
+    **rend le snapshot qu'elle a validé** : `acc = assert_can_trade(policy)`
+    remplace `acc = account_snapshot(); assert_can_trade(policy, acc)`.
 
     Args:
         policy: conditions d'armement.
         account: snapshot déjà lu (évite un second aller-retour). Relu si None.
+
+    Returns:
+        Le snapshot de compte validé. ``None`` n'est jamais rendu : soit le mur
+        s'ouvre et le compte est connu, soit il lève.
 
     Raises:
         ExecutionRefused: avec un code stable identifiant le verrou.
@@ -179,6 +197,8 @@ def assert_can_trade(policy: ExecutionPolicy, account=None) -> None:
             WALL_LOGIN_MISMATCH,
             f"connecté au compte {acc.login}, attendu {policy.expected_demo_login}",
         )
+
+    return acc
 
 
 def compute_lot(spec: SymbolSpec, stop_distance: float, risk_money: float,
@@ -299,10 +319,10 @@ def place_market_order(symbol: str, side: int, risk_money: float,
         return r
     r._add("idempotency", True)
 
-    # ── LE MUR.
+    # ── LE MUR. Il passe AVANT toute lecture du compte : désarmé, on ne
+    #    demande rien au courtier et le motif reste EXEC_DISARMED.
     try:
-        acc = account_snapshot()
-        assert_can_trade(policy, acc)
+        acc = assert_can_trade(policy)
         r._add("wall", True, f"compte {acc.login} {acc.server} trade_mode={acc.trade_mode}")
     except ExecutionRefused as exc:
         r.reason = exc.code

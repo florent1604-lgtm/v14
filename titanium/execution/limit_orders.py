@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 
 from titanium.data.mt5_vendor import (
     SymbolSpec,
-    account_snapshot,
     decalage_serveur,
     ensure_symbol,
     mt5_session,
@@ -134,9 +133,9 @@ def place_limit_order(symbol: str, side: int, risk_money: float,
         return r
     r._add("idempotency", True)
 
+    # Le mur d'abord, le courtier ensuite : désarmé, aucune lecture MT5.
     try:
-        acc = account_snapshot()
-        assert_can_trade(policy, acc)
+        acc = assert_can_trade(policy)
         r._add("wall", True, f"compte {acc.login} {acc.server} trade_mode={acc.trade_mode}")
     except ExecutionRefused as exc:
         r.reason = exc.code

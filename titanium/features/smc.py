@@ -239,6 +239,89 @@ def detect_liquidity_sweep(df: pd.DataFrame, side: str,
         return False
 
 
+#: Fenetre de recherche du swing de reference, en barres.
+BOS_LOOKBACK = 50
+#: Demi-largeur du swing : un extremum doit dominer k barres de chaque cote.
+BOS_SWING_K = 3
+
+
+def detect_bos(df: pd.DataFrame, side: str, *,
+               lookback: int = BOS_LOOKBACK,
+               k: int = BOS_SWING_K) -> tuple[bool, float]:
+    """Rupture de structure : une CLOTURE au-dela du dernier swing confirme.
+
+    Rend ``(rompu, niveau)``. ``niveau`` est le swing servant de reference,
+    meme lorsqu'il n'est pas rompu — un appelant peut vouloir la distance au
+    niveau sans attendre la cassure. ``(False, 0.0)`` quand il n'y a pas de
+    structure lisible.
+
+    Deux choix de conception portent tout le sens de ce detecteur.
+
+    **Cloture, pas meche.** Une meche au-dela d'un swing est un BALAYAGE de
+    liquidite, que `detect_liquidity_sweep` detecte deja ; une cloture au-dela
+    est une rupture. Les confondre reviendrait a nommer « cassure » ce que la
+    methode de Florent traite comme un piege, et rendrait les deux detecteurs
+    redondants au lieu de complementaires.
+
+    **Swing, pas maximum de fenetre.** Le niveau de reference est un extremum
+    local entoure de ``k`` barres de chaque cote, obtenu par le meme `_swings`
+    que la zone OTE. Prendre le maximum de la fenetre — ce que fait la version
+    de V12 — ferait de tout nouveau plus-haut une « rupture » et viderait le
+    signal de son contenu.
+
+    La causalite est acquise par construction plutot que par une garde : un
+    swing haut n'est reconnu que si aucune des ``k`` barres suivantes ne le
+    depasse, donc une cloture au-dessus ne peut venir que plus tard. Aucune
+    information posterieure n'entre dans la designation du niveau.
+
+    Args:
+        df: barres OHLC, la plus recente en derniere ligne.
+        side: ``BUY``/``SELL`` (convention chaine du module).
+        lookback: profondeur de recherche du swing, en barres.
+        k: demi-largeur exigee autour de l'extremum.
+
+    Returns:
+        ``(rompu, niveau)``. Fail-safe : toute donnee absente, courte ou non
+        finie rend ``(False, 0.0)`` — un detecteur se tait, il n'invente pas.
+    """
+    if df is None or k <= 0 or lookback <= 0:
+        return False, 0.0
+    if not {"high", "low", "close"}.issubset(df.columns):
+        return False, 0.0
+    fenetre = df.tail(int(lookback))
+    if len(fenetre) < 2 * k + 2:
+        return False, 0.0
+
+    highs = fenetre["high"].to_numpy(dtype=float)
+    lows = fenetre["low"].to_numpy(dtype=float)
+    closes = fenetre["close"].to_numpy(dtype=float)
+    if not (np.isfinite(highs).all() and np.isfinite(lows).all()
+            and np.isfinite(closes).all()):
+        return False, 0.0
+
+    # `_swings` vit dans structure.py : importe ici pour eviter un cycle a
+    # l'import du module, et pour que les deux detecteurs partagent LA meme
+    # definition d'un swing. En redefinir une seconde ici ferait diverger la
+    # zone OTE et la rupture de structure sans que rien ne le signale.
+    from titanium.features.structure import _swings
+
+    sh, sl = _swings(highs, lows, k)
+    achat = _is_buy(side)
+    indices = sh if achat else sl
+    if not indices:
+        return False, 0.0
+
+    pivot = indices[-1]
+    niveau = float(highs[pivot] if achat else lows[pivot])
+
+    # Seules les barres POSTERIEURES au swing peuvent le rompre.
+    apres = closes[pivot + 1:]
+    if apres.size == 0:
+        return False, niveau
+    rompu = bool(apres.max() > niveau) if achat else bool(apres.min() < niveau)
+    return rompu, niveau
+
+
 def detect_rejection_candle(df: pd.DataFrame, side: str) -> bool:
     """Bougie de rejet : longue mèche du bon côté, petit corps."""
     if df is None or len(df) < 3:

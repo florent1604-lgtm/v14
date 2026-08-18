@@ -465,3 +465,89 @@ def test_positions_none_est_une_erreur_et_ne_purge_pas(tmp_path):
                     account=compte_demo())
     assert r["reason"].startswith("POSITIONS_INDISPONIBLES")
     assert "1" in load_state(f), "une panne MT5 ne doit jamais purger l'état"
+
+
+# ═══════════════════ instrumentation en avant (18/08/2026) ═══════════════════
+# Additive : ces tests prouvent que l'instrumentation ne modifie ni le SL
+# décidé ni les invariants de sécurité ci-dessus, tout en capturant MFE/MAE à
+# horizon fixe.
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+
+def test_horizon_capture_une_seule_fois_par_horizon():
+    """+1 barre M15 = 15 min. Deux tours après le seuil ne réécrivent rien."""
+    ouvert = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = etat(ts_open=ouvert.isoformat(), timeframe="M15", entry_atr=0.02)
+    decide_new_sl(pos(current=1.1100), s, P, now=ouvert + timedelta(minutes=20))
+    assert "1" in s.horizon_excursions
+    premiere = dict(s.horizon_excursions["1"])
+    assert premiere["mfe_r"] == pytest.approx(1.0)
+    assert premiere["mae_r"] == pytest.approx(0.0)  # ratchet défavorable jamais franchi
+    assert premiere["mfe_atr"] == pytest.approx(0.5)  # r=0.01, atr=0.02 -> R = 0.5 ATR
+
+    # Le prix repart ensuite : peak_fav_r ne redescend pas, mais l'horizon "1"
+    # ne doit plus bouger — capturé une fois, figé pour toujours.
+    decide_new_sl(pos(current=1.1300), s, P, now=ouvert + timedelta(minutes=40))
+    assert s.horizon_excursions["1"] == premiere
+
+
+def test_horizon_non_atteint_reste_absent():
+    ouvert = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = etat(ts_open=ouvert.isoformat(), timeframe="M15")
+    decide_new_sl(pos(current=1.1100), s, P, now=ouvert + timedelta(minutes=5))
+    assert s.horizon_excursions == {}
+
+
+def test_horizon_sans_atr_ne_leve_pas_et_omet_la_valeur_atr():
+    ouvert = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = etat(ts_open=ouvert.isoformat(), timeframe="M15", entry_atr=0.0)
+    decide_new_sl(pos(current=1.1100), s, P, now=ouvert + timedelta(minutes=16))
+    assert s.horizon_excursions["1"]["mfe_atr"] is None
+    assert s.horizon_excursions["1"]["mae_atr"] is None
+
+
+def test_ts_open_absent_ou_illisible_ne_leve_pas():
+    s = etat(ts_open="", timeframe="M15")
+    d = decide_new_sl(pos(current=1.1100), s, P)
+    assert d.new_sl is None or d.reason  # la décision de stop n'est pas cassée
+    assert s.horizon_excursions == {}
+
+    s2 = etat(ts_open="pas-une-date", timeframe="M15")
+    decide_new_sl(pos(current=1.1100), s2, P)
+    assert s2.horizon_excursions == {}
+
+
+def test_horizon_n_affecte_jamais_le_sl_decide():
+    """Même trajectoire, avec et sans `now` : la décision de stop est identique."""
+    s_sans = etat(phase=PHASE_TRAILING, peak_fav_r=1.3)
+    d_sans = decide_new_sl(pos(current=1.1130, sl=1.1060), s_sans, P)
+
+    ouvert = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s_avec = etat(phase=PHASE_TRAILING, peak_fav_r=1.3,
+                  ts_open=ouvert.isoformat(), timeframe="M15")
+    d_avec = decide_new_sl(pos(current=1.1130, sl=1.1060), s_avec, P,
+                            now=ouvert + timedelta(minutes=200))
+    assert d_sans.new_sl == d_avec.new_sl
+    assert d_sans.reason == d_avec.reason
+
+
+def test_tracked_state_roundtrip_conserve_l_instrumentation():
+    s = etat(entry_levels={"sr_level": 1.105, "dist_sr_r": 0.5},
+             entry_atr=0.015,
+             horizon_excursions={"1": {"mfe_r": 0.2, "mae_r": -0.1}})
+    relu = TrackedState.from_dict(s.to_dict())
+    assert relu.entry_levels == {"sr_level": 1.105, "dist_sr_r": 0.5}
+    assert relu.entry_atr == pytest.approx(0.015)
+    assert relu.horizon_excursions == {"1": {"mfe_r": 0.2, "mae_r": -0.1}}
+
+
+def test_tracked_state_from_dict_tolere_un_etat_ancien_sans_instrumentation():
+    """Un état écrit avant ce lot ne doit pas empêcher la relecture."""
+    ancien = etat().to_dict()
+    for cle in ("entry_levels", "entry_atr", "horizon_excursions"):
+        ancien.pop(cle, None)
+    relu = TrackedState.from_dict(ancien)
+    assert relu.entry_levels == {}
+    assert relu.entry_atr == 0.0
+    assert relu.horizon_excursions == {}

@@ -160,3 +160,85 @@ def test_motifs_de_portabilite_sont_stables():
     assert _code_portabilite("actif hors de portée : lot minimum") == "LOT_MIN_HORS_PORTEE"
     assert _code_portabilite("spread trop élevé") == "COUT_SPREAD"
     assert _code_portabilite("injouable à toute échelle — meilleur H4 à 20 %") == "COUT_SPREAD"
+
+
+def test_niveaux_entree_calcule_les_distances_en_r():
+    from tools.live_demo import _niveaux_entree
+
+    feats = {"_trace": {
+        "sr_level": 1.0950, "vpoc": 1.0980,
+        "ote_zone": (1.0960, 1.0970),
+        "fvg_open": [[1.0990, 1.1000]],
+        "atr": 0.0040,
+    }}
+    # Long, entree 1.1000, R = 0.0100 -> sr_level est 0.0050 SOUS l'entree,
+    # cote defavorable pour un long : dist_sr_r = (1.0950-1.1000)/0.01*1 = -0.5
+    niveaux = _niveaux_entree(feats, entry=1.1000, side=1, r=0.0100)
+
+    assert niveaux["sr_level"] == 1.0950
+    assert niveaux["vpoc"] == 1.0980
+    assert niveaux["ote_zone"] == [1.0960, 1.0970]
+    assert niveaux["fvg_open"] == [[1.0990, 1.1000]]
+    assert niveaux["dist_sr_r"] == pytest.approx(-0.5)
+    assert niveaux["dist_vpoc_r"] == pytest.approx(-0.2)
+    # borne la plus proche de l'entree parmi (1.0960, 1.0970)
+    assert niveaux["dist_ote_r"] == pytest.approx(-0.3)
+    # fvg_open borne haute == entree -> distance nulle, c'est la plus proche
+    assert niveaux["dist_fvg_r"] == pytest.approx(0.0)
+
+
+def test_niveaux_entree_absents_rend_un_dict_de_none():
+    from tools.live_demo import _niveaux_entree
+
+    niveaux = _niveaux_entree({}, entry=1.1000, side=1, r=0.0100)
+    assert niveaux["sr_level"] is None
+    assert niveaux["dist_sr_r"] is None
+    assert niveaux["ote_zone"] is None
+    assert niveaux["fvg_open"] == []
+
+
+def test_niveaux_entree_r_invalide_rend_un_dict_vide():
+    from tools.live_demo import _niveaux_entree
+
+    assert _niveaux_entree({"_trace": {"sr_level": 1.1}}, entry=1.1, side=1, r=0.0) == {}
+    assert _niveaux_entree({"_trace": {"sr_level": 1.1}}, entry=1.1, side=0, r=0.01) == {}
+
+
+def test_attacher_contexte_journalise_niveaux_et_atr(monkeypatch, tmp_path):
+    import tools.live_demo as live_demo
+
+    monkeypatch.setattr(live_demo, "RACINE", tmp_path)
+    monkeypatch.setattr(live_demo, "_contexte_exact", lambda *_: "EURUSD|long|x|3p")
+    monkeypatch.setattr(live_demo, "_stratification", lambda *_: {})
+    out = SimpleNamespace(side=1, stop_distance=0.005)
+    res = SimpleNamespace(price=1.1000, sl=1.0950, tp=1.1075)
+    feats = {"_trace": {"sr_level": 1.0950, "atr": 0.0040}}
+
+    _attacher_contexte(999, "EURUSD", feats, out, res, risque_devise=25.0)
+
+    state = json.loads((tmp_path / "results" / "positions.json").read_text())["999"]
+    assert state["entry_levels"]["sr_level"] == 1.0950
+    assert state["entry_atr"] == pytest.approx(0.0040)
+
+
+def test_memoriser_contexte_limite_journalise_niveaux_et_atr(monkeypatch, tmp_path):
+    import tools.live_demo as live_demo
+
+    monkeypatch.setattr(live_demo, "RACINE", tmp_path)
+    monkeypatch.setattr(live_demo, "_contexte_exact", lambda *_: "EURUSD|long|x|3p")
+    monkeypatch.setattr(live_demo, "_stratification", lambda *_: {})
+    out = SimpleNamespace(side=1, stop_distance=0.005)
+    res = SimpleNamespace(
+        price=1.1000, sl=1.0950, tp=1.1075,
+        expires_at="2026-08-12T12:00:00+00:00",
+        market_reference_price=1.1002, spread_saved_price=0.0002,
+    )
+    feats = {"_trace": {"vpoc": 1.0980, "atr": 0.0040}}
+
+    ok, reason = _memoriser_contexte_limit(555, "EURUSD", feats, out, res)
+
+    assert (ok, reason) == (True, "SAVED")
+    saved = json.loads((tmp_path / "results" / "pending_limits.json").read_text())
+    state = saved["555"]["state"]
+    assert state["entry_levels"]["vpoc"] == 1.0980
+    assert state["entry_atr"] == pytest.approx(0.0040)

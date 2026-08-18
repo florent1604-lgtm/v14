@@ -33,6 +33,7 @@ INVARIANTS DE SÉCURITÉ (conservés tels quels)
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 from dataclasses import dataclass, field
@@ -164,6 +165,26 @@ class TrackedState:
     # Ces champs persistent le retry jusqu'à confirmation ou escalade bornée.
     history_missing_since: str = ""
     history_missing_attempts: int = 0
+    # ── Instrumentation en avant (Prime, 18/08/2026), additive et neutre :
+    #    aucune porte ni décision de sortie ne lit ces champs.
+    #
+    # Niveaux structurels vus par le builder À LA DÉCISION D'ENTRÉE — sr_level,
+    # bornes de l'ote_zone, fvg_open, vpoc — plus la distance entrée→niveau en
+    # R, calculée une fois pour toutes à l'ouverture. Sans cette capture, ces
+    # niveaux ne sont visibles nulle part dans le trade clos : ils existent
+    # dans `_trace` au moment du calcul mais ne survivent pas à la clôture, où
+    # MT5 ne les recalculera jamais pour une barre déjà passée.
+    entry_levels: dict = field(default_factory=dict)
+    # ATR figé à l'ouverture, en unité de prix. Sert à exprimer l'excursion en
+    # ATR plutôt qu'en R : R dépend du stop choisi, l'ATR non — les deux
+    # mesures répondent à des questions différentes.
+    entry_atr: float = 0.0
+    # Excursion à horizon FIXE (barres écoulées depuis l'ouverture, pas le
+    # nombre de tours de boucle) : {"1": {...}, "4": {...}, "12": {...}}.
+    # Capturée une seule fois par horizon, dès qu'il est atteint ou dépassé —
+    # jamais réécrite ensuite. Sans elle, la MAE terminale reste circulaire
+    # (un stop touché vaut -1R par construction) et ne dit rien de l'entrée.
+    horizon_excursions: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {"r": self.r, "phase": self.phase, "peak_fav_r": self.peak_fav_r,
@@ -185,7 +206,9 @@ class TrackedState:
                 "limit_realized_saving_r": self.limit_realized_saving_r,
                 "limit_slippage_r": self.limit_slippage_r,
                 "history_missing_since": self.history_missing_since,
-                "history_missing_attempts": self.history_missing_attempts}
+                "history_missing_attempts": self.history_missing_attempts,
+                "entry_levels": self.entry_levels, "entry_atr": self.entry_atr,
+                "horizon_excursions": self.horizon_excursions}
 
     @classmethod
     def from_dict(cls, d: dict) -> "TrackedState":
@@ -233,6 +256,9 @@ class TrackedState:
             ),
             history_missing_since=str(d.get("history_missing_since", "") or ""),
             history_missing_attempts=int(d.get("history_missing_attempts", 0) or 0),
+            entry_levels=dict(d.get("entry_levels") or {}),
+            entry_atr=float(d.get("entry_atr", 0.0) or 0.0),
+            horizon_excursions=dict(d.get("horizon_excursions") or {}),
         )
 
 
@@ -247,12 +273,75 @@ class SlDecision:
     checks: list[str] = field(default_factory=list)
 
 
+#: Minutes par barre de la timeframe d'entrée — pour convertir un horizon EN
+#: BARRES (+1, +4, +12) en un seuil de temps écoulé. Défaut M15 si la
+#: timeframe est absente ou inconnue : c'est la valeur par défaut de la boucle
+#: (``tools/live_demo.py:LTF``).
+_MINUTES_PAR_TIMEFRAME = {
+    "M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440,
+}
+
+#: Horizons instrumentés, en barres de la timeframe d'entrée. Additif et figé
+#: à ces trois valeurs : en ajouter ne casse rien, en retirer perdrait des
+#: lignes déjà écrites — donc on n'y touche pas au fil de l'eau.
+_HORIZONS_BARRES = (1, 4, 12)
+
+
+def _maj_horizons(state: TrackedState, fav_r: float, now: datetime) -> None:
+    """Capture MFE/MAE à horizon fixe, une seule fois par horizon.
+
+    Additif et sans effet sur la décision de stop : appelé APRÈS que
+    ``peak_fav_r``/``mae_r`` sont à jour, il ne fait que recopier leur valeur
+    du moment dans ``horizon_excursions`` la première fois que l'horizon est
+    atteint ou dépassé. Ne lève jamais — un ``ts_open`` illisible laisse
+    simplement l'horizon non capturé pour ce tour, à retenter au suivant.
+    """
+    if not state.ts_open:
+        return
+    try:
+        ouvert = datetime.fromisoformat(state.ts_open.replace("Z", "+00:00"))
+        if ouvert.tzinfo is None:
+            ouvert = ouvert.replace(tzinfo=timezone.utc)
+        ecoule_min = (now - ouvert).total_seconds() / 60.0
+    except (ValueError, TypeError):
+        return
+    if not math.isfinite(ecoule_min) or ecoule_min < 0:
+        return
+    minutes_barre = _MINUTES_PAR_TIMEFRAME.get(state.timeframe, 15)
+    for barres in _HORIZONS_BARRES:
+        cle = str(barres)
+        if cle in state.horizon_excursions:
+            continue
+        if ecoule_min < barres * minutes_barre:
+            continue
+        capture = {
+            "mfe_r": round(state.peak_fav_r, 4),
+            "mae_r": round(state.mae_r, 4),
+            "elapsed_min": round(ecoule_min, 2),
+            "captured_at": now.isoformat(),
+        }
+        if state.entry_atr and math.isfinite(state.entry_atr) and state.entry_atr > 0:
+            facteur = state.r / state.entry_atr
+            capture["mfe_atr"] = round(state.peak_fav_r * facteur, 4)
+            capture["mae_atr"] = round(state.mae_r * facteur, 4)
+        else:
+            capture["mfe_atr"] = None
+            capture["mae_atr"] = None
+        state.horizon_excursions[cle] = capture
+
+
 def decide_new_sl(pos: PositionSnapshot, state: TrackedState,
-                  params: ManageParams) -> SlDecision:
+                  params: ManageParams, *,
+                  now: datetime | None = None) -> SlDecision:
     """Décide du nouveau stop. **Fonction pure** : aucun appel MT5, aucune I/O.
 
     Met à jour ``state.peak_fav_r`` et ``state.phase`` (le suivi du pic est un
     cliquet : il ne redescend jamais, sinon le trailing rendrait du gain).
+
+    ``now`` — horloge injectable pour les tests ; défaut ``datetime.now(utc)``.
+    Sert uniquement à l'instrumentation d'excursion à horizon fixe
+    (``state.horizon_excursions``), jamais à la décision de stop elle-même :
+    la logique de breakeven/trailing ci-dessous est inchangée bit à bit.
     """
     d = SlDecision(phase=state.phase)
 
@@ -273,6 +362,9 @@ def decide_new_sl(pos: PositionSnapshot, state: TrackedState,
     # montre plus rien et il serait trop tard pour la mesurer.
     state.mae_r = min(state.mae_r, fav_r)
     d.fav_r, d.peak_fav_r = fav_r, state.peak_fav_r
+
+    with contextlib.suppress(Exception):  # instrumentation, jamais la décision
+        _maj_horizons(state, fav_r, now or datetime.now(timezone.utc))
 
     candidat: float | None = None
 
@@ -831,6 +923,13 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
                 # drapeau, toute statistique future de MFE est biaisée à la baisse.
                 "censored": st.phase != PHASE_TRAILING and pnl_r <= 0,
                 "indicators": st.indicators,
+                # Niveaux structurels et distance entrée→niveau, figés à
+                # l'ouverture (cf. TrackedState.entry_levels). Excursion à
+                # horizon fixe en barres (cf. TrackedState.horizon_excursions).
+                # Additifs, mesure seule.
+                "entry_levels": st.entry_levels,
+                "entry_atr": st.entry_atr,
+                "horizon_excursions": st.horizon_excursions,
                 "source": "live",
             }, ensure_ascii=False) + "\n")
         if st.limit_order_ticket:

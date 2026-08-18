@@ -29,6 +29,7 @@ l'accumulation.
 from __future__ import annotations
 
 import argparse
+import math
 import signal
 import sys
 import time
@@ -688,6 +689,63 @@ def _stratification(sym: str, feats: dict, side: int) -> dict:
         return {}
 
 
+def _niveaux_entree(feats: dict, *, entry: float, side: int, r: float) -> dict:
+    """Niveaux structurels vus par le builder A LA DECISION, plus la distance
+    entree->niveau en R -- instrumentation en avant demandee par Prime le
+    18/08/2026 (hub, echange avec Claude sur le point d'entree).
+
+    Fige a l'OUVERTURE, comme `_stratification` : a la cloture MT5 ne
+    recalculera jamais des niveaux pour une barre deja passee, et le builder
+    a pu changer de version entre-temps. Additif et sans effet sur la
+    decision : aucune porte ne lit ce dict, il n'est journalise qu'avec le
+    trade clos. Convention de signe alignee sur `fav_r` : positif = le niveau
+    est du cote favorable de l'entree.
+    """
+    trace = (feats.get("_trace") or {}) if isinstance(feats, dict) else {}
+    if r <= 0 or not math.isfinite(r) or side not in (-1, 1):
+        return {}
+
+    def _dist(niveau) -> float | None:
+        try:
+            v = float(niveau)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(v):
+            return None
+        return round((v - entry) / r * side, 4)
+
+    sr_level = trace.get("sr_level")
+    vpoc = trace.get("vpoc")
+    ote_zone = trace.get("ote_zone")
+    fvg_open = trace.get("fvg_open") or []
+
+    dist_ote_r = None
+    if isinstance(ote_zone, (list, tuple)) and len(ote_zone) == 2:
+        bornes = [d for d in (_dist(ote_zone[0]), _dist(ote_zone[1])) if d is not None]
+        if bornes:
+            dist_ote_r = min(bornes, key=abs)
+
+    dist_fvg_r = None
+    fvg_distances = []
+    for zone in fvg_open:
+        if isinstance(zone, (list, tuple)) and len(zone) == 2:
+            fvg_distances.extend(
+                d for d in (_dist(zone[0]), _dist(zone[1])) if d is not None)
+    if fvg_distances:
+        dist_fvg_r = min(fvg_distances, key=abs)
+
+    return {
+        "sr_level": sr_level, "vpoc": vpoc,
+        "ote_zone": list(ote_zone) if isinstance(ote_zone, (list, tuple)) else None,
+        "fvg_open": [list(z) for z in fvg_open
+                     if isinstance(z, (list, tuple)) and len(z) == 2],
+        "dist_sr_r": _dist(sr_level),
+        "dist_vpoc_r": _dist(vpoc),
+        "dist_ote_r": dist_ote_r,
+        "dist_fvg_r": dist_fvg_r,
+    }
+
+
 def _observer_prod(sym: str, feats: dict, verdict: str) -> None:
     """Observation seule. Ne leve jamais, ne change aucune decision."""
     try:
@@ -718,8 +776,9 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
         chemin = RACINE / "results" / "positions.json"
         etat = load_state(chemin)
         r = abs((res.price or 0.0) - (res.sl or 0.0))
+        r_eff = r if r > 0 else (out.stop_distance or 0.0)
         etat[str(ticket)] = TrackedState(
-            r=r if r > 0 else (out.stop_distance or 0.0),
+            r=r_eff,
             symbol=sym, side=out.side,
             entry=res.price or 0.0,
             sl_initial=res.sl or 0.0, tp_initial=res.tp or 0.0,
@@ -735,6 +794,9 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             risque_devise=float(risque_devise or 0.0),
             spread_r=(None if spread_r is None else float(spread_r)),
             spread_exact=False,
+            entry_levels=_niveaux_entree(
+                feats, entry=res.price or 0.0, side=out.side, r=r_eff),
+            entry_atr=float((feats.get("_trace") or {}).get("atr") or 0.0),
             **_stratification(sym, feats, out.side),
         )
         save_state(chemin, etat)
@@ -755,8 +817,9 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
         from titanium.execution.position_manager import TrackedState
 
         r = abs((res.price or 0.0) - (res.sl or 0.0))
+        r_eff = r if r > 0 else (out.stop_distance or 0.0)
         template = TrackedState(
-            r=r if r > 0 else (out.stop_distance or 0.0),
+            r=r_eff,
             symbol=sym, side=out.side,
             entry=res.price or 0.0,
             sl_initial=res.sl or 0.0, tp_initial=res.tp or 0.0,
@@ -766,6 +829,9 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
             risque_devise=float(risque_devise or 0.0),
             spread_r=(None if spread_r is None else float(spread_r)),
             spread_exact=False,
+            entry_levels=_niveaux_entree(
+                feats, entry=res.price or 0.0, side=out.side, r=r_eff),
+            entry_atr=float((feats.get("_trace") or {}).get("atr") or 0.0),
             limit_order_ticket=int(ticket),
             limit_planned_price=float(res.price or 0.0),
             limit_market_reference_price=float(

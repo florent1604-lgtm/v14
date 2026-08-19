@@ -22,6 +22,11 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=2.0.0",
     "pandas>=2.3.0",
     "parsel>=1.10.0",
+    # Archive de barres (tools/archiveur_barres.py) et toute relecture parquet.
+    # Declaree en dependance de base et non en extra : le job clean-install de la
+    # CI part d'un runner neuf, et un import non declare y echoue silencieusement
+    # jusqu'au premier test qui touche l'archive. Signale par Claude le 19/08.
+    "pyarrow>=15.0",
     "python-dotenv>=1.0.0",
     "pytz>=2025.2",
     "questionary>=2.1.0",

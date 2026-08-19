@@ -56,6 +56,17 @@ if not errorlevel 1 (
 )
 
 REM  ---------------------------------------------------------------------
+REM  ETENDUE DE L'ARCHIVE L1 - elargie le 19/08/2026.
+REM  L'enregistreur sans --symboles prend tout le catalogue visible du
+REM  courtier : 149 symboles mesures ce jour-la. Il etait limite a 5 symboles
+REM  codes en dur, sur 51 reellement trades - une couverture proche de zero.
+REM  Cout mesure d'une passe complete : 24,7 s au premier contact, puis 0,1 s
+REM  a chaud. La boucle armee a 60 s n'est pas affamee.
+REM  Volume mesure : environ 2,4 Go par jour en clair, un dixieme apres
+REM  compaction. Voir collab/prime_agent/runs/mt5-collecte-elargie-20260819.
+REM  ---------------------------------------------------------------------
+
+REM  ---------------------------------------------------------------------
 REM  1. Quotes L1 du courtier. Sans MT5 ouvert, il n'y a rien a lire ; on ne
 REM     lance pas MT5 pour autant, c'est une decision humaine.
 REM  ---------------------------------------------------------------------
@@ -64,8 +75,8 @@ if errorlevel 1 (
     echo  [saute] MetaTrader 5 n'est pas lance : pas de quotes L1.
     echo          Ouvre le terminal puis relance ce script pour les ajouter.
 ) else (
-    echo  [ok]  MetaTrader 5 est ouvert - archive L1 lancee
-    start "V14 quotes L1 Axi" cmd /k ""%PY%" tools\enregistreur_quotes.py --symboles BTCUSD ETHUSD XAUUSD EURUSD US500"
+    echo  [ok]  MetaTrader 5 est ouvert - archive L1 sur tout le catalogue
+    start "V14 quotes L1 Axi" cmd /k ""%PY%" tools\enregistreur_quotes.py"
 )
 
 REM  ---------------------------------------------------------------------

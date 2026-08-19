@@ -1,0 +1,946 @@
+{
+ "n_lignes": 52773,
+ "n_symboles": 103,
+ "par_symbole": [
+  {
+   "symbole": "AUDCAD",
+   "evaluations": 1687,
+   "enter_explore": 1687,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "ETHUSD",
+   "evaluations": 1526,
+   "enter_explore": 1526,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "WTI.fs",
+   "evaluations": 1494,
+   "enter_explore": 1494,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "JPN225",
+   "evaluations": 1428,
+   "enter_explore": 1428,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURCAD",
+   "evaluations": 1282,
+   "enter_explore": 1282,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "BTC-JPY",
+   "evaluations": 1151,
+   "enter_explore": 1151,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NK225.fs",
+   "evaluations": 1146,
+   "enter_explore": 1146,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "AAVE-USD",
+   "evaluations": 1113,
+   "enter_explore": 1113,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDCAD",
+   "evaluations": 1096,
+   "enter_explore": 1096,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPJPY",
+   "evaluations": 1041,
+   "enter_explore": 1041,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "BRENT.fs",
+   "evaluations": 969,
+   "enter_explore": 969,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "SGDJPY",
+   "evaluations": 962,
+   "enter_explore": 962,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "BTCUSD",
+   "evaluations": 953,
+   "enter_explore": 953,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURSGD",
+   "evaluations": 944,
+   "enter_explore": 944,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "AUDSGD",
+   "evaluations": 932,
+   "enter_explore": 932,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USTECH",
+   "evaluations": 910,
+   "enter_explore": 910,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDZAR",
+   "evaluations": 907,
+   "enter_explore": 907,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "XAGUSD",
+   "evaluations": 900,
+   "enter_explore": 900,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NZDJPY",
+   "evaluations": 872,
+   "enter_explore": 872,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "XLMUSD",
+   "evaluations": 852,
+   "enter_explore": 852,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "XAUGBP",
+   "evaluations": 830,
+   "enter_explore": 830,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURHUF",
+   "evaluations": 792,
+   "enter_explore": 792,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "AUDJPY",
+   "evaluations": 787,
+   "enter_explore": 787,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDCHF",
+   "evaluations": 763,
+   "enter_explore": 763,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "UKOIL",
+   "evaluations": 756,
+   "enter_explore": 756,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NZDUSD",
+   "evaluations": 737,
+   "enter_explore": 737,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "CN50",
+   "evaluations": 726,
+   "enter_explore": 726,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURNZD",
+   "evaluations": 720,
+   "enter_explore": 720,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURJPY",
+   "evaluations": 712,
+   "enter_explore": 712,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURNOK",
+   "evaluations": 672,
+   "enter_explore": 672,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "CADJPY",
+   "evaluations": 669,
+   "enter_explore": 669,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDJPY",
+   "evaluations": 660,
+   "enter_explore": 660,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USOIL",
+   "evaluations": 640,
+   "enter_explore": 640,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPAUD",
+   "evaluations": 633,
+   "enter_explore": 633,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURUSD",
+   "evaluations": 633,
+   "enter_explore": 633,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPNZD",
+   "evaluations": 592,
+   "enter_explore": 592,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "ETH-JPY",
+   "evaluations": 572,
+   "enter_explore": 572,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EU50",
+   "evaluations": 555,
+   "enter_explore": 555,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NAS100.fs",
+   "evaluations": 548,
+   "enter_explore": 548,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "HK50",
+   "evaluations": 546,
+   "enter_explore": 546,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "CHFSEK",
+   "evaluations": 545,
+   "enter_explore": 545,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NZDCAD",
+   "evaluations": 521,
+   "enter_explore": 521,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "FT100.fs",
+   "evaluations": 515,
+   "enter_explore": 515,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "XAUAUD",
+   "evaluations": 499,
+   "enter_explore": 499,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "AUDUSD",
+   "evaluations": 498,
+   "enter_explore": 498,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPNOK",
+   "evaluations": 457,
+   "enter_explore": 457,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURAUD",
+   "evaluations": 445,
+   "enter_explore": 445,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPSEK",
+   "evaluations": 441,
+   "enter_explore": 441,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "XAUUSD",
+   "evaluations": 439,
+   "enter_explore": 439,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "US500",
+   "evaluations": 433,
+   "enter_explore": 433,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDSGD",
+   "evaluations": 431,
+   "enter_explore": 431,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "SGFREE",
+   "evaluations": 431,
+   "enter_explore": 431,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "US30",
+   "evaluations": 427,
+   "enter_explore": 427,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPSGD",
+   "evaluations": 422,
+   "enter_explore": 422,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "S&P.fs",
+   "evaluations": 422,
+   "enter_explore": 422,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GER40",
+   "evaluations": 418,
+   "enter_explore": 418,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPCAD",
+   "evaluations": 412,
+   "enter_explore": 412,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "SPA35",
+   "evaluations": 411,
+   "enter_explore": 411,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDINR",
+   "evaluations": 386,
+   "enter_explore": 386,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDHUF",
+   "evaluations": 377,
+   "enter_explore": 377,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "LNKUSD",
+   "evaluations": 355,
+   "enter_explore": 355,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "HSI.fs",
+   "evaluations": 350,
+   "enter_explore": 350,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NZDCHF",
+   "evaluations": 349,
+   "enter_explore": 349,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "DAX40.fs",
+   "evaluations": 342,
+   "enter_explore": 342,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "SWI20",
+   "evaluations": 327,
+   "enter_explore": 327,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURSEK",
+   "evaluations": 326,
+   "enter_explore": 326,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "CADCHF",
+   "evaluations": 324,
+   "enter_explore": 324,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDSEK",
+   "evaluations": 319,
+   "enter_explore": 319,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NOKJPY",
+   "evaluations": 293,
+   "enter_explore": 293,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "UK100",
+   "evaluations": 281,
+   "enter_explore": 281,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDBRL",
+   "evaluations": 275,
+   "enter_explore": 275,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "COCOA.fs",
+   "evaluations": 269,
+   "enter_explore": 269,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "XAUEUR",
+   "evaluations": 256,
+   "enter_explore": 256,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "SPI200.fs",
+   "evaluations": 249,
+   "enter_explore": 249,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPUSD",
+   "evaluations": 245,
+   "enter_explore": 245,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDNOK",
+   "evaluations": 240,
+   "enter_explore": 240,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "AUDNZD",
+   "evaluations": 233,
+   "enter_explore": 233,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "DJ30.fs",
+   "evaluations": 229,
+   "enter_explore": 229,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "GBPCHF",
+   "evaluations": 227,
+   "enter_explore": 227,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "CHINA50.fs",
+   "evaluations": 223,
+   "enter_explore": 223,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURCHF",
+   "evaluations": 213,
+   "enter_explore": 213,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "CHFJPY",
+   "evaluations": 183,
+   "enter_explore": 183,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "COFFEE.fs",
+   "evaluations": 171,
+   "enter_explore": 171,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "AUS200",
+   "evaluations": 167,
+   "enter_explore": 167,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EUSTX50.fs",
+   "evaluations": 151,
+   "enter_explore": 151,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NETH25",
+   "evaluations": 146,
+   "enter_explore": 146,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "COPPER.fs",
+   "evaluations": 145,
+   "enter_explore": 145,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDKRW",
+   "evaluations": 144,
+   "enter_explore": 144,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDCLP",
+   "evaluations": 133,
+   "enter_explore": 133,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURZAR",
+   "evaluations": 118,
+   "enter_explore": 118,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDMXN",
+   "evaluations": 112,
+   "enter_explore": 112,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "XRP-JPY",
+   "evaluations": 111,
+   "enter_explore": 111,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "NOKSEK",
+   "evaluations": 88,
+   "enter_explore": 88,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDTHB",
+   "evaluations": 87,
+   "enter_explore": 87,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "US2000",
+   "evaluations": 80,
+   "enter_explore": 80,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "FRA40",
+   "evaluations": 76,
+   "enter_explore": 76,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "MXNJPY",
+   "evaluations": 72,
+   "enter_explore": 72,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "CAC40.fs",
+   "evaluations": 67,
+   "enter_explore": 67,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDTWD",
+   "evaluations": 49,
+   "enter_explore": 49,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "USDCOP",
+   "evaluations": 45,
+   "enter_explore": 45,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "IT40",
+   "evaluations": 43,
+   "enter_explore": 43,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "CHFSGD",
+   "evaluations": 21,
+   "enter_explore": 21,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  },
+  {
+   "symbole": "EURGBP",
+   "evaluations": 1,
+   "enter_explore": 1,
+   "taux_enter": 1.0,
+   "enter_prod": 0,
+   "block": 0,
+   "wait": 0
+  }
+ ],
+ "codes_prod": {
+  "BLOCK_PILLAR_MISSING": 45944,
+  "BLOCK_EDGE_UNPROVEN": 6829
+ },
+ "familles": {
+  "continuation": 30399,
+  "reversal": 22374
+ },
+ "piliers": {
+  "2": 45944,
+  "3": 6780,
+  "4": 49
+ }
+}

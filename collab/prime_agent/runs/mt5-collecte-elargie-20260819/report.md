@@ -127,3 +127,72 @@ L'étape 1 est celle qui change le plus l'analyse des entrées, et c'est la moin
 - Maintenir MT5 ouvert.
 
 Rien d'autre n'est bloqué : les étapes 1 et 2 relèvent de mon périmètre de développement.
+
+
+---
+
+# Passe v2 — 19/08/2026, apres le verdict « le premier jet est faux »
+
+Florent a rejete la premiere archive en un mot. Il avait raison, et le defaut
+qu'il visait n'etait pas le seul : sur les trois trouves, **deux etaient de moi
+et personne ne les avait vus**, ni Claude ni moi.
+
+## Ce qui etait faux
+
+| # | Defaut | Preuve | Portee |
+|---|---|---|---|
+| 1 | Decalage serveur **constant** (10 800 s du jour) applique a 4 ans d'historique | dans v1, l'ouverture hebdomadaire du FX tombait a 21:00 UTC en **janvier comme en juillet** ; elle est a 22:00 UTC quand New York est en heure normale | toutes les barres d'hiver datees **1 h trop tot** — toute analyse de session faussee la moitie de l'annee |
+| 2 | Barres fabriquees non signalees | `high == low` et `tick_volume <= 1` ; EURUSD H4 remonte a 1971 alors que l'euro date de 1999 | M1 plat a 10,28 % ; `_swings` fabrique un faux swing par barre, ATR nul, normalisation en R cassee |
+| 3 | Premiere reponse vide prise pour une absence d'historique | AUDCAD/AUDCHF H4 rendaient 0 a froid, **37 503 et 37 066 barres** a chaud | 9 symboles sans H4, 1 sans D1 |
+
+## Ce qui a ete corrige (commit `910bd86`)
+
+- `decalage_utc()` recalcule le decalage **barre par barre** sur
+  `America/New_York` (GMT+2 hiver / GMT+3 ete). L'heure serveur brute est
+  conservee en colonne `time_serveur` avec `decalage_s` : la conversion est
+  auditable sans redemander le terminal.
+- Colonne `reconstruit` = `high == low` **ET** `tick_volume <= 1`. La platitude
+  seule marquerait a tort les vraies barres M1 d'exotiques illiquides.
+- `results/barres/_metadonnees.json` : par symbole et timeframe, barres,
+  reconstruites, index et date de la **premiere barre utile** (premiere fenetre
+  de 100 barres sous 5 % de fabriquees, jamais posee sur une barre fabriquee).
+- Reponse vide retentee 3 fois avant d'etre crue.
+- `schema_version=2` dans chaque parquet ; `--reprendre` saute ce qui est deja
+  au schema courant.
+- 17 tests neufs (`tests/test_archiveur_barres.py`), suite complete **1979 verts**.
+
+## Mesures v2
+
+894 fichiers, **1 139,6 Mo**, **55 072 843 barres en 563 s** (v1 : 13 107 s ;
+l'historique etait deja chaud dans le terminal). **149/149 symboles sur les six
+timeframes.**
+
+| TF | Barres | Reconstruites | Plus ancienne |
+|---|---|---|---|
+| M1 | 14 820 031 | 10,28 % | 2024-07-18 |
+| M5 | 14 538 022 | 0,06 % | 2022-09-02 |
+| M15 | 13 931 492 | 0,02 % | 2007-07-13 |
+| H1 | 8 444 820 | 0,04 % | 2007-05-21 |
+| H4 | 2 719 484 | 0,87 % | 1971-01-03 |
+| D1 | 618 994 | 1,00 % | 1971-01-02 |
+
+Controle d'horloge apres correction : EURUSD ouvre a **22:00 UTC en hiver et
+21:00 en ete**, XAUUSD et US500 a 23:00 / 22:00, bascule au bon mois.
+
+Debut utile tardif : **7 symboles seulement** sont inexploitables, tous des
+variantes a suffixe C (`EUCUSD`, `GBCUSD`, `USDCAC`, `USDCHC`, `USDSGC`,
+`USDJPC`, plus un entierement fabrique). Les 142 autres sont propres des le
+debut de leur serie : le walk-forward n'est pas bloque.
+
+## Ce qui reste faux et n'est pas de mon ressort
+
+M1, M5 et M15 sortent **tous a 100 000 barres a une poignee pres**. Ce n'est pas
+la profondeur du courtier, c'est `MaxBars=100000` dans `config/common.ini` du
+terminal. `copy_rates_range` sur EURUSD M15 en juin 2022 rend 1 barre alors que
+l'archive commence le 12/08/2022 ; H1 s'arrete a 99 000 barres pile en 2010
+quand H4 remonte a 1971.
+
+**Consequence chiffree : M15 est plafonne a 2,8 ans et M1 a 69 jours, quel que
+soit le nombre de passes.** Relever le reglage se fait dans
+Outils > Options > Graphiques > Nombre maximal de barres. C'est une decision de
+Florent ; je ne touche pas au terminal.

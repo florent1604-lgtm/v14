@@ -134,6 +134,15 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
     df = df.copy()
     df["time"] = pd.to_datetime(df["time_utc"], unit="s", utc=True)
     df = df.set_index("time").sort_index()
+    # Bascule de printemps : le serveur saute une heure, mais certains actifs
+    # cotes en continu (crypto) portent quand meme une etiquette dans le trou.
+    # Deux etiquettes serveur consecutives retombent alors sur le meme instant
+    # UTC. Trois a huit barres par serie et par decennie, jamais sur le FX —
+    # mais un index duplique casse tout alignement inter-actifs, donc on
+    # tranche ici, une fois : on garde la derniere, celle qui est deja dans le
+    # nouveau regime.
+    if df.index.has_duplicates:
+        df = df[~df.index.duplicated(keep="last")]
     # MT5 rend les volumes en uint64 : une soustraction negative y boucle a
     # 2**64. Meme conversion que mt5_vendor, pour la meme raison.
     for col in ("tick_volume", "real_volume"):

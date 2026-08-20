@@ -118,3 +118,48 @@ def test_colonnes_completes_sur_demande(archive):
     df = ab.charger_barres("TESTUSD", "M15", colonnes_get_rates=False)
     assert "reconstruit" in df.columns
     assert "decalage_s" in df.columns
+
+
+def test_index_sans_doublon_a_la_bascule_de_printemps(tmp_path, monkeypatch):
+    """Deux etiquettes serveur peuvent retomber sur le meme instant UTC.
+
+    Ca n'arrive que sur les actifs cotes en continu, quelques barres par
+    decennie — mais un index duplique casse tout alignement inter-actifs, donc
+    la regle est tranchee au chargement.
+    """
+    import json
+
+    import numpy as np
+
+    n = 10
+    df = pd.DataFrame({
+        "symbole": ["DUP"] * n,
+        "timeframe": ["H1"] * n,
+        # deux barres portent le meme time_utc
+        "time_utc": [1_600_000_000 + 3600 * i for i in [0, 1, 1, 2, 3, 4, 5, 6, 7, 8]],
+        "time_serveur": [1_600_000_000 + 3600 * i + 7200 for i in range(n)],
+        "decalage_s": [7200] * n,
+        "open": np.arange(n, dtype=float),
+        "high": np.arange(n, dtype=float) + 1,
+        "low": np.arange(n, dtype=float) - 1,
+        "close": np.arange(n, dtype=float),
+        "tick_volume": pd.Series([50] * n, dtype="uint64"),
+        "spread": [10] * n,
+        "real_volume": pd.Series([0] * n, dtype="uint64"),
+        "reconstruit": [False] * n,
+    })
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    table = table.replace_schema_metadata({b"schema_version": b"2"})
+    chemin = tmp_path / "H1" / "DUP.parquet"
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table, chemin)
+    (tmp_path / "_metadonnees.json").write_text(json.dumps(
+        {"schema_version": 2, "timeframes": {}}), encoding="utf-8")
+    monkeypatch.setattr(ab, "DOSSIER", tmp_path)
+    monkeypatch.setattr(ab, "METADONNEES", tmp_path / "_metadonnees.json")
+    ab._metadonnees.cache_clear()
+
+    lu = ab.charger_barres("DUP", "H1")
+    assert not lu.index.has_duplicates
+    assert len(lu) == n - 1
+    ab._metadonnees.cache_clear()

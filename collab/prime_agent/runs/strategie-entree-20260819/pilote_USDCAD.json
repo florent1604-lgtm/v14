@@ -1,0 +1,34 @@
+[
+ {
+  "symbol": "USDCAD",
+  "trades": 1066,
+  "barres_evaluees": 11021,
+  "enter": 1066,
+  "esperance_r": -0.0516,
+  "winrate": 0.4606,
+  "profit_factor": 0.89,
+  "cout_moyen_r": 0.1002,
+  "erreurs": 0,
+  "jours": 294,
+  "trades_par_an": 1323.4,
+  "barres_ltf": 20000,
+  "n_enter": 1066,
+  "spread_prix": 8e-05,
+  "secondes": 772.4,
+  "debut": "2025-10-29 11:00:00+00:00",
+  "segments": [
+   {
+    "n": 355,
+    "esp": -0.0755
+   },
+   {
+    "n": 355,
+    "esp": -0.0827
+   },
+   {
+    "n": 356,
+    "esp": 0.0033
+   }
+  ]
+ }
+]

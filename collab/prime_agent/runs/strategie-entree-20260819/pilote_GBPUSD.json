@@ -1,0 +1,34 @@
+[
+ {
+  "symbol": "GBPUSD",
+  "trades": 1042,
+  "barres_evaluees": 11735,
+  "enter": 1042,
+  "esperance_r": 0.0286,
+  "winrate": 0.5518,
+  "profit_factor": 1.065,
+  "cout_moyen_r": 0.0722,
+  "erreurs": 0,
+  "jours": 294,
+  "trades_par_an": 1293.6,
+  "barres_ltf": 20000,
+  "n_enter": 1042,
+  "spread_prix": 8e-05,
+  "secondes": 791.8,
+  "debut": "2025-10-29 11:00:00+00:00",
+  "segments": [
+   {
+    "n": 347,
+    "esp": 0.0622
+   },
+   {
+    "n": 347,
+    "esp": 0.0371
+   },
+   {
+    "n": 348,
+    "esp": -0.0134
+   }
+  ]
+ }
+]

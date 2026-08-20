@@ -1,0 +1,34 @@
+[
+ {
+  "symbol": "XAUUSD",
+  "trades": 1186,
+  "barres_evaluees": 10410,
+  "enter": 1186,
+  "esperance_r": 0.2053,
+  "winrate": 0.6417,
+  "profit_factor": 1.569,
+  "cout_moyen_r": 0.0116,
+  "erreurs": 0,
+  "jours": 309,
+  "trades_par_an": 1400.9,
+  "barres_ltf": 20000,
+  "n_enter": 1186,
+  "spread_prix": 0.16,
+  "secondes": 794.3,
+  "debut": "2025-10-14 09:45:00+00:00",
+  "segments": [
+   {
+    "n": 395,
+    "esp": 0.1701
+   },
+   {
+    "n": 395,
+    "esp": 0.2528
+   },
+   {
+    "n": 396,
+    "esp": 0.1929
+   }
+  ]
+ }
+]

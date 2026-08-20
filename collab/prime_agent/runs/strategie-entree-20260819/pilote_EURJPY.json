@@ -1,0 +1,34 @@
+[
+ {
+  "symbol": "EURJPY",
+  "trades": 1038,
+  "barres_evaluees": 11394,
+  "enter": 1038,
+  "esperance_r": -0.0553,
+  "winrate": 0.5116,
+  "profit_factor": 0.884,
+  "cout_moyen_r": 0.0754,
+  "erreurs": 0,
+  "jours": 294,
+  "trades_par_an": 1288.7,
+  "barres_ltf": 20000,
+  "n_enter": 1038,
+  "spread_prix": 0.01,
+  "secondes": 782.4,
+  "debut": "2025-10-29 11:00:00+00:00",
+  "segments": [
+   {
+    "n": 346,
+    "esp": -0.0711
+   },
+   {
+    "n": 346,
+    "esp": -0.0145
+   },
+   {
+    "n": 346,
+    "esp": -0.0803
+   }
+  ]
+ }
+]

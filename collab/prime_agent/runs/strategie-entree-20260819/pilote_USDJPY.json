@@ -1,0 +1,34 @@
+[
+ {
+  "symbol": "USDJPY",
+  "trades": 1057,
+  "barres_evaluees": 11355,
+  "enter": 1057,
+  "esperance_r": 0.0071,
+  "winrate": 0.5487,
+  "profit_factor": 1.016,
+  "cout_moyen_r": 0.0621,
+  "erreurs": 0,
+  "jours": 294,
+  "trades_par_an": 1312.3,
+  "barres_ltf": 20000,
+  "n_enter": 1057,
+  "spread_prix": 0.007,
+  "secondes": 783.5,
+  "debut": "2025-10-29 11:00:00+00:00",
+  "segments": [
+   {
+    "n": 352,
+    "esp": 0.058
+   },
+   {
+    "n": 352,
+    "esp": -0.0168
+   },
+   {
+    "n": 353,
+    "esp": -0.0197
+   }
+  ]
+ }
+]

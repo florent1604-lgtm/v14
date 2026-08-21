@@ -165,6 +165,10 @@ def main() -> int:
         if cible.is_file() and not args.refaire:
             print(f"{symbole:12} deja fait", flush=True)
             continue
+        # Trace d'entree : un rejeu a pleine profondeur dure environ une heure
+        # par symbole. Sans cette ligne, un lot parait fige pendant tout ce
+        # temps et on ne peut pas distinguer un travail en cours d'un blocage.
+        print(f"{symbole:12} en cours...", flush=True)
         try:
             sortie = rejouer_symbole(symbole, args.ltf, args.htf,
                                      args.barres or None, args.pas)

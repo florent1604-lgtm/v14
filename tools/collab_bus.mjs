@@ -24,7 +24,12 @@ const overrideFile = process.env.COLLAB_BUS_FILE
 const streamFile = overrideFile || resolve(sharedRoot, "collab", "messages", "stream.ndjson");
 const ackFile = overrideFile || resolve(sharedRoot, "collab", "messages", "acks.ndjson");
 
-const PRINCIPALS = new Set(["claude", "codex", "hermes", "florent", "system"]);
+// `prime` est un principal a part entiere du bus de secours V14 : le
+// responsable technique doit pouvoir emettre et recevoir sous son propre
+// nom quand CollabHub (port 8770) est injoignable. Le hub V12 ne le connait
+// pas encore, c est pourquoi la passerelle du terminal continue de router
+// ses messages vers la boite florent cote hub.
+const PRINCIPALS = new Set(["claude", "codex", "hermes", "florent", "prime", "system"]);
 const SECRET_PATTERNS = [
   /\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b/,
   /\b(?:api[_-]?key|password|passwd|secret|access[_-]?token)\s*[:=]\s*\S+/i,

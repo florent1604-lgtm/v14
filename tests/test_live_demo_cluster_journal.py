@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import inspect
 import json
+import sys
 from types import SimpleNamespace
 
 import tools.live_demo as live
 
 
 class _Grappes:
+    par_actif = {"EURUSD": "g7", "GBPUSD": "g7", "USTECH": "g7"}
     membres = {"g7": ["EURUSD", "GBPUSD"]}
 
     @staticmethod
@@ -115,3 +118,83 @@ def test_garde_grappe_refuse_si_terminal_en_erreur(monkeypatch):
     ok, motif = live._place_dans_la_grappe("USTECH", 0.5)
     assert not ok
     assert "ERREUR_RISQUE_CORRELE" in motif
+
+
+def test_garde_grappe_refuse_un_symbole_absent_du_cache(monkeypatch):
+    from titanium.correlation import Grappes
+
+    monkeypatch.setattr(
+        live,
+        "_GRAPPES",
+        Grappes(par_actif={"US500": "g1"}, membres={"g1": ["US500"]}),
+    )
+
+    ok, motif = live._place_dans_la_grappe("NOUVEAU", 0.2)
+
+    assert not ok
+    assert motif == "GRAPPE_SYMBOLE_ABSENT: NOUVEAU"
+
+
+def test_lot_minimum_revalide_alias_avec_risque_effectif(monkeypatch):
+    """0,5 % effectif doit etre teste, meme si l'intention valait 0,2 %."""
+    from titanium.correlation import Grappes
+    from titanium.data import mt5_vendor
+
+    position = SimpleNamespace(
+        symbol="NAS100.fs", sl=1.099, price_open=1.100, volume=1.6,
+    )
+    specification = SimpleNamespace(
+        trade_tick_size=0.00001, trade_tick_value=1.0,
+    )
+    faux_mt5 = SimpleNamespace(
+        positions_get=lambda: [position],
+        symbol_info=lambda _symbole: specification,
+    )
+    monkeypatch.setitem(sys.modules, "MetaTrader5", faux_mt5)
+    monkeypatch.setattr(
+        mt5_vendor, "account_snapshot",
+        lambda: SimpleNamespace(equity=10_000.0),
+    )
+    monkeypatch.setattr(
+        live, "_GRAPPES",
+        Grappes(
+            par_actif={"NAS100.FS": "g1", "USTECH": "g2"},
+            membres={"g1": ["NAS100.FS"], "g2": ["USTECH"]},
+        ),
+    )
+    budget_lot_min = SimpleNamespace(
+        tradable=True, at_min_lot=True, effective_pct=0.5,
+    )
+
+    ok, motif = live._revalider_grappe_apres_sizing(
+        "USTECH", budget_lot_min,
+    )
+
+    assert not ok
+    assert "sous-jacent US_NASDAQ_100" in motif
+    assert "1.60 %" in motif
+
+
+def test_gate_correle_unique_utilise_le_risque_post_sizing_avant_ordre():
+    source = inspect.getsource(live.tour)
+    budget = source.index("budget = budget_for")
+    non_tradable = source.index("if not budget.tradable", budget)
+    gate_effectif = source.index("_revalider_grappe_apres_sizing")
+    ordre = source.index("res = place_limit_order")
+
+    assert budget < non_tradable < gate_effectif < ordre
+    assert "_place_dans_la_grappe(sym, conf.pct)" not in source
+
+
+def test_revalidation_post_sizing_refuse_un_risque_effectif_invalide(monkeypatch):
+    monkeypatch.setattr(
+        live, "_place_dans_la_grappe",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("la porte aval ne doit pas recevoir un risque invalide")
+        ),
+    )
+    for valeur in (None, 0.0, float("nan")):
+        budget = SimpleNamespace(tradable=True, effective_pct=valeur)
+        ok, motif = live._revalider_grappe_apres_sizing("USTECH", budget)
+        assert not ok
+        assert "RISQUE_EFFECTIF" in motif

@@ -370,7 +370,7 @@ def _publier_zones() -> None:
 
 
 #: Arbre de correlation, calcule au demarrage et rafraichi hors du chemin
-#: critique. `None` = pas encore disponible, le garde-fou laisse passer.
+#: critique. `None` = pas encore disponible, le garde-fou refuse l'entree.
 _GRAPPES = None
 _GRAPPES_A = 0.0
 
@@ -419,7 +419,10 @@ def _place_dans_la_grappe(sym: str, risque_pct: float) -> tuple:
     # toutefois une exposition inconnue, donc une entree doit attendre.
     if _GRAPPES is None:
         return False, "GRAPPES_INDISPONIBLES"
+    symbole_normalise = str(sym).upper()
     try:
+        if symbole_normalise not in _GRAPPES.par_actif:
+            return False, f"GRAPPE_SYMBOLE_ABSENT: {symbole_normalise}"
         import MetaTrader5 as mt5  # noqa: N813
 
         from titanium.correlation import place_disponible
@@ -432,6 +435,27 @@ def _place_dans_la_grappe(sym: str, risque_pct: float) -> tuple:
                                 account_snapshot().equity)
     except Exception as exc:  # noqa: BLE001
         return False, f"ERREUR_RISQUE_CORRELE: {type(exc).__name__}: {exc}"
+
+
+def _revalider_grappe_apres_sizing(sym: str, budget) -> tuple:
+    """Valide le risque reellement tradable, jamais l'intention de risque.
+
+    Le lot minimum peut porter ``effective_pct`` au-dessus du ``target_pct``.
+    Une valeur absente, nulle ou non finie signale un contrat de sizing casse
+    et ferme la porte PAPER/DEMO.
+    """
+    try:
+        if not bool(budget.tradable):
+            return False, "BUDGET_NON_TRADABLE"
+        risque_effectif = float(budget.effective_pct)
+        if not math.isfinite(risque_effectif) or risque_effectif <= 0:
+            return False, "RISQUE_EFFECTIF_INVALIDE"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"RISQUE_EFFECTIF_ILLISIBLE: {type(exc).__name__}: {exc}"
+    try:
+        return _place_dans_la_grappe(sym, risque_effectif)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"ERREUR_REVALIDATION_GRAPPE: {type(exc).__name__}: {exc}"
 
 
 CANDIDATS_GRAPPE = RACINE / "results" / "candidats_grappe.ndjson"
@@ -1267,13 +1291,6 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 quorum=(_cg.QUORUM_PROD if cfg.require_edge
                         else _cg.QUORUM_EXPLORE))
 
-            # ── La grappe de corrélation peut-elle encore encaisser ?
-            ok_grappe, motif_grappe = _place_dans_la_grappe(sym, conf.pct)
-            if not ok_grappe:
-                _compter_tunnel(stats, "post_enter_refusal", "GRAPPE")
-                print(f"    {sym:8} ENTER refusé — {motif_grappe}", flush=True)
-                continue
-
             # ── Le setup est-il encore valable MAINTENANT ?
             derive = _derive_depuis_decision(sym, feats, out)
             if derive is not None and derive > DERIVE_MAX_R:
@@ -1317,6 +1334,16 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         if not budget.tradable:
             _compter_tunnel(stats, "post_enter_refusal", "BUDGET")
             print(f"    {sym:8} ENTER mais {budget.reason}", flush=True)
+            continue
+
+        # Le lot minimum et l'arrondi courtier peuvent eloigner le risque de
+        # l'intention ``conf.pct``. Une seule porte correlee fait autorite :
+        # celle-ci, apres sizing, avec le risque effectivement tradable.
+        ok_grappe, motif_grappe = _revalider_grappe_apres_sizing(sym, budget)
+        if not ok_grappe:
+            _compter_tunnel(stats, "post_enter_refusal", "GRAPPE")
+            print(f"    {sym:8} ENTER refuse — risque effectif : "
+                  f"{motif_grappe}", flush=True)
             continue
 
         sens = "LONG" if out.side > 0 else "SHORT"

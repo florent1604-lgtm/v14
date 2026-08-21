@@ -29,9 +29,11 @@ trop ? » et laisse l'appelant conclure.
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 
 RACINE = Path(__file__).resolve().parent.parent
 CACHE = RACINE / "results" / "grappes.json"
@@ -42,6 +44,35 @@ CACHE = RACINE / "results" / "grappes.json"
 #: le saturer, une seule ne le peut pas. C'est la définition opérationnelle
 #: de « diversifié » pour ce bot.
 MAX_RISQUE_GRAPPE_PCT = 2.0
+
+#: Version de la table des *doublons de contrat* verifies sur la collecte H1.
+#:
+#: Une correlation elevee ne suffit pas pour entrer ici : les relations de
+#: marche (indices US entre eux, crypto cotee dans plusieurs devises, etc.)
+#: restent sous la responsabilite du clustering dynamique. USDJPC/USDJPY est
+#: volontairement exclu tant que la fraicheur du premier symbole n'est pas
+#: prouvee sur le chemin d'execution.
+ALIAS_MAP_VERSION = "h1-contract-aliases-2026-08-20-v1"
+
+_ALIAS_GROUPS = {
+    "HK_50": ("HK50", "HSI.FS"),
+    "US_NASDAQ_100": ("NAS100.FS", "USTECH"),
+    "US_SP500": ("S&P.FS", "US500"),
+    "US_DOW_30": ("DJ30.FS", "US30"),
+    "CHINA_A50": ("CHINA50.FS", "CN50"),
+    "AUSTRALIA_200": ("AUS200", "SPI200.FS"),
+    "WTI_CRUDE": ("USOIL", "WTI.FS"),
+    "FRANCE_40": ("CAC40.FS", "FRA40"),
+    "BRENT_CRUDE": ("BRENT.FS", "UKOIL"),
+}
+
+# Mapping en lecture seule : toute modification exige une nouvelle version et
+# des preuves de doublon de contrat, pas seulement une correlation statistique.
+ALIAS_TO_UNDERLYING = MappingProxyType({
+    alias: underlying
+    for underlying, aliases in _ALIAS_GROUPS.items()
+    for alias in aliases
+})
 
 #: Corrélation au-delà de laquelle deux actifs sont un seul pari.
 #: 0.60 est bas exprès : à 0.69 mesuré entre paires JPY, un seuil à 0.80
@@ -83,6 +114,29 @@ class Grappes:
     def to_dict(self) -> dict:
         return {"par_actif": self.par_actif, "membres": self.membres,
                 "calcule_le": self.calcule_le, "methode": self.methode}
+
+
+@dataclass(frozen=True)
+class MesureExposition:
+    """Photographie complete de l'exposition ou erreur explicite.
+
+    ``valide=False`` interdit d'interpreter des dictionnaires partiels comme
+    une absence d'exposition. C'est le contrat fail-closed de la porte
+    d'entree PAPER/DEMO.
+    """
+
+    valide: bool
+    par_grappe: dict = field(default_factory=dict)
+    par_sous_jacent: dict = field(default_factory=dict)
+    raison: str = ""
+
+
+def canonicaliser_sous_jacent(symbole: str) -> str:
+    """Identifiant canonique d'un contrat, sans inventer de correlation."""
+    brut = str(symbole or "").strip().upper()
+    if not brut:
+        raise ValueError("symbole vide")
+    return ALIAS_TO_UNDERLYING.get(brut, brut)
 
 
 def _rendements(symboles, barres: int = 300, timeframe: str = "M15"):
@@ -198,27 +252,112 @@ def charger(symboles, *, ttl: float = TTL_GRAPPES_S) -> Grappes:
     return g
 
 
+def _nombre_fini(valeur, *, strictement_positif: bool = False) -> float:
+    nombre = float(valeur)
+    if not math.isfinite(nombre):
+        raise ValueError("nombre non fini")
+    if strictement_positif and nombre <= 0:
+        raise ValueError("nombre non positif")
+    return nombre
+
+
+def mesurer_exposition(mt5, grappes: Grappes,
+                       equity: float) -> MesureExposition:
+    """Mesure atomique du risque par bloc dynamique et sous-jacent.
+
+    Une seule position illisible invalide toute la photographie : continuer
+    avec un total incomplet sous-estimerait le risque et ouvrirait la porte.
+    """
+    try:
+        eq = _nombre_fini(equity, strictement_positif=True)
+    except (TypeError, ValueError):
+        return MesureExposition(False, raison="equite invalide")
+    if mt5 is None:
+        return MesureExposition(False, raison="terminal MT5 indisponible")
+    if grappes is None:
+        return MesureExposition(False, raison="grappes indisponibles")
+
+    try:
+        positions = mt5.positions_get()
+    except Exception as exc:  # noqa: BLE001
+        return MesureExposition(
+            False, raison=f"lecture positions impossible: {exc}",
+        )
+    if positions is None:
+        return MesureExposition(False, raison="positions indisponibles")
+    try:
+        positions = list(positions)
+    except Exception as exc:  # noqa: BLE001
+        return MesureExposition(False, raison=f"positions illisibles: {exc}")
+
+    par_grappe: dict = {}
+    par_sous_jacent: dict = {}
+    for position in positions:
+        try:
+            symbole = str(getattr(position, "symbol", "") or "").strip()
+        except Exception as exc:  # noqa: BLE001
+            return MesureExposition(False, raison=f"position illisible: {exc}")
+        if not symbole:
+            return MesureExposition(False, raison="position sans symbole")
+        try:
+            specification = mt5.symbol_info(symbole)
+        except Exception as exc:  # noqa: BLE001
+            return MesureExposition(
+                False,
+                raison=f"specification {symbole} illisible: {exc}",
+            )
+        if specification is None:
+            return MesureExposition(
+                False, raison=f"specification indisponible pour {symbole}",
+            )
+        try:
+            tick_size = _nombre_fini(
+                specification.trade_tick_size, strictement_positif=True,
+            )
+            tick_value = _nombre_fini(
+                specification.trade_tick_value, strictement_positif=True,
+            )
+            volume = _nombre_fini(
+                position.volume, strictement_positif=True,
+            )
+            prix_ouverture = _nombre_fini(position.price_open)
+            stop = _nombre_fini(position.sl or 0.0)
+            if stop < 0:
+                raise ValueError("stop negatif")
+        except (AttributeError, TypeError, ValueError) as exc:
+            return MesureExposition(
+                False, raison=f"position {symbole} invalide: {exc}",
+            )
+
+        if stop == 0:
+            risque = MAX_RISQUE_GRAPPE_PCT
+        else:
+            distance = abs(prix_ouverture - stop)
+            risque = ((distance / tick_size) * tick_value * volume) / eq * 100.0
+        if not math.isfinite(risque) or risque < 0:
+            return MesureExposition(
+                False, raison=f"risque non mesurable pour {symbole}",
+            )
+
+        try:
+            cle_grappe = grappes.grappe_de(symbole)
+            sous_jacent = canonicaliser_sous_jacent(symbole)
+        except Exception as exc:  # noqa: BLE001
+            return MesureExposition(
+                False, raison=f"classement {symbole} impossible: {exc}",
+            )
+        par_grappe[cle_grappe] = par_grappe.get(cle_grappe, 0.0) + risque
+        par_sous_jacent[sous_jacent] = (
+            par_sous_jacent.get(sous_jacent, 0.0) + risque
+        )
+
+    return MesureExposition(True, par_grappe, par_sous_jacent)
+
+
 def risque_par_grappe(mt5, grappes: Grappes, equity: float) -> dict:
     """Risque engagé par grappe, en % de l'équité. Ne lève jamais."""
-    out: dict = {}
-    if equity <= 0:
-        return out
-    try:
-        for p in (mt5.positions_get() or []):
-            spec = mt5.symbol_info(p.symbol)
-            if spec is None or not spec.trade_tick_size:
-                continue
-            if not p.sl:
-                r = 2.0                    # sans stop : on suppose le plafond
-            else:
-                d = abs(p.price_open - p.sl)
-                r = ((d / spec.trade_tick_size) * spec.trade_tick_value
-                     * p.volume) / equity * 100.0
-            cle = grappes.grappe_de(p.symbol)
-            out[cle] = out.get(cle, 0.0) + r
-    except Exception:  # noqa: BLE001
-        return {}
-    return out
+    mesure = mesurer_exposition(mt5, grappes, equity)
+    return mesure.par_grappe if mesure.valide else {}
 
 
 def place_disponible(symbole: str, risque_pct: float, mt5, grappes: Grappes,
@@ -230,9 +369,28 @@ def place_disponible(symbole: str, risque_pct: float, mt5, grappes: Grappes,
         ``(autorisé, motif)``. Le motif est chiffré : « grappe g3 déjà à
         1.8 % » se vérifie, « trop corrélé » ne se vérifie pas.
     """
+    try:
+        risque = _nombre_fini(risque_pct)
+        limite = _nombre_fini(plafond, strictement_positif=True)
+        if risque < 0:
+            raise ValueError("risque negatif")
+        sous_jacent = canonicaliser_sous_jacent(symbole)
+    except (TypeError, ValueError):
+        return False, "risque propose invalide"
+
+    mesure = mesurer_exposition(mt5, grappes, equity)
+    if not mesure.valide:
+        return False, f"exposition inconnue — {mesure.raison}"
+
+    engage_sous_jacent = mesure.par_sous_jacent.get(sous_jacent, 0.0)
+    if engage_sous_jacent + risque > limite:
+        return False, (f"sous-jacent {sous_jacent} deja a "
+                       f"{engage_sous_jacent:.2f} % "
+                       f"(plafond {limite:.1f} %)")
+
     cle = grappes.grappe_de(symbole)
-    engage = risque_par_grappe(mt5, grappes, equity).get(cle, 0.0)
-    if engage + risque_pct <= plafond:
+    engage = mesure.par_grappe.get(cle, 0.0)
+    if engage + risque <= limite:
         return True, ""
     membres = grappes.membres.get(cle, [])
     voisins = ", ".join(m for m in membres if m != symbole.upper())[:60]

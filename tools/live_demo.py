@@ -412,9 +412,13 @@ def rafraichir_grappes(catalogue) -> None:
 def _place_dans_la_grappe(sym: str, risque_pct: float) -> tuple:
     """La grappe de correlation de cet actif accepte-t-elle ce risque ?
 
-    Ne leve jamais : si le calcul echoue, on autorise. Un garde-fou qui
-    bloque sur sa propre panne serait pire que son absence.
+    Ne leve jamais et refuse par defaut si la photographie de risque n'est
+    pas disponible. Cette porte est reservee au chemin PAPER/DEMO.
     """
+    # Le calcul de l'arbre reste hors du chemin critique. Son absence est
+    # toutefois une exposition inconnue, donc une entree doit attendre.
+    if _GRAPPES is None:
+        return False, "GRAPPES_INDISPONIBLES"
     try:
         import MetaTrader5 as mt5  # noqa: N813
 
@@ -424,14 +428,10 @@ def _place_dans_la_grappe(sym: str, risque_pct: float) -> tuple:
         # ⚠️ On lit l'arbre DEJA calcule. Appeler `charger()` ici
         # declencherait le calcul sur le chemin critique — 300 barres sur
         # 149 actifs, plusieurs minutes, juste avant d'envoyer un ordre.
-        # Sans arbre, on autorise : un garde-fou ne doit pas retarder une
-        # entree pour se calculer lui-meme.
-        if _GRAPPES is None:
-            return True, ""
         return place_disponible(sym, risque_pct, mt5, _GRAPPES,
                                 account_snapshot().equity)
-    except Exception:  # noqa: BLE001
-        return True, ""
+    except Exception as exc:  # noqa: BLE001
+        return False, f"ERREUR_RISQUE_CORRELE: {type(exc).__name__}: {exc}"
 
 
 CANDIDATS_GRAPPE = RACINE / "results" / "candidats_grappe.ndjson"

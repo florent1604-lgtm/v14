@@ -92,3 +92,26 @@ def test_journal_de_grappes_survit_a_l_absence_de_metatrader(monkeypatch, tmp_pa
         "sans MetaTrader5, la mesure de grappe doit encore etre ecrite"
     )
     assert (tmp_path / "candidats.ndjson").exists()
+
+
+def test_garde_grappe_refuse_sans_arbre(monkeypatch):
+    """Une porte de risque absente n'est jamais equivalente a un portefeuille vide."""
+    monkeypatch.setattr(live, "_GRAPPES", None)
+    ok, motif = live._place_dans_la_grappe("USTECH", 0.5)
+    assert not ok
+    assert "indisponibles" in motif.lower()
+
+
+def test_garde_grappe_refuse_si_terminal_en_erreur(monkeypatch):
+    monkeypatch.setattr(live, "_GRAPPES", _Grappes())
+
+    import titanium.correlation as correlation
+
+    monkeypatch.setattr(
+        correlation,
+        "place_disponible",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("terminal muet")),
+    )
+    ok, motif = live._place_dans_la_grappe("USTECH", 0.5)
+    assert not ok
+    assert "ERREUR_RISQUE_CORRELE" in motif

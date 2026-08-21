@@ -15,7 +15,7 @@ Inventaire mesure au debut du lot :
 
 - 141 symboles et 437 fichiers de quotes broker, environ 7,05 Go, du 15 au
   21/08/2026 ;
-- 103 resumes de rejeu ;
+- 113 resumes de rejeu au point de reprise du 21/08 ;
 - **0 artefact brut scelle** dans `results/rejeu_univers_brut`.
 
 ## Blocages causaux
@@ -27,7 +27,8 @@ Inventaire mesure au debut du lot :
    portent ni tailles bid/ask, ni sequence de carnet, ni transaction qualifiee,
    ni cote agresseur. Le passage d'un prix au niveau d'une limite ne prouve pas
    que notre ordre fictif aurait obtenu la priorite ou un fill.
-3. Les intentions brutes ne portent pas encore `quantity` ni `asset_class`.
+3. Les intentions brutes ne portent pas encore `decision_at`, `quantity` ni
+   `asset_class`.
    Sans elles, le net intention-to-trade et l'agregation par classe ne sont pas
    definis proprement.
 
@@ -54,6 +55,13 @@ ne peuvent jamais disparaitre du PnL par filtrage.
   transactions avec prix, taille et cote agresseur ;
 - politique explicite de latence, expiration, frais maker/taker et fallback ;
 - snapshot de chaque tranche de quotes consommee et manifeste final du rapport.
+
+Le validateur schema 2 controle maintenant toutes les lignes de tous les
+fichiers quotes consommes, pas seulement leur premiere observation. Il refuse
+les prix/tailles/horodatages invalides, les chronologies decroissantes, les
+symboles incoherents, zero intention et une couverture qui ne va pas jusqu'au
+dernier horizon de markout. Les hypotheses de latence, expiration, frais et
+fallback sont obligatoires, validees puis incluses dans le snapshot.
 
 Une simulation conservative « cross-through uniquement » pourra servir de
 borne basse distincte, mais ne devra jamais etre etiquetee comme taux de fill

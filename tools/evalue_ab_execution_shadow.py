@@ -9,18 +9,26 @@ et laisse toutes les metriques a ``null``.
 from __future__ import annotations
 
 import argparse
+import bisect
 import hashlib
 import json
+import math
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 BRUTS_DEFAUT = RACINE / "results" / "rejeu_univers_brut"
 QUOTES_DEFAUT = RACINE / "results" / "quotes"
 RESUMES_DEFAUT = RACINE / "results" / "rejeu_univers"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 POLITIQUES = ("market", "limit_passive", "adaptive")
+FALLBACK_AUTORISES = {
+    "market": {"immediate_or_expire"},
+    "limit_passive": {"expire_unfilled"},
+    "adaptive": {"cross_at_expiry", "expire_unfilled"},
+}
 METRIQUES = (
     "fill_rate",
     "delay_ms",
@@ -30,7 +38,7 @@ METRIQUES = (
     "opportunity_cost_r",
     "net_intention_to_trade_r",
 )
-CHAMPS_INTENTION = {"decision_at", "asset_class", "quantity"}
+CHAMPS_INTENTION = {"decision_at", "asset_class", "quantity", "side", "trade_id"}
 CHAMPS_PASSIF = {
     "bid_size",
     "ask_size",
@@ -51,23 +59,163 @@ def _sha256(contenu: bytes) -> str:
     return hashlib.sha256(contenu).hexdigest()
 
 
-def _sha256_fichier(chemin: Path) -> str:
-    h = hashlib.sha256()
-    with chemin.open("rb") as fichier:
-        for bloc in iter(lambda: fichier.read(1024 * 1024), b""):
-            h.update(bloc)
-    return h.hexdigest()
+def _timestamp_ms_utc(valeur) -> float:
+    texte = str(valeur).strip().replace("Z", "+00:00")
+    instant = datetime.fromisoformat(texte)
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ValueError("horodatage sans fuseau")
+    return instant.astimezone(timezone.utc).timestamp() * 1000.0
 
 
-def _premiere_ligne(chemin: Path) -> dict:
-    with chemin.open("r", encoding="utf-8") as fichier:
-        for ligne in fichier:
-            if ligne.strip():
-                charge = json.loads(ligne)
-                if not isinstance(charge, dict):
-                    raise ValueError("ligne quote non objet")
-                return charge
-    raise ValueError("archive quote vide")
+def _nombre_fini(valeur, *, strictement_positif: bool = False) -> float:
+    nombre = float(valeur)
+    if not math.isfinite(nombre):
+        raise ValueError("nombre non fini")
+    if strictement_positif and nombre <= 0:
+        raise ValueError("nombre non positif")
+    return nombre
+
+
+def _nombre_non_negatif(valeur) -> float:
+    nombre = _nombre_fini(valeur)
+    if nombre < 0:
+        raise ValueError("nombre negatif")
+    return nombre
+
+
+def _valider_hypotheses(hypotheses: dict | None) -> dict:
+    if not isinstance(hypotheses, dict):
+        raise ValueError("hypotheses absentes")
+    if hypotheses.get("schema_version") != 1:
+        raise ValueError("schema hypotheses inconnu")
+    latences = hypotheses.get("latency_ms")
+    expirations = hypotheses.get("expiry_ms")
+    frais = hypotheses.get("fees_bps")
+    fallback = hypotheses.get("fallback")
+    horizons = hypotheses.get("markout_horizons_ms")
+    if not isinstance(latences, dict) or set(POLITIQUES) - set(latences):
+        raise ValueError("latences incompletes")
+    if not isinstance(expirations, dict) or set(POLITIQUES) - set(expirations):
+        raise ValueError("expirations incompletes")
+    if not isinstance(frais, dict) or not {"maker", "taker"}.issubset(frais):
+        raise ValueError("frais incomplets")
+    if not isinstance(fallback, dict) or not all(
+        fallback.get(politique) in FALLBACK_AUTORISES[politique]
+        for politique in POLITIQUES
+    ):
+        raise ValueError("fallback incomplet")
+    if not isinstance(horizons, list) or not horizons:
+        raise ValueError("horizons markout absents")
+    normalise = {
+        "schema_version": 1,
+        "latency_ms": {
+            politique: _nombre_fini(latences[politique])
+            for politique in POLITIQUES
+        },
+        "expiry_ms": {
+            politique: _nombre_fini(
+                expirations[politique], strictement_positif=True,
+            )
+            for politique in POLITIQUES
+        },
+        "fees_bps": {
+            role: _nombre_fini(frais[role]) for role in ("maker", "taker")
+        },
+        "fallback": {
+            politique: fallback[politique].strip() for politique in POLITIQUES
+        },
+        "markout_horizons_ms": sorted({
+            _nombre_fini(horizon, strictement_positif=True)
+            for horizon in horizons
+        }),
+        "max_quote_gap_ms": _nombre_fini(
+            hypotheses.get("max_quote_gap_ms"), strictement_positif=True,
+        ),
+    }
+    if any(latence < 0 for latence in normalise["latency_ms"].values()):
+        raise ValueError("latence negative")
+    if any(
+        normalise["latency_ms"][politique]
+        >= normalise["expiry_ms"][politique]
+        for politique in POLITIQUES
+    ):
+        raise ValueError("latence doit etre inferieure a expiration")
+    return normalise
+
+
+def _scanner_quotes(fichiers: list[Path], symbole: str) -> dict:
+    """Valide chaque observation et rend un snapshot sans inventer de fill."""
+    snapshot: list[dict] = []
+    premiere_ts = derniere_ts = precedente_ts = None
+    observations = 0
+    passif_observable = True
+    precedente_sequence = None
+    timestamps_ms: list[float] = []
+    for chemin in fichiers:
+        hachage = hashlib.sha256()
+        taille = 0
+        with chemin.open("rb") as fichier:
+            for numero, ligne in enumerate(fichier, start=1):
+                hachage.update(ligne)
+                taille += len(ligne)
+                if not ligne.strip():
+                    continue
+                quote = json.loads(ligne)
+                if not isinstance(quote, dict):
+                    raise ValueError(f"{chemin.name}:{numero}: quote non objet")
+                ts_ms = _nombre_fini(quote["ts_ms"], strictement_positif=True)
+                bid = _nombre_fini(quote["bid"], strictement_positif=True)
+                ask = _nombre_fini(quote["ask"], strictement_positif=True)
+                if ask < bid or quote.get("horloge") != "utc":
+                    raise ValueError(f"{chemin.name}:{numero}: quote ou horloge")
+                if str(quote.get("symbole", "")).upper() != symbole.upper():
+                    raise ValueError(f"{chemin.name}:{numero}: symbole")
+                if precedente_ts is not None and ts_ms < precedente_ts:
+                    raise ValueError(f"{chemin.name}:{numero}: chronologie")
+                precedente_ts = ts_ms
+                timestamps_ms.append(ts_ms)
+                premiere_ts = ts_ms if premiere_ts is None else premiere_ts
+                derniere_ts = ts_ms
+                observations += 1
+
+                if not CHAMPS_PASSIF.issubset(quote):
+                    passif_observable = False
+                    continue
+                _nombre_non_negatif(quote["bid_size"])
+                _nombre_non_negatif(quote["ask_size"])
+                _nombre_fini(quote["trade_price"], strictement_positif=True)
+                _nombre_fini(quote["trade_size"], strictement_positif=True)
+                sequence = _nombre_fini(
+                    quote["sequence"], strictement_positif=True,
+                )
+                if not sequence.is_integer():
+                    raise ValueError(
+                        f"{chemin.name}:{numero}: sequence non entiere"
+                    )
+                if (precedente_sequence is not None
+                        and sequence <= precedente_sequence):
+                    raise ValueError(
+                        f"{chemin.name}:{numero}: sequence non croissante"
+                    )
+                precedente_sequence = sequence
+                if str(quote["aggressor_side"]).lower() not in {"buy", "sell"}:
+                    raise ValueError(f"{chemin.name}:{numero}: cote agresseur")
+        snapshot.append({
+            "symbol": symbole,
+            "name": chemin.name,
+            "bytes": taille,
+            "sha256": hachage.hexdigest(),
+        })
+    if observations == 0:
+        raise ValueError("archives quotes vides")
+    return {
+        "snapshot": snapshot,
+        "first_ts_ms": premiere_ts,
+        "last_ts_ms": derniere_ts,
+        "observations": observations,
+        "passive_observable": passif_observable,
+        "timestamps_ms": timestamps_ms,
+    }
 
 
 def _artefact_scelle(dossier: Path, resumes: Path) -> tuple[dict, list[dict]]:
@@ -94,8 +242,15 @@ def _artefact_scelle(dossier: Path, resumes: Path) -> tuple[dict, list[dict]]:
     lignes = [json.loads(ligne) for ligne in brut.splitlines() if ligne.strip()]
     if len(lignes) != manifeste["counts"]["trades"]:
         raise ValueError("compteur trades incoherent")
+    if any(not isinstance(ligne, dict) for ligne in lignes):
+        raise ValueError("trade brut non objet")
     if any(ligne.get("symbol") != symbole for ligne in lignes):
         raise ValueError("symbole trade incoherent")
+    identifiants = [ligne.get("trade_id") for ligne in lignes]
+    if any(not isinstance(identifiant, str) or not identifiant for identifiant in identifiants):
+        raise ValueError("trade_id absent")
+    if len(identifiants) != len(set(identifiants)):
+        raise ValueError("trade_id duplique")
     return manifeste, lignes
 
 
@@ -103,7 +258,63 @@ def _blocage(code: str, scope: str, detail: str) -> dict:
     return {"code": code, "scope": scope, "detail": detail}
 
 
-def auditer_disponibilite(bruts: Path, quotes: Path, resumes: Path) -> dict:
+def _fenetre_intentions(intentions: list[dict]) -> tuple[float, float]:
+    decisions: list[float] = []
+    for intention in intentions:
+        decision = _timestamp_ms_utc(intention["decision_at"])
+        side = _nombre_fini(intention["side"])
+        if side not in {-1.0, 1.0}:
+            raise ValueError("side doit valoir -1 ou 1")
+        _nombre_fini(intention["quantity"], strictement_positif=True)
+        if not str(intention["asset_class"]).strip():
+            raise ValueError("classe d'actif vide")
+        decisions.append(decision)
+    return min(decisions), max(decisions)
+
+
+def _valider_couverture_par_bras(
+    intentions: list[dict],
+    timestamps: list[float],
+    hypotheses: dict,
+) -> None:
+    """Exige une trace dense dans chaque fenêtre causale et à chaque markout."""
+    gap_max = hypotheses["max_quote_gap_ms"]
+    for intention in intentions:
+        decision = _timestamp_ms_utc(intention["decision_at"])
+        for politique in POLITIQUES:
+            debut = decision + hypotheses["latency_ms"][politique]
+            fin = debut + hypotheses["expiry_ms"][politique]
+            gauche = bisect.bisect_left(timestamps, debut)
+            droite = bisect.bisect_right(timestamps, fin)
+            fenetre = timestamps[gauche:droite]
+            if not fenetre:
+                raise ValueError(
+                    f"{politique}: aucune quote dans la fenetre executable"
+                )
+            if fenetre[0] - debut > gap_max or fin - fenetre[-1] > gap_max:
+                raise ValueError(f"{politique}: bornes de fenetre non couvertes")
+            if any(
+                courant - precedent > gap_max
+                for precedent, courant in zip(
+                    fenetre, fenetre[1:], strict=False,
+                )
+            ):
+                raise ValueError(f"{politique}: trou de quotes dans la fenetre")
+            for horizon in hypotheses["markout_horizons_ms"]:
+                cible = fin + horizon
+                index = bisect.bisect_left(timestamps, cible)
+                if index >= len(timestamps) or timestamps[index] - cible > gap_max:
+                    raise ValueError(
+                        f"{politique}: horizon markout non couvert"
+                    )
+
+
+def auditer_disponibilite(
+    bruts: Path,
+    quotes: Path,
+    resumes: Path,
+    hypotheses: dict | None = None,
+) -> dict:
     """Rend un inventaire deterministe et scelle; n'infere jamais un fill."""
     bruts, quotes, resumes = Path(bruts), Path(quotes), Path(resumes)
     dossiers_bruts = sorted(
@@ -120,7 +331,16 @@ def auditer_disponibilite(bruts: Path, quotes: Path, resumes: Path) -> dict:
     snapshot_bruts: list[dict] = []
     snapshot_quotes: list[dict] = []
     intentions_total = 0
+    observations_quotes = 0
     scelles = 0
+
+    try:
+        hypotheses_normalisees = _valider_hypotheses(hypotheses)
+    except (KeyError, TypeError, ValueError) as exc:
+        hypotheses_normalisees = None
+        blocages.append(_blocage(
+            "EXECUTION_ASSUMPTIONS_INVALID", "global", str(exc),
+        ))
 
     if not dossiers_bruts:
         blocages.append(_blocage(
@@ -180,6 +400,19 @@ def auditer_disponibilite(bruts: Path, quotes: Path, resumes: Path) -> dict:
                 "INTENT_QUANTITY_UNOBSERVABLE", symbole,
                 "quantite intention-to-trade absente",
             ))
+        fenetre_intentions = None
+        if not intentions:
+            blocages.append(_blocage(
+                "NO_EXECUTION_INTENTIONS", symbole,
+                "artefact scelle sans aucune intention executable",
+            ))
+        elif not champs_absents:
+            try:
+                fenetre_intentions = _fenetre_intentions(intentions)
+            except (KeyError, TypeError, ValueError) as exc:
+                blocages.append(_blocage(
+                    "INTENT_VALUES_INVALID", symbole, str(exc),
+                ))
 
         fichiers = sorted((quotes / symbole).glob("*.ndjson"))
         entree["quote_files"] = len(fichiers)
@@ -190,11 +423,7 @@ def auditer_disponibilite(bruts: Path, quotes: Path, resumes: Path) -> dict:
             symboles.append(entree)
             continue
         try:
-            premiere = _premiere_ligne(fichiers[0])
-            if (premiere.get("horloge") != "utc"
-                    or float(premiere["bid"]) <= 0
-                    or float(premiere["ask"]) < float(premiere["bid"])):
-                raise ValueError("quote L1 invalide ou horloge non UTC")
+            audit_quotes = _scanner_quotes(fichiers, symbole)
         except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             blocages.append(_blocage(
                 "BROKER_QUOTES_INVALID", symbole, type(exc).__name__,
@@ -202,18 +431,25 @@ def auditer_disponibilite(bruts: Path, quotes: Path, resumes: Path) -> dict:
             symboles.append(entree)
             continue
 
-        if not CHAMPS_PASSIF.issubset(premiere):
+        observations_quotes += audit_quotes["observations"]
+        snapshot_quotes.extend(audit_quotes["snapshot"])
+        if not audit_quotes["passive_observable"]:
             blocages.append(_blocage(
                 "PASSIVE_FILL_UNOBSERVABLE", symbole,
                 "L1 sans profondeur/file, transactions et cote agresseur",
             ))
-        for chemin in fichiers:
-            snapshot_quotes.append({
-                "symbol": symbole,
-                "name": chemin.name,
-                "bytes": chemin.stat().st_size,
-                "sha256": _sha256_fichier(chemin),
-            })
+        if fenetre_intentions is not None and hypotheses_normalisees is not None:
+            try:
+                _valider_couverture_par_bras(
+                    intentions,
+                    audit_quotes["timestamps_ms"],
+                    hypotheses_normalisees,
+                )
+            except ValueError as exc:
+                blocages.append(_blocage(
+                    "QUOTE_COVERAGE_INCOMPLETE", symbole,
+                    str(exc),
+                ))
         symboles.append(entree)
 
     blocages.sort(key=lambda item: (item["code"], item["scope"], item["detail"]))
@@ -221,6 +457,7 @@ def auditer_disponibilite(bruts: Path, quotes: Path, resumes: Path) -> dict:
         "schema_version": SCHEMA_VERSION,
         "raw_artifacts": snapshot_bruts,
         "quote_files": snapshot_quotes,
+        "execution_assumptions": hypotheses_normalisees,
     }
     snapshot["snapshot_id"] = _sha256(_canonique(snapshot))
     rapport = {
@@ -237,6 +474,7 @@ def auditer_disponibilite(bruts: Path, quotes: Path, resumes: Path) -> dict:
             "intentions": intentions_total,
             "quote_symbols": len(dossiers_quotes),
             "quote_files": fichiers_quotes_total,
+            "quote_observations_validated": observations_quotes,
         },
         "per_symbol": symboles,
         "blockers": blocages,
@@ -263,9 +501,19 @@ def main() -> int:
     ap.add_argument("--bruts", type=Path, default=BRUTS_DEFAUT)
     ap.add_argument("--quotes", type=Path, default=QUOTES_DEFAUT)
     ap.add_argument("--resumes", type=Path, default=RESUMES_DEFAUT)
+    ap.add_argument(
+        "--hypotheses", type=Path, required=True,
+        help="JSON scelle dans le snapshot: latences, frais, expirations, fallback",
+    )
     ap.add_argument("--sortie", type=Path, default=None)
     args = ap.parse_args()
-    rapport = auditer_disponibilite(args.bruts, args.quotes, args.resumes)
+    try:
+        hypotheses = json.loads(args.hypotheses.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        ap.error(f"--hypotheses illisible: {exc}")
+    rapport = auditer_disponibilite(
+        args.bruts, args.quotes, args.resumes, hypotheses,
+    )
     contenu = json.dumps(rapport, ensure_ascii=False, indent=2).encode("utf-8")
     if args.sortie is not None:
         _ecrire_atomique(args.sortie, contenu)

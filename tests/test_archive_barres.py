@@ -23,8 +23,8 @@ from titanium.data import archive_barres as ab  # noqa: E402
 
 
 def _ecrire_archive(dossier: Path, symbole: str, timeframe: str, n: int,
-                    reconstruites: int, version: int = 2) -> None:
-    debut = 1_600_000_000
+                    reconstruites: int, version: int = 2,
+                    debut: int = 1_600_000_000) -> None:
     df = pd.DataFrame({
         "symbole": [symbole] * n,
         "timeframe": [timeframe] * n,
@@ -47,6 +47,16 @@ def _ecrire_archive(dossier: Path, symbole: str, timeframe: str, n: int,
     chemin = dossier / timeframe / f"{symbole}.parquet"
     chemin.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(table, chemin)
+
+
+def _remplacer_colonne(chemin: Path, colonne: str, index: int, valeur) -> None:
+    """Modifie une cellule de fixture en preservant les metadonnees Parquet."""
+    fp = pq.ParquetFile(chemin)
+    meta = fp.schema_arrow.metadata
+    df = fp.read().to_pandas()
+    df.loc[index, colonne] = valeur
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    pq.write_table(table.replace_schema_metadata(meta), chemin)
 
 
 @pytest.fixture
@@ -120,6 +130,61 @@ def test_colonnes_completes_sur_demande(archive):
     assert "decalage_s" in df.columns
 
 
+def test_ohlc_low_nul_est_refuse_fail_closed(archive):
+    chemin = archive / "M15" / "TESTUSD.parquet"
+    _remplacer_colonne(chemin, "low", 200, 0.0)
+
+    with pytest.raises(ab.ArchiveQualiteError, match="OHLC invalides"):
+        ab.charger_barres("TESTUSD", "M15")
+
+
+@pytest.mark.parametrize(("colonne", "valeur"), [
+    ("open", 2.0),
+    ("close", 2.0),
+    ("high", 0.5),
+])
+def test_ohlc_incoherents_sont_refuses(archive, colonne, valeur):
+    chemin = archive / "M15" / "TESTUSD.parquet"
+    _remplacer_colonne(chemin, colonne, 200, valeur)
+
+    with pytest.raises(ab.ArchiveQualiteError, match="OHLC invalides"):
+        ab.charger_barres("TESTUSD", "M15")
+
+
+def test_fraicheur_configurable_refuse_une_archive_obsolete(archive):
+    derniere = pd.Timestamp(1_600_000_000 + 900 * 499, unit="s", tz="UTC")
+
+    with pytest.raises(ab.ArchiveQualiteError, match="archive obsolete"):
+        ab.charger_barres(
+            "TESTUSD", "M15", fraicheur_max_s=3600,
+            maintenant_utc=derniere + pd.Timedelta(hours=2),
+        )
+
+    # Sans porte configuree, une archive historique reste lisible.
+    assert not ab.charger_barres(
+        "TESTUSD", "M15", maintenant_utc=derniere + pd.Timedelta(days=365),
+    ).empty
+
+
+def test_metrique_et_porte_du_ratio_reconstruit(archive):
+    with pytest.raises(ab.ArchiveQualiteError, match="ratio reconstruit"):
+        ab.charger_barres(
+            "TESTUSD", "M15", depuis_borne_utile=False,
+            ratio_reconstruit_max=0.20,
+        )
+
+    df = ab.charger_barres(
+        "TESTUSD", "M15", depuis_borne_utile=False,
+        ratio_reconstruit_max=0.25,
+    )
+    qualite = df.attrs["archive_quality"]
+    assert qualite["barres_reconstruites"] == 120
+    assert qualite["barres_avant_exclusion"] == 500
+    assert qualite["ratio_reconstruit"] == pytest.approx(0.24)
+    assert qualite["barres_retournees"] == 380
+    assert qualite["ohlc_invalides"] == 0
+
+
 def test_index_sans_doublon_a_la_bascule_de_printemps(tmp_path, monkeypatch):
     """Deux etiquettes serveur peuvent retomber sur le meme instant UTC.
 
@@ -139,10 +204,10 @@ def test_index_sans_doublon_a_la_bascule_de_printemps(tmp_path, monkeypatch):
         "time_utc": [1_600_000_000 + 3600 * i for i in [0, 1, 1, 2, 3, 4, 5, 6, 7, 8]],
         "time_serveur": [1_600_000_000 + 3600 * i + 7200 for i in range(n)],
         "decalage_s": [7200] * n,
-        "open": np.arange(n, dtype=float),
-        "high": np.arange(n, dtype=float) + 1,
-        "low": np.arange(n, dtype=float) - 1,
-        "close": np.arange(n, dtype=float),
+        "open": 100.0 + np.arange(n, dtype=float),
+        "high": 101.0 + np.arange(n, dtype=float),
+        "low": 99.0 + np.arange(n, dtype=float),
+        "close": 100.0 + np.arange(n, dtype=float),
         "tick_volume": pd.Series([50] * n, dtype="uint64"),
         "spread": [10] * n,
         "real_volume": pd.Series([0] * n, dtype="uint64"),

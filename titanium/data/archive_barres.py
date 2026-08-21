@@ -54,6 +54,10 @@ class ArchiveObsoleteError(ValueError):
     """L'archive existe mais n'est pas au schema attendu."""
 
 
+class ArchiveQualiteError(ValueError):
+    """L'archive ne satisfait pas un invariant ou une porte de qualite."""
+
+
 def chemin(symbole: str, timeframe: str) -> Path:
     return DOSSIER / timeframe.upper() / f"{symbole.upper()}.parquet"
 
@@ -87,7 +91,10 @@ def inventaire(timeframe: str) -> dict:
 def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None,
                    *, depuis_borne_utile: bool = True,
                    exclure_reconstruites: bool = True,
-                   colonnes_get_rates: bool = True):
+                   colonnes_get_rates: bool = True,
+                   fraicheur_max_s: float | None = None,
+                   ratio_reconstruit_max: float | None = None,
+                   maintenant_utc=None):
     """Rend les barres archivees, au contrat de ``get_rates``.
 
     Args:
@@ -101,14 +108,33 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
             swings a l'egalite.
         colonnes_get_rates: restreint aux colonnes de ``get_rates``. ``False``
             conserve ``time_serveur``, ``decalage_s`` et ``reconstruit``.
+        fraicheur_max_s: age maximal de la derniere barre, en secondes. La
+            porte est desactivee avec ``None`` pour permettre les rejeux
+            historiques deliberes.
+        ratio_reconstruit_max: part maximale de barres reconstruites dans la
+            plage post-borne, entre 0 et 1. La mesure precede leur exclusion.
+        maintenant_utc: reference UTC injectable pour les tests reproductibles.
 
     Raises:
         ArchiveIndisponibleError: aucun fichier pour ce couple.
         ArchiveObsoleteError: fichier ecrit par une version anterieure du schema.
+        ArchiveQualiteError: OHLC invalide, archive trop vieille ou ratio de
+            barres reconstruites superieur a la porte configuree.
     """
     import pandas as pd
     import pyarrow.parquet as pq
 
+    if fraicheur_max_s is not None:
+        fraicheur_max_s = float(fraicheur_max_s)
+        if not 0 <= fraicheur_max_s < float("inf"):
+            raise ValueError("fraicheur_max_s doit etre un nombre fini >= 0")
+    if ratio_reconstruit_max is not None:
+        ratio_reconstruit_max = float(ratio_reconstruit_max)
+        if not 0 <= ratio_reconstruit_max <= 1:
+            raise ValueError("ratio_reconstruit_max doit etre compris entre 0 et 1")
+
+    symbole_normalise = symbole.upper()
+    timeframe_normalise = timeframe.upper()
     fichier = chemin(symbole, timeframe)
     if not fichier.is_file():
         raise ArchiveIndisponibleError(
@@ -124,15 +150,64 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
             f"{SCHEMA_ATTENDU}. Relancer tools/archiveur_barres.py.")
 
     df = fp.read().to_pandas()
+    borne = 0
     if depuis_borne_utile:
         borne = int(resume(symbole, timeframe).get("index_premiere_utile", 0))
         if borne:
             df = df.iloc[borne:]
+
+    barres_avant_exclusion = int(len(df))
+    barres_reconstruites = (
+        int(df["reconstruit"].fillna(False).astype(bool).sum())
+        if "reconstruit" in df.columns else 0
+    )
+    ratio_reconstruit = (
+        barres_reconstruites / barres_avant_exclusion
+        if barres_avant_exclusion else 0.0
+    )
+    if (ratio_reconstruit_max is not None
+            and ratio_reconstruit > ratio_reconstruit_max):
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: ratio reconstruit "
+            f"{ratio_reconstruit:.3%} > {ratio_reconstruit_max:.3%}")
+
     if exclure_reconstruites and "reconstruit" in df.columns:
-        df = df[~df["reconstruit"].astype(bool)]
+        df = df[~df["reconstruit"].fillna(False).astype(bool)]
 
     df = df.copy()
+    colonnes_ohlc = ("open", "high", "low", "close")
+    manquantes = [col for col in (*colonnes_ohlc, "time_utc")
+                  if col not in df.columns]
+    if manquantes:
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: colonnes requises "
+            f"absentes: {', '.join(manquantes)}")
+    if df.empty:
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: aucune barre exploitable")
+
+    import numpy as np
+
+    ohlc = df.loc[:, colonnes_ohlc].apply(pd.to_numeric, errors="coerce")
+    finies = np.isfinite(ohlc.to_numpy()).all(axis=1)
+    positives = (ohlc > 0).all(axis=1).to_numpy()
+    coherentes = (
+        (ohlc["low"] <= ohlc["high"])
+        & ohlc["open"].between(ohlc["low"], ohlc["high"], inclusive="both")
+        & ohlc["close"].between(ohlc["low"], ohlc["high"], inclusive="both")
+    ).to_numpy()
+    invalides = ~(finies & positives & coherentes)
+    nombre_invalides = int(invalides.sum())
+    if nombre_invalides:
+        exemples = df.loc[invalides, "time_utc"].head(3).astype(str).tolist()
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: {nombre_invalides} "
+            f"OHLC invalides (exemples time_utc: {', '.join(exemples)})")
+
     df["time"] = pd.to_datetime(df["time_utc"], unit="s", utc=True)
+    if df["time"].isna().any():
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: horodatage UTC invalide")
     df = df.set_index("time").sort_index()
     # Bascule de printemps : le serveur saute une heure, mais certains actifs
     # cotes en continu (crypto) portent quand meme une etiquette dans le trou.
@@ -143,6 +218,18 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
     # nouveau regime.
     if df.index.has_duplicates:
         df = df[~df.index.duplicated(keep="last")]
+    derniere_barre = df.index[-1]
+    reference = (pd.Timestamp.now(tz="UTC") if maintenant_utc is None
+                 else pd.Timestamp(maintenant_utc))
+    if reference.tzinfo is None:
+        reference = reference.tz_localize("UTC")
+    else:
+        reference = reference.tz_convert("UTC")
+    age_secondes = float((reference - derniere_barre).total_seconds())
+    if fraicheur_max_s is not None and age_secondes > fraicheur_max_s:
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: archive obsolete, "
+            f"age {age_secondes:.0f}s > {fraicheur_max_s:.0f}s")
     # MT5 rend les volumes en uint64 : une soustraction negative y boucle a
     # 2**64. Meme conversion que mt5_vendor, pour la meme raison.
     for col in ("tick_volume", "real_volume"):
@@ -154,4 +241,16 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
         df = df.drop(columns=["time_utc"], errors="ignore")
     if count is not None:
         df = df.tail(int(count))
+    df.attrs["archive_quality"] = {
+        "symbole": symbole_normalise,
+        "timeframe": timeframe_normalise,
+        "borne_utile": borne,
+        "barres_avant_exclusion": barres_avant_exclusion,
+        "barres_reconstruites": barres_reconstruites,
+        "ratio_reconstruit": float(ratio_reconstruit),
+        "ohlc_invalides": nombre_invalides,
+        "derniere_barre_utc": derniere_barre.isoformat(),
+        "age_secondes": age_secondes,
+        "barres_retournees": int(len(df)),
+    }
     return df

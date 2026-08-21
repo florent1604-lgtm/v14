@@ -63,6 +63,11 @@ FICHIERS_MOTEUR = [
     RACINE / "titanium" / "data" / "archive_barres.py",
     RACINE / "titanium" / "edge.py",
     RACINE / "titanium" / "features" / "builder.py",
+    RACINE / "titanium" / "features" / "candlesticks.py",
+    RACINE / "titanium" / "features" / "indicators.py",
+    RACINE / "titanium" / "features" / "smc.py",
+    RACINE / "titanium" / "features" / "structure.py",
+    RACINE / "titanium" / "features" / "ict_structure.py",
     RACINE / "titanium" / "gates" / "confluence_gate.py",
 ]
 
@@ -337,7 +342,8 @@ def specifications() -> dict:
 def snapshot_rejeu_courant(*, symbole: str, ltf_tf: str, htf_tf: str,
                            barres: int | None, pas: int,
                            fraicheur_max_s: float | None = None,
-                           ratio_reconstruit_max: float | None = None) -> dict:
+                           ratio_reconstruit_max: float | None = None,
+                           tolerance_future_s: float = 0.0) -> dict:
     return construire_snapshot_rejeu(
         symbole=symbole,
         ltf_tf=ltf_tf,
@@ -348,6 +354,7 @@ def snapshot_rejeu_courant(*, symbole: str, ltf_tf: str, htf_tf: str,
         qualite={
             "fraicheur_max_s": fraicheur_max_s,
             "ratio_reconstruit_max": ratio_reconstruit_max,
+            "tolerance_future_s": tolerance_future_s,
         },
         fichiers_entree={
             "ltf": chemin_archive(symbole, ltf_tf),
@@ -394,6 +401,7 @@ def rejouer_symbole_brut(symbole: str, ltf_tf: str, htf_tf: str,
                          barres: int | None, pas: int, *,
                          fraicheur_max_s: float | None = None,
                          ratio_reconstruit_max: float | None = None,
+                         tolerance_future_s: float = 0.0,
                          maintenant_utc=None) -> tuple[dict, list]:
     from titanium.backtest import rejouer
 
@@ -401,6 +409,7 @@ def rejouer_symbole_brut(symbole: str, ltf_tf: str, htf_tf: str,
     portes_qualite = {
         "fraicheur_max_s": fraicheur_max_s,
         "ratio_reconstruit_max": ratio_reconstruit_max,
+        "tolerance_future_s": tolerance_future_s,
         "maintenant_utc": maintenant_utc,
     }
     ltf = charger_barres(symbole, ltf_tf, barres, **portes_qualite)
@@ -442,6 +451,7 @@ def rejouer_symbole_brut(symbole: str, ltf_tf: str, htf_tf: str,
                     float(ratio_reconstruit_max)
                     if ratio_reconstruit_max is not None else None
                 ),
+                "tolerance_future_s": float(tolerance_future_s),
             },
         },
         "global": _stats(trades),
@@ -456,12 +466,14 @@ def rejouer_symbole_brut(symbole: str, ltf_tf: str, htf_tf: str,
 def rejouer_symbole(symbole: str, ltf_tf: str, htf_tf: str, barres: int | None,
                     pas: int, *, fraicheur_max_s: float | None = None,
                     ratio_reconstruit_max: float | None = None,
+                    tolerance_future_s: float = 0.0,
                     maintenant_utc=None) -> dict:
     """Compatibilite historique : le resume conserve exactement son contrat dict."""
     sortie, _ = rejouer_symbole_brut(
         symbole, ltf_tf, htf_tf, barres, pas,
         fraicheur_max_s=fraicheur_max_s,
         ratio_reconstruit_max=ratio_reconstruit_max,
+        tolerance_future_s=tolerance_future_s,
         maintenant_utc=maintenant_utc,
     )
     return sortie
@@ -471,6 +483,7 @@ def traiter_symbole(symbole: str, ltf_tf: str, htf_tf: str, barres: int | None,
                     pas: int, *, refaire: bool = False,
                     fraicheur_max_s: float | None = None,
                     ratio_reconstruit_max: float | None = None,
+                    tolerance_future_s: float = 0.0,
                     maintenant_utc=None, snapshot: dict | None = None) -> dict | None:
     """Rejoue et publie un couple resume+brut; ``None`` signifie reprise valide."""
     snapshot = snapshot or snapshot_rejeu_courant(
@@ -478,6 +491,7 @@ def traiter_symbole(symbole: str, ltf_tf: str, htf_tf: str, barres: int | None,
         barres=barres, pas=pas,
         fraicheur_max_s=fraicheur_max_s,
         ratio_reconstruit_max=ratio_reconstruit_max,
+        tolerance_future_s=tolerance_future_s,
     )
     cible = DEST / f"{symbole}.json"
     if (not refaire and cible.is_file()
@@ -489,6 +503,7 @@ def traiter_symbole(symbole: str, ltf_tf: str, htf_tf: str, barres: int | None,
         symbole, ltf_tf, htf_tf, barres, pas,
         fraicheur_max_s=fraicheur_max_s,
         ratio_reconstruit_max=ratio_reconstruit_max,
+        tolerance_future_s=tolerance_future_s,
         maintenant_utc=maintenant_utc,
     )
     brut, manifeste = construire_artefact_brut(
@@ -517,6 +532,10 @@ def main() -> int:
         "--ratio-reconstruit-max", type=float, default=None,
         help="ratio maximal post-borne entre 0 et 1; absent = porte desactivee",
     )
+    ap.add_argument(
+        "--tolerance-future-secondes", type=float, default=0.0,
+        help="avance maximale acceptee de la derniere barre; defaut 0",
+    )
     ap.add_argument("--part", type=int, default=0, help="index du lot")
     ap.add_argument("--sur", type=int, default=1, help="nombre de lots")
     ap.add_argument("--refaire", action="store_true",
@@ -527,6 +546,8 @@ def main() -> int:
     if (args.ratio_reconstruit_max is not None
             and not 0 <= args.ratio_reconstruit_max <= 1):
         ap.error("--ratio-reconstruit-max doit etre compris entre 0 et 1")
+    if args.tolerance_future_secondes < 0:
+        ap.error("--tolerance-future-secondes doit etre >= 0")
     fraicheur_max_s = (args.fraicheur_max_heures * 3600.0
                        if args.fraicheur_max_heures else None)
 
@@ -546,6 +567,7 @@ def main() -> int:
                 refaire=args.refaire,
                 fraicheur_max_s=fraicheur_max_s,
                 ratio_reconstruit_max=args.ratio_reconstruit_max,
+                tolerance_future_s=args.tolerance_future_secondes,
             )
         except Exception as e:  # un symbole qui casse n'arrete pas le lot
             print(f"{symbole:12} ECHEC {type(e).__name__}: {e}", flush=True)

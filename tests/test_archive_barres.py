@@ -59,6 +59,15 @@ def _remplacer_colonne(chemin: Path, colonne: str, index: int, valeur) -> None:
     pq.write_table(table.replace_schema_metadata(meta), chemin)
 
 
+def _supprimer_colonne(chemin: Path, colonne: str) -> None:
+    """Supprime une colonne de fixture en preservant les metadonnees Parquet."""
+    fp = pq.ParquetFile(chemin)
+    meta = fp.schema_arrow.metadata
+    df = fp.read().to_pandas().drop(columns=[colonne])
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    pq.write_table(table.replace_schema_metadata(meta), chemin)
+
+
 @pytest.fixture
 def archive(tmp_path, monkeypatch):
     import json
@@ -119,6 +128,17 @@ def test_une_archive_v1_est_refusee(tmp_path, monkeypatch):
         ab.charger_barres("VIEUX", "M15")
 
 
+def test_schema_v2_sans_marqueur_reconstruit_est_refuse(tmp_path, monkeypatch):
+    _ecrire_archive(tmp_path, "INCOMPLET", "M15", 50, reconstruites=0)
+    _supprimer_colonne(tmp_path / "M15" / "INCOMPLET.parquet", "reconstruit")
+    monkeypatch.setattr(ab, "DOSSIER", tmp_path)
+    monkeypatch.setattr(ab, "METADONNEES", tmp_path / "_metadonnees.json")
+    ab._metadonnees.cache_clear()
+
+    with pytest.raises(ab.ArchiveObsoleteError, match="reconstruit"):
+        ab.charger_barres("INCOMPLET", "M15")
+
+
 def test_symbole_absent(archive):
     with pytest.raises(ab.ArchiveIndisponibleError):
         ab.charger_barres("INEXISTANT", "M15")
@@ -164,6 +184,23 @@ def test_fraicheur_configurable_refuse_une_archive_obsolete(archive):
     assert not ab.charger_barres(
         "TESTUSD", "M15", maintenant_utc=derniere + pd.Timedelta(days=365),
     ).empty
+
+
+def test_barre_future_respecte_une_tolerance_explicite(archive):
+    derniere = pd.Timestamp(1_600_000_000 + 900 * 499, unit="s", tz="UTC")
+
+    df = ab.charger_barres(
+        "TESTUSD", "M15", maintenant_utc=derniere - pd.Timedelta(seconds=30),
+        tolerance_future_s=60,
+    )
+    assert df.attrs["archive_quality"]["avance_secondes"] == pytest.approx(30.0)
+
+    with pytest.raises(ab.ArchiveQualiteError, match="barre future"):
+        ab.charger_barres(
+            "TESTUSD", "M15",
+            maintenant_utc=derniere - pd.Timedelta(seconds=61),
+            tolerance_future_s=60,
+        )
 
 
 def test_metrique_et_porte_du_ratio_reconstruit(archive):

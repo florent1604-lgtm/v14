@@ -94,6 +94,7 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
                    colonnes_get_rates: bool = True,
                    fraicheur_max_s: float | None = None,
                    ratio_reconstruit_max: float | None = None,
+                   tolerance_future_s: float = 0.0,
                    maintenant_utc=None):
     """Rend les barres archivees, au contrat de ``get_rates``.
 
@@ -113,6 +114,8 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
             historiques deliberes.
         ratio_reconstruit_max: part maximale de barres reconstruites dans la
             plage post-borne, entre 0 et 1. La mesure precede leur exclusion.
+        tolerance_future_s: avance maximale acceptee de la derniere barre par
+            rapport a la reference UTC. Zero refuse toute barre future.
         maintenant_utc: reference UTC injectable pour les tests reproductibles.
 
     Raises:
@@ -132,6 +135,9 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
         ratio_reconstruit_max = float(ratio_reconstruit_max)
         if not 0 <= ratio_reconstruit_max <= 1:
             raise ValueError("ratio_reconstruit_max doit etre compris entre 0 et 1")
+    tolerance_future_s = float(tolerance_future_s)
+    if not 0 <= tolerance_future_s < float("inf"):
+        raise ValueError("tolerance_future_s doit etre un nombre fini >= 0")
 
     symbole_normalise = symbole.upper()
     timeframe_normalise = timeframe.upper()
@@ -150,6 +156,11 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
             f"{SCHEMA_ATTENDU}. Relancer tools/archiveur_barres.py.")
 
     df = fp.read().to_pandas()
+    if "reconstruit" not in df.columns:
+        raise ArchiveObsoleteError(
+            f"{fichier.name} se declare au schema {SCHEMA_ATTENDU} mais la "
+            "colonne obligatoire 'reconstruit' est absente. Relancer "
+            "tools/archiveur_barres.py.")
     borne = 0
     if depuis_borne_utile:
         borne = int(resume(symbole, timeframe).get("index_premiere_utile", 0))
@@ -226,6 +237,11 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
     else:
         reference = reference.tz_convert("UTC")
     age_secondes = float((reference - derniere_barre).total_seconds())
+    avance_secondes = max(0.0, -age_secondes)
+    if avance_secondes > tolerance_future_s:
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: barre future de "
+            f"{avance_secondes:.0f}s > tolerance {tolerance_future_s:.0f}s")
     if fraicheur_max_s is not None and age_secondes > fraicheur_max_s:
         raise ArchiveQualiteError(
             f"{symbole_normalise} {timeframe_normalise}: archive obsolete, "
@@ -251,6 +267,8 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
         "ohlc_invalides": nombre_invalides,
         "derniere_barre_utc": derniere_barre.isoformat(),
         "age_secondes": age_secondes,
+        "avance_secondes": avance_secondes,
+        "tolerance_future_s": tolerance_future_s,
         "barres_retournees": int(len(df)),
     }
     return df

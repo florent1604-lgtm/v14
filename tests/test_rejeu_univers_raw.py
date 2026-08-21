@@ -81,9 +81,11 @@ def test_snapshot_scellé_les_sources_le_protocole_et_le_moteur(tmp_path: Path):
     ltf = tmp_path / "EURUSD.M15.parquet"
     htf = tmp_path / "EURUSD.H4.parquet"
     moteur = tmp_path / "backtest.py"
+    dependance_builder = tmp_path / "candlesticks.py"
     ltf.write_bytes(b"ltf-v1")
     htf.write_bytes(b"htf-v1")
     moteur.write_bytes(b"engine-v1")
+    dependance_builder.write_bytes(b"candlesticks-v1")
 
     kwargs = {
         "symbole": "EURUSD",
@@ -92,9 +94,13 @@ def test_snapshot_scellé_les_sources_le_protocole_et_le_moteur(tmp_path: Path):
         "barres": None,
         "pas": 1,
         "spec": {"point": 0.00001},
-        "qualite": {"fraicheur_max_s": 7200.0, "ratio_reconstruit_max": 0.05},
+        "qualite": {
+            "fraicheur_max_s": 7200.0,
+            "ratio_reconstruit_max": 0.05,
+            "tolerance_future_s": 15.0,
+        },
         "fichiers_entree": {"ltf": ltf, "htf": htf},
-        "fichiers_moteur": [moteur],
+        "fichiers_moteur": [moteur, dependance_builder],
     }
     premier = ru.construire_snapshot_rejeu(**kwargs)
     second = ru.construire_snapshot_rejeu(**kwargs)
@@ -103,10 +109,33 @@ def test_snapshot_scellé_les_sources_le_protocole_et_le_moteur(tmp_path: Path):
     assert premier["sources"]["ltf"]["sha256"] == ru._sha256(b"ltf-v1")
     assert premier["protocol"]["part_calibration"] == ru.PART_CALIBRATION
     assert premier["protocol"]["quality_gates"]["fraicheur_max_s"] == 7200.0
+    assert premier["protocol"]["quality_gates"]["tolerance_future_s"] == 15.0
 
-    moteur.write_bytes(b"engine-v2")
+    brut, manifeste = ru.construire_artefact_brut(
+        "EURUSD", [], coupure="2026-02-01T00:00:00+00:00", snapshot=premier
+    )
+    ru.persister_artefact_brut(tmp_path / "brut", "EURUSD", brut, manifeste)
+    assert ru.artefact_brut_valide(
+        tmp_path / "brut", "EURUSD", premier["snapshot_id"])
+
+    # Une dependance indirecte du builder invalide le snapshot et la reprise.
+    dependance_builder.write_bytes(b"candlesticks-v2")
     modifie = ru.construire_snapshot_rejeu(**kwargs)
     assert modifie["snapshot_id"] != premier["snapshot_id"]
+    assert not ru.artefact_brut_valide(
+        tmp_path / "brut", "EURUSD", modifie["snapshot_id"])
+
+
+def test_snapshot_moteur_inclut_les_dependances_directes_du_builder():
+    noms = {chemin.name for chemin in ru.FICHIERS_MOTEUR}
+    assert {
+        "candlesticks.py",
+        "indicators.py",
+        "smc.py",
+        "structure.py",
+        "ict_structure.py",
+    } <= noms
+    assert all(chemin.is_file() for chemin in ru.FICHIERS_MOTEUR)
 
 
 def test_persistance_atomique_est_validable_et_detecte_une_alteration(tmp_path: Path):

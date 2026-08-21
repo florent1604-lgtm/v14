@@ -41,6 +41,7 @@ def test_rejeu_propage_les_portes_et_rapporte_la_qualite(monkeypatch):
         "TESTUSD", "M15", "H4", 100, 1,
         fraicheur_max_s=7200,
         ratio_reconstruit_max=0.05,
+        tolerance_future_s=15,
         maintenant_utc="2026-08-21T00:00:00Z",
     )
 
@@ -48,6 +49,7 @@ def test_rejeu_propage_les_portes_et_rapporte_la_qualite(monkeypatch):
     assert appels[0][3] == {
         "fraicheur_max_s": 7200,
         "ratio_reconstruit_max": 0.05,
+        "tolerance_future_s": 15,
         "maintenant_utc": "2026-08-21T00:00:00Z",
     }
     assert appels[1][3] == appels[0][3]
@@ -56,4 +58,5 @@ def test_rejeu_propage_les_portes_et_rapporte_la_qualite(monkeypatch):
     assert sortie["qualite_archive"]["seuils"] == {
         "fraicheur_max_s": 7200.0,
         "ratio_reconstruit_max": 0.05,
+        "tolerance_future_s": 15.0,
     }

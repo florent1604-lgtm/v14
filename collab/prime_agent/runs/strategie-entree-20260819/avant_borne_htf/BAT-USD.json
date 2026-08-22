@@ -1,0 +1,78 @@
+{
+ "symbole": "BAT-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99998,
+ "debut": "2023-10-10 18:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-05T21:20:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.0012000000000000001,
+ "n_enter": 7007,
+ "barres_evaluees": 59298,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "BAT-USD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 6,
+   "ratio_reconstruit": 5.999580029397942e-05,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 230156.17723,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99998
+  },
+  "htf": {
+   "symbole": "BAT-USD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 9131,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 236456.195342,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9131
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 7007,
+  "esperance_r": -0.870668,
+  "ecart_type_r": 1.23458,
+  "winrate": 0.249608,
+  "profit_factor": 0.2121,
+  "somme_r": -6100.7725,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4272,
+  "esperance_r": -0.578326,
+  "ecart_type_r": 1.165279,
+  "winrate": 0.306648,
+  "profit_factor": 0.3354,
+  "somme_r": -2470.6102,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2735,
+  "esperance_r": -1.327299,
+  "ecart_type_r": 1.201011,
+  "winrate": 0.160512,
+  "profit_factor": 0.0982,
+  "somme_r": -3630.1623,
+  "concluant": true
+ },
+ "secondes": 3489.8,
+ "ecrit_le": "2026-08-22T15:39:05.870136+00:00"
+}

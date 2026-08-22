@@ -1,0 +1,43 @@
+{
+ "symbole": "ZARJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99991,
+ "debut": "2022-08-15 10:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-18T10:40:00+00:00",
+ "spread_points": 87.0,
+ "spread_prix": 0.008700000000000001,
+ "n_enter": 4752,
+ "barres_evaluees": 51734,
+ "erreurs": 0,
+ "global": {
+  "n": 4752,
+  "esperance_r": -0.39525,
+  "ecart_type_r": 1.112672,
+  "winrate": 0.30303,
+  "profit_factor": 0.4576,
+  "somme_r": -1878.2302,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2983,
+  "esperance_r": -0.291178,
+  "ecart_type_r": 1.147241,
+  "winrate": 0.331881,
+  "profit_factor": 0.5691,
+  "somme_r": -868.5839,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1769,
+  "esperance_r": -0.570744,
+  "ecart_type_r": 1.028533,
+  "winrate": 0.254381,
+  "profit_factor": 0.3021,
+  "somme_r": -1009.6463,
+  "concluant": true
+ },
+ "secondes": 4475.6,
+ "ecrit_le": "2026-08-21T18:45:20.975857+00:00"
+}

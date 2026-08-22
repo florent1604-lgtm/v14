@@ -1,0 +1,78 @@
+{
+ "symbole": "AUDJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99999,
+ "debut": "2022-08-12 18:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T13:20:00+00:00",
+ "spread_points": 11.0,
+ "spread_prix": 0.011,
+ "n_enter": 5171,
+ "barres_evaluees": 58433,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "AUDJPY",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 1,
+   "ratio_reconstruit": 1e-05,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 227176.917516,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99999
+  },
+  "htf": {
+   "symbole": "AUDJPY",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 46017,
+   "barres_reconstruites": 24,
+   "ratio_reconstruit": 0.0005215463850316188,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 233476.9518,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 45993
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5171,
+  "esperance_r": -0.019335,
+  "ecart_type_r": 1.075368,
+  "winrate": 0.509186,
+  "profit_factor": 0.9581,
+  "somme_r": -99.9809,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3528,
+  "esperance_r": -0.028423,
+  "ecart_type_r": 1.069218,
+  "winrate": 0.51729,
+  "profit_factor": 0.9385,
+  "somme_r": -100.2754,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1643,
+  "esperance_r": 0.000179,
+  "ecart_type_r": 1.088528,
+  "winrate": 0.491783,
+  "profit_factor": 1.0004,
+  "somme_r": 0.2945,
+  "concluant": true
+ },
+ "secondes": 2965.7,
+ "ecrit_le": "2026-08-22T14:40:42.552698+00:00"
+}

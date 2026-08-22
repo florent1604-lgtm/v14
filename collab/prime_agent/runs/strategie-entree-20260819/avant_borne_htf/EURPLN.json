@@ -1,0 +1,43 @@
+{
+ "symbole": "EURPLN",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99993,
+ "debut": "2022-08-15 00:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-18T07:20:00+00:00",
+ "spread_points": 17.0,
+ "spread_prix": 0.0017000000000000001,
+ "n_enter": 5299,
+ "barres_evaluees": 61278,
+ "erreurs": 0,
+ "global": {
+  "n": 5299,
+  "esperance_r": -0.550106,
+  "ecart_type_r": 1.068412,
+  "winrate": 0.258539,
+  "profit_factor": 0.3322,
+  "somme_r": -2915.0119,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3689,
+  "esperance_r": -0.474728,
+  "ecart_type_r": 1.049744,
+  "winrate": 0.273245,
+  "profit_factor": 0.3751,
+  "somme_r": -1751.2709,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1610,
+  "esperance_r": -0.72282,
+  "ecart_type_r": 1.090857,
+  "winrate": 0.224845,
+  "profit_factor": 0.2552,
+  "somme_r": -1163.741,
+  "concluant": true
+ },
+ "secondes": 4576.0,
+ "ecrit_le": "2026-08-20T20:27:08.849956+00:00"
+}

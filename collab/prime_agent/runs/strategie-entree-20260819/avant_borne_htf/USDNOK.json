@@ -1,0 +1,43 @@
+{
+ "symbole": "USDNOK",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99998,
+ "debut": "2022-08-12 11:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T10:50:00+00:00",
+ "spread_points": 30.0,
+ "spread_prix": 0.003,
+ "n_enter": 5471,
+ "barres_evaluees": 55452,
+ "erreurs": 0,
+ "global": {
+  "n": 5471,
+  "esperance_r": -0.13612,
+  "ecart_type_r": 1.073667,
+  "winrate": 0.364102,
+  "profit_factor": 0.744,
+  "somme_r": -744.7133,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3706,
+  "esperance_r": -0.10169,
+  "ecart_type_r": 1.08298,
+  "winrate": 0.379115,
+  "profit_factor": 0.8028,
+  "somme_r": -376.8632,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1765,
+  "esperance_r": -0.208414,
+  "ecart_type_r": 1.050481,
+  "winrate": 0.332578,
+  "profit_factor": 0.6314,
+  "somme_r": -367.8501,
+  "concluant": true
+ },
+ "secondes": 4939.2,
+ "ecrit_le": "2026-08-21T15:48:55.151586+00:00"
+}

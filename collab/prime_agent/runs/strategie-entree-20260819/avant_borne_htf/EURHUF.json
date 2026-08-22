@@ -1,0 +1,43 @@
+{
+ "symbole": "EURHUF",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99978,
+ "debut": "2022-08-12 04:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T08:45:00+00:00",
+ "spread_points": 152.0,
+ "spread_prix": 0.152,
+ "n_enter": 5428,
+ "barres_evaluees": 56067,
+ "erreurs": 0,
+ "global": {
+  "n": 5428,
+  "esperance_r": -0.347688,
+  "ecart_type_r": 1.085211,
+  "winrate": 0.310796,
+  "profit_factor": 0.4891,
+  "somme_r": -1887.2522,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3781,
+  "esperance_r": -0.321759,
+  "ecart_type_r": 1.091247,
+  "winrate": 0.316583,
+  "profit_factor": 0.5166,
+  "somme_r": -1216.5697,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1647,
+  "esperance_r": -0.407215,
+  "ecart_type_r": 1.069177,
+  "winrate": 0.297511,
+  "profit_factor": 0.4304,
+  "somme_r": -670.6825,
+  "concluant": true
+ },
+ "secondes": 6039.2,
+ "ecrit_le": "2026-08-20T19:44:49.991888+00:00"
+}

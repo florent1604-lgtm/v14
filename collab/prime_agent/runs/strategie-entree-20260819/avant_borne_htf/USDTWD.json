@@ -1,0 +1,43 @@
+{
+ "symbole": "USDTWD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 70367,
+ "debut": "2022-10-03 00:30:00+00:00",
+ "fin": "2026-08-19 17:45:00+00:00",
+ "coupure": "2025-05-04T12:00:00+00:00",
+ "spread_points": 13.0,
+ "spread_prix": 0.013000000000000001,
+ "n_enter": 4392,
+ "barres_evaluees": 37150,
+ "erreurs": 0,
+ "global": {
+  "n": 4392,
+  "esperance_r": -0.431814,
+  "ecart_type_r": 1.108676,
+  "winrate": 0.296676,
+  "profit_factor": 0.4277,
+  "somme_r": -1896.5287,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3041,
+  "esperance_r": -0.468102,
+  "ecart_type_r": 1.110463,
+  "winrate": 0.291352,
+  "profit_factor": 0.4017,
+  "somme_r": -1423.4996,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1351,
+  "esperance_r": -0.350133,
+  "ecart_type_r": 1.100681,
+  "winrate": 0.30866,
+  "profit_factor": 0.4939,
+  "somme_r": -473.0291,
+  "concluant": true
+ },
+ "secondes": 4475.0,
+ "ecrit_le": "2026-08-20T16:40:03.681743+00:00"
+}

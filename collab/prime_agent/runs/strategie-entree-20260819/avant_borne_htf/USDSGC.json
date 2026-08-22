@@ -1,0 +1,43 @@
+{
+ "symbole": "USDSGC",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 25790,
+ "debut": "2025-03-13 21:15:00+00:00",
+ "fin": "2026-03-27 20:45:00+00:00",
+ "coupure": "2025-11-21T12:55:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.00012000000000000002,
+ "n_enter": 3284,
+ "barres_evaluees": 18516,
+ "erreurs": 0,
+ "global": {
+  "n": 3284,
+  "esperance_r": -11.400084,
+  "ecart_type_r": 5.196034,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -37437.8744,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2223,
+  "esperance_r": -11.219762,
+  "ecart_type_r": 4.722937,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -24941.5318,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1061,
+  "esperance_r": -11.777891,
+  "ecart_type_r": 6.053926,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -12496.3426,
+  "concluant": true
+ },
+ "secondes": 2243.5,
+ "ecrit_le": "2026-08-21T16:15:18.320336+00:00"
+}

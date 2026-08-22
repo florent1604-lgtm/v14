@@ -1,0 +1,43 @@
+{
+ "symbole": "USDCAC",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 25804,
+ "debut": "2025-03-13 21:15:00+00:00",
+ "fin": "2026-03-27 20:45:00+00:00",
+ "coupure": "2025-11-21T12:55:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.00012000000000000002,
+ "n_enter": 3519,
+ "barres_evaluees": 18285,
+ "erreurs": 0,
+ "global": {
+  "n": 3519,
+  "esperance_r": -9.683456,
+  "ecart_type_r": 4.142998,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -34076.0812,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2053,
+  "esperance_r": -9.798567,
+  "ecart_type_r": 3.948586,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -20116.4571,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1466,
+  "esperance_r": -9.522254,
+  "ecart_type_r": 4.397156,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -13959.6241,
+  "concluant": true
+ },
+ "secondes": 2447.5,
+ "ecrit_le": "2026-08-21T14:03:05.103009+00:00"
+}

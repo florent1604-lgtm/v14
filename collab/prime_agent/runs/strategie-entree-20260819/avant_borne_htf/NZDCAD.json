@@ -1,0 +1,43 @@
+{
+ "symbole": "NZDCAD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99995,
+ "debut": "2022-08-14 22:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-18T06:30:00+00:00",
+ "spread_points": 19.0,
+ "spread_prix": 0.00019,
+ "n_enter": 5414,
+ "barres_evaluees": 57758,
+ "erreurs": 0,
+ "global": {
+  "n": 5414,
+  "esperance_r": -0.175672,
+  "ecart_type_r": 1.082554,
+  "winrate": 0.34263,
+  "profit_factor": 0.6884,
+  "somme_r": -951.0897,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3497,
+  "esperance_r": -0.160348,
+  "ecart_type_r": 1.084212,
+  "winrate": 0.345439,
+  "profit_factor": 0.71,
+  "somme_r": -560.7359,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1917,
+  "esperance_r": -0.203627,
+  "ecart_type_r": 1.079244,
+  "winrate": 0.337507,
+  "profit_factor": 0.651,
+  "somme_r": -390.3538,
+  "concluant": true
+ },
+ "secondes": 5931.8,
+ "ecrit_le": "2026-08-20T12:34:37.775878+00:00"
+}

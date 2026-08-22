@@ -1,0 +1,43 @@
+{
+ "symbole": "VIX.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99962,
+ "debut": "2022-05-05 01:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-15T07:30:00+00:00",
+ "spread_points": 70.0,
+ "spread_prix": 0.07,
+ "n_enter": 6653,
+ "barres_evaluees": 47793,
+ "erreurs": 0,
+ "global": {
+  "n": 6653,
+  "esperance_r": -0.62761,
+  "ecart_type_r": 1.412685,
+  "winrate": 0.312791,
+  "profit_factor": 0.3517,
+  "somme_r": -4175.4886,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4496,
+  "esperance_r": -0.703298,
+  "ecart_type_r": 1.478747,
+  "winrate": 0.304938,
+  "profit_factor": 0.3225,
+  "somme_r": -3162.0279,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2157,
+  "esperance_r": -0.469847,
+  "ecart_type_r": 1.249606,
+  "winrate": 0.329161,
+  "profit_factor": 0.4286,
+  "somme_r": -1013.4607,
+  "concluant": true
+ },
+ "secondes": 6196.9,
+ "ecrit_le": "2026-08-20T17:10:53.946293+00:00"
+}

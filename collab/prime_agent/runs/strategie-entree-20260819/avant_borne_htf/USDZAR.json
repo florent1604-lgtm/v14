@@ -1,0 +1,43 @@
+{
+ "symbole": "USDZAR",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99995,
+ "debut": "2022-08-12 17:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T13:05:00+00:00",
+ "spread_points": 233.0,
+ "spread_prix": 0.00233,
+ "n_enter": 5643,
+ "barres_evaluees": 54642,
+ "erreurs": 0,
+ "global": {
+  "n": 5643,
+  "esperance_r": -0.01345,
+  "ecart_type_r": 1.07266,
+  "winrate": 0.522417,
+  "profit_factor": 0.9706,
+  "somme_r": -75.8978,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3774,
+  "esperance_r": 0.007683,
+  "ecart_type_r": 1.081048,
+  "winrate": 0.539481,
+  "profit_factor": 1.0171,
+  "somme_r": 28.9954,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1869,
+  "esperance_r": -0.056123,
+  "ecart_type_r": 1.054514,
+  "winrate": 0.487961,
+  "profit_factor": 0.8813,
+  "somme_r": -104.8932,
+  "concluant": true
+ },
+ "secondes": 4935.2,
+ "ecrit_le": "2026-08-21T17:19:36.567214+00:00"
+}

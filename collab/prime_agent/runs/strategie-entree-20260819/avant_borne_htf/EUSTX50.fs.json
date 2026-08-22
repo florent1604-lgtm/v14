@@ -1,0 +1,43 @@
+{
+ "symbole": "EUSTX50.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100037,
+ "debut": "2021-10-06 17:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2025-01-04T02:50:00+00:00",
+ "spread_points": 300.0,
+ "spread_prix": 3.0,
+ "n_enter": 5893,
+ "barres_evaluees": 55620,
+ "erreurs": 0,
+ "global": {
+  "n": 5893,
+  "esperance_r": -0.190045,
+  "ecart_type_r": 1.11703,
+  "winrate": 0.361446,
+  "profit_factor": 0.6788,
+  "somme_r": -1119.938,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3955,
+  "esperance_r": -0.209607,
+  "ecart_type_r": 1.117246,
+  "winrate": 0.362832,
+  "profit_factor": 0.6538,
+  "somme_r": -828.9974,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1938,
+  "esperance_r": -0.150124,
+  "ecart_type_r": 1.115812,
+  "winrate": 0.358617,
+  "profit_factor": 0.7337,
+  "somme_r": -290.9406,
+  "concluant": true
+ },
+ "secondes": 5308.0,
+ "ecrit_le": "2026-08-21T08:19:27.118515+00:00"
+}

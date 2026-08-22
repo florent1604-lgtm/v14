@@ -1,0 +1,43 @@
+{
+ "symbole": "GBPJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100006,
+ "debut": "2022-08-12 15:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T12:10:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.012,
+ "n_enter": 5166,
+ "barres_evaluees": 55742,
+ "erreurs": 0,
+ "global": {
+  "n": 5166,
+  "esperance_r": 0.022827,
+  "ecart_type_r": 1.072978,
+  "winrate": 0.566202,
+  "profit_factor": 1.052,
+  "somme_r": 117.9217,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3527,
+  "esperance_r": 0.033263,
+  "ecart_type_r": 1.074388,
+  "winrate": 0.572158,
+  "profit_factor": 1.0766,
+  "somme_r": 117.3201,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1639,
+  "esperance_r": 0.000367,
+  "ecart_type_r": 1.069921,
+  "winrate": 0.553386,
+  "profit_factor": 1.0008,
+  "somme_r": 0.6016,
+  "concluant": true
+ },
+ "secondes": 3974.4,
+ "ecrit_le": "2026-08-21T09:25:46.839394+00:00"
+}

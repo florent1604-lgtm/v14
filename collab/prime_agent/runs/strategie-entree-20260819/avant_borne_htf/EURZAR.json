@@ -1,0 +1,43 @@
+{
+ "symbole": "EURZAR",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99998,
+ "debut": "2022-08-12 17:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T12:50:00+00:00",
+ "spread_points": 410.0,
+ "spread_prix": 0.0041,
+ "n_enter": 5029,
+ "barres_evaluees": 57246,
+ "erreurs": 0,
+ "global": {
+  "n": 5029,
+  "esperance_r": -0.106081,
+  "ecart_type_r": 1.046894,
+  "winrate": 0.395108,
+  "profit_factor": 0.7866,
+  "somme_r": -533.4837,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3389,
+  "esperance_r": -0.097167,
+  "ecart_type_r": 1.047597,
+  "winrate": 0.407495,
+  "profit_factor": 0.8025,
+  "somme_r": -329.2996,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1640,
+  "esperance_r": -0.124503,
+  "ecart_type_r": 1.045519,
+  "winrate": 0.369512,
+  "profit_factor": 0.7547,
+  "somme_r": -204.1841,
+  "concluant": true
+ },
+ "secondes": 4992.3,
+ "ecrit_le": "2026-08-21T08:14:11.499017+00:00"
+}

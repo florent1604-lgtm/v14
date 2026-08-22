@@ -1,0 +1,43 @@
+{
+ "symbole": "SWI20",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99959,
+ "debut": "2019-05-28 18:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2024-03-22T19:10:00+00:00",
+ "spread_points": 400.0,
+ "spread_prix": 4.0,
+ "n_enter": 5610,
+ "barres_evaluees": 57311,
+ "erreurs": 0,
+ "global": {
+  "n": 5610,
+  "esperance_r": -0.015341,
+  "ecart_type_r": 1.11395,
+  "winrate": 0.408378,
+  "profit_factor": 0.9682,
+  "somme_r": -86.0623,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3713,
+  "esperance_r": -0.028276,
+  "ecart_type_r": 1.108302,
+  "winrate": 0.404255,
+  "profit_factor": 0.9419,
+  "somme_r": -104.9879,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1897,
+  "esperance_r": 0.009977,
+  "ecart_type_r": 1.124787,
+  "winrate": 0.416447,
+  "profit_factor": 1.021,
+  "somme_r": 18.9256,
+  "concluant": true
+ },
+ "secondes": 5005.6,
+ "ecrit_le": "2026-08-21T14:15:18.990153+00:00"
+}

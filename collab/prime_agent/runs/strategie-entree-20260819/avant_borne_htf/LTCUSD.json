@@ -1,0 +1,43 @@
+{
+ "symbole": "LTCUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100003,
+ "debut": "2023-10-12 00:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T07:25:00+00:00",
+ "spread_points": 150.0,
+ "spread_prix": 0.15,
+ "n_enter": 6282,
+ "barres_evaluees": 50357,
+ "erreurs": 0,
+ "global": {
+  "n": 6282,
+  "esperance_r": -0.098226,
+  "ecart_type_r": 1.103419,
+  "winrate": 0.411016,
+  "profit_factor": 0.812,
+  "somme_r": -617.0528,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4123,
+  "esperance_r": -0.007187,
+  "ecart_type_r": 1.103843,
+  "winrate": 0.443609,
+  "profit_factor": 0.9848,
+  "somme_r": -29.6303,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2159,
+  "esperance_r": -0.272081,
+  "ecart_type_r": 1.081774,
+  "winrate": 0.348773,
+  "profit_factor": 0.5608,
+  "somme_r": -587.4225,
+  "concluant": true
+ },
+ "secondes": 5934.9,
+ "ecrit_le": "2026-08-20T12:15:28.378236+00:00"
+}

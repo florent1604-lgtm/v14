@@ -1,0 +1,78 @@
+{
+ "symbole": "CADSGD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99992,
+ "debut": "2022-08-12 07:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T09:30:00+00:00",
+ "spread_points": 21.0,
+ "spread_prix": 0.00021,
+ "n_enter": 5217,
+ "barres_evaluees": 58292,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "CADSGD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 8,
+   "ratio_reconstruit": 8e-05,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 233124.179772,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99992
+  },
+  "htf": {
+   "symbole": "CADSGD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 13477,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 239424.202676,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 13477
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5217,
+  "esperance_r": -0.313101,
+  "ecart_type_r": 1.045444,
+  "winrate": 0.313399,
+  "profit_factor": 0.5086,
+  "somme_r": -1633.4489,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3487,
+  "esperance_r": -0.277701,
+  "ecart_type_r": 1.052922,
+  "winrate": 0.317752,
+  "profit_factor": 0.5488,
+  "somme_r": -968.3419,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1730,
+  "esperance_r": -0.384455,
+  "ecart_type_r": 1.026803,
+  "winrate": 0.304624,
+  "profit_factor": 0.4353,
+  "somme_r": -665.107,
+  "concluant": true
+ },
+ "secondes": 3039.8,
+ "ecrit_le": "2026-08-22T16:21:03.940126+00:00"
+}

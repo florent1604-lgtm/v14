@@ -1,0 +1,43 @@
+{
+ "symbole": "NZDCHF",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99996,
+ "debut": "2022-08-12 20:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T14:00:00+00:00",
+ "spread_points": 15.0,
+ "spread_prix": 0.00015000000000000001,
+ "n_enter": 5363,
+ "barres_evaluees": 57403,
+ "erreurs": 0,
+ "global": {
+  "n": 5363,
+  "esperance_r": -0.196376,
+  "ecart_type_r": 1.079093,
+  "winrate": 0.337125,
+  "profit_factor": 0.6586,
+  "somme_r": -1053.167,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3619,
+  "esperance_r": -0.161243,
+  "ecart_type_r": 1.081882,
+  "winrate": 0.346781,
+  "profit_factor": 0.7089,
+  "somme_r": -583.5382,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1744,
+  "esperance_r": -0.269283,
+  "ecart_type_r": 1.069917,
+  "winrate": 0.317087,
+  "profit_factor": 0.5654,
+  "somme_r": -469.6288,
+  "concluant": true
+ },
+ "secondes": 3314.7,
+ "ecrit_le": "2026-08-20T20:49:07.376518+00:00"
+}

@@ -1,0 +1,43 @@
+{
+ "symbole": "UK100",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99922,
+ "debut": "2022-03-29 02:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-03T00:05:00+00:00",
+ "spread_points": 100.0,
+ "spread_prix": 1.0,
+ "n_enter": 5457,
+ "barres_evaluees": 56026,
+ "erreurs": 0,
+ "global": {
+  "n": 5457,
+  "esperance_r": 0.035476,
+  "ecart_type_r": 1.107663,
+  "winrate": 0.535276,
+  "profit_factor": 1.0791,
+  "somme_r": 193.5944,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3718,
+  "esperance_r": 0.030663,
+  "ecart_type_r": 1.109883,
+  "winrate": 0.527165,
+  "profit_factor": 1.0678,
+  "somme_r": 114.0033,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1739,
+  "esperance_r": 0.045768,
+  "ecart_type_r": 1.10315,
+  "winrate": 0.552616,
+  "profit_factor": 1.1037,
+  "somme_r": 79.5911,
+  "concluant": true
+ },
+ "secondes": 4981.7,
+ "ecrit_le": "2026-08-20T08:59:32.014971+00:00"
+}

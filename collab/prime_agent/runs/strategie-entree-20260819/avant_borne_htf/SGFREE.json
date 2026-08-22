@@ -1,0 +1,43 @@
+{
+ "symbole": "SGFREE",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99979,
+ "debut": "2021-08-20 00:30:00+00:00",
+ "fin": "2026-08-19 20:30:00+00:00",
+ "coupure": "2024-12-19T05:50:00+00:00",
+ "spread_points": 25.0,
+ "spread_prix": 0.25,
+ "n_enter": 5552,
+ "barres_evaluees": 57341,
+ "erreurs": 0,
+ "global": {
+  "n": 5552,
+  "esperance_r": -0.254103,
+  "ecart_type_r": 1.12929,
+  "winrate": 0.34348,
+  "profit_factor": 0.604,
+  "somme_r": -1410.778,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3772,
+  "esperance_r": -0.290709,
+  "ecart_type_r": 1.122447,
+  "winrate": 0.336957,
+  "profit_factor": 0.5615,
+  "somme_r": -1096.5548,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1780,
+  "esperance_r": -0.17653,
+  "ecart_type_r": 1.140093,
+  "winrate": 0.357303,
+  "profit_factor": 0.7041,
+  "somme_r": -314.2232,
+  "concluant": true
+ },
+ "secondes": 4298.7,
+ "ecrit_le": "2026-08-21T13:22:17.434839+00:00"
+}

@@ -1,0 +1,43 @@
+{
+ "symbole": "USDRON",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99949,
+ "debut": "2022-08-05 14:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-15T04:00:00+00:00",
+ "spread_points": 30.0,
+ "spread_prix": 0.003,
+ "n_enter": 6083,
+ "barres_evaluees": 59542,
+ "erreurs": 0,
+ "global": {
+  "n": 6083,
+  "esperance_r": -0.715078,
+  "ecart_type_r": 1.051101,
+  "winrate": 0.234588,
+  "profit_factor": 0.2385,
+  "somme_r": -4349.8176,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4098,
+  "esperance_r": -0.685027,
+  "ecart_type_r": 1.077174,
+  "winrate": 0.247926,
+  "profit_factor": 0.2601,
+  "somme_r": -2807.2405,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1985,
+  "esperance_r": -0.777117,
+  "ecart_type_r": 0.992505,
+  "winrate": 0.207053,
+  "profit_factor": 0.1958,
+  "somme_r": -1542.5771,
+  "concluant": true
+ },
+ "secondes": 6579.9,
+ "ecrit_le": "2026-08-20T14:50:10.669800+00:00"
+}

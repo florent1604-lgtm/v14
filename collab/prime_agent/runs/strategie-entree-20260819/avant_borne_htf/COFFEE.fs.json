@@ -1,0 +1,78 @@
+{
+ "symbole": "COFFEE.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 71575,
+ "debut": "2007-07-13 01:00:00+00:00",
+ "fin": "2026-08-19 17:15:00+00:00",
+ "coupure": "2020-04-06T19:50:00+00:00",
+ "spread_points": 250.0,
+ "spread_prix": 0.25,
+ "n_enter": 4574,
+ "barres_evaluees": 38348,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "COFFEE.FS",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 71630,
+   "barres_reconstruites": 55,
+   "ratio_reconstruit": 0.000767834706128717,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T17:15:00+00:00",
+   "age_secondes": 255830.67891,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 71575
+  },
+  "htf": {
+   "symbole": "COFFEE.FS",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 10782,
+   "barres_reconstruites": 55,
+   "ratio_reconstruit": 0.005101094416620293,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 256730.700032,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 10727
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 4574,
+  "esperance_r": 0.108749,
+  "ecart_type_r": 1.138849,
+  "winrate": 0.481635,
+  "profit_factor": 1.2517,
+  "somme_r": 497.4186,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 858,
+  "esperance_r": 0.054655,
+  "ecart_type_r": 1.162867,
+  "winrate": 0.473193,
+  "profit_factor": 1.1151,
+  "somme_r": 46.8941,
+  "concluant": true
+ },
+ "verification": {
+  "n": 3716,
+  "esperance_r": 0.121239,
+  "ecart_type_r": 1.133024,
+  "winrate": 0.483584,
+  "profit_factor": 1.2872,
+  "somme_r": 450.5245,
+  "concluant": true
+ },
+ "secondes": 2129.8,
+ "ecrit_le": "2026-08-22T16:54:20.456333+00:00"
+}

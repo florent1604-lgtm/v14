@@ -1,0 +1,43 @@
+{
+ "symbole": "NAS100.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100038,
+ "debut": "2022-05-10 07:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-17T01:45:00+00:00",
+ "spread_points": 250.0,
+ "spread_prix": 2.5,
+ "n_enter": 5133,
+ "barres_evaluees": 52386,
+ "erreurs": 0,
+ "global": {
+  "n": 5133,
+  "esperance_r": 0.111816,
+  "ecart_type_r": 1.129613,
+  "winrate": 0.563803,
+  "profit_factor": 1.2643,
+  "somme_r": 573.9523,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3312,
+  "esperance_r": 0.10001,
+  "ecart_type_r": 1.125441,
+  "winrate": 0.552838,
+  "profit_factor": 1.2346,
+  "somme_r": 331.2327,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1821,
+  "esperance_r": 0.133289,
+  "ecart_type_r": 1.137159,
+  "winrate": 0.583745,
+  "profit_factor": 1.3193,
+  "somme_r": 242.7196,
+  "concluant": true
+ },
+ "secondes": 4397.3,
+ "ecrit_le": "2026-08-20T07:36:30.178177+00:00"
+}

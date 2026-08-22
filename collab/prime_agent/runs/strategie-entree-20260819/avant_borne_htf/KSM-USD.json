@@ -1,0 +1,43 @@
+{
+ "symbole": "KSM-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99998,
+ "debut": "2023-10-11 03:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T00:15:00+00:00",
+ "spread_points": 14.0,
+ "spread_prix": 0.14,
+ "n_enter": 7739,
+ "barres_evaluees": 61733,
+ "erreurs": 0,
+ "global": {
+  "n": 7739,
+  "esperance_r": -1.485483,
+  "ecart_type_r": 1.662652,
+  "winrate": 0.195633,
+  "profit_factor": 0.1131,
+  "somme_r": -11496.1546,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4063,
+  "esperance_r": -0.416359,
+  "ecart_type_r": 1.156123,
+  "winrate": 0.337928,
+  "profit_factor": 0.4438,
+  "somme_r": -1691.6654,
+  "concluant": true
+ },
+ "verification": {
+  "n": 3676,
+  "esperance_r": -2.667162,
+  "ecart_type_r": 1.297251,
+  "winrate": 0.038357,
+  "profit_factor": 0.0117,
+  "somme_r": -9804.4892,
+  "concluant": true
+ },
+ "secondes": 4080.3,
+ "ecrit_le": "2026-08-21T11:57:22.967312+00:00"
+}

@@ -1,0 +1,43 @@
+{
+ "symbole": "USDINR",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99913,
+ "debut": "2021-03-25 12:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2024-10-31T01:10:00+00:00",
+ "spread_points": 20.0,
+ "spread_prix": 0.02,
+ "n_enter": 6311,
+ "barres_evaluees": 59962,
+ "erreurs": 0,
+ "global": {
+  "n": 6311,
+  "esperance_r": -0.57166,
+  "ecart_type_r": 1.145353,
+  "winrate": 0.269529,
+  "profit_factor": 0.3328,
+  "somme_r": -3607.7442,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4643,
+  "esperance_r": -0.616622,
+  "ecart_type_r": 1.142152,
+  "winrate": 0.264053,
+  "profit_factor": 0.3046,
+  "somme_r": -2862.9748,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1668,
+  "esperance_r": -0.446504,
+  "ecart_type_r": 1.145298,
+  "winrate": 0.284772,
+  "profit_factor": 0.4228,
+  "somme_r": -744.7694,
+  "concluant": true
+ },
+ "secondes": 5623.1,
+ "ecrit_le": "2026-08-21T15:36:48.391616+00:00"
+}

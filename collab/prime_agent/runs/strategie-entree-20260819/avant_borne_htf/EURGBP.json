@@ -1,0 +1,43 @@
+{
+ "symbole": "EURGBP",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99998,
+ "debut": "2022-08-15 04:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-18T08:30:00+00:00",
+ "spread_points": 10.0,
+ "spread_prix": 0.0001,
+ "n_enter": 5221,
+ "barres_evaluees": 55465,
+ "erreurs": 0,
+ "global": {
+  "n": 5221,
+  "esperance_r": -0.182963,
+  "ecart_type_r": 1.05049,
+  "winrate": 0.346485,
+  "profit_factor": 0.6669,
+  "somme_r": -955.2499,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3412,
+  "esperance_r": -0.172569,
+  "ecart_type_r": 1.045996,
+  "winrate": 0.361079,
+  "profit_factor": 0.6812,
+  "somme_r": -588.804,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1809,
+  "esperance_r": -0.202568,
+  "ecart_type_r": 1.058927,
+  "winrate": 0.318961,
+  "profit_factor": 0.6409,
+  "somme_r": -366.4459,
+  "concluant": true
+ },
+ "secondes": 6221.0,
+ "ecrit_le": "2026-08-20T19:10:51.847276+00:00"
+}

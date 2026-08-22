@@ -1,0 +1,43 @@
+{
+ "symbole": "FT100.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100539,
+ "debut": "2021-08-20 00:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2024-12-19T05:10:00+00:00",
+ "spread_points": 250.0,
+ "spread_prix": 2.5,
+ "n_enter": 5532,
+ "barres_evaluees": 56703,
+ "erreurs": 0,
+ "global": {
+  "n": 5532,
+  "esperance_r": -0.059901,
+  "ecart_type_r": 1.115467,
+  "winrate": 0.386117,
+  "profit_factor": 0.8822,
+  "somme_r": -331.3747,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3806,
+  "esperance_r": -0.069949,
+  "ecart_type_r": 1.114001,
+  "winrate": 0.380189,
+  "profit_factor": 0.864,
+  "somme_r": -266.226,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1726,
+  "esperance_r": -0.037745,
+  "ecart_type_r": 1.118696,
+  "winrate": 0.399189,
+  "profit_factor": 0.9239,
+  "somme_r": -65.1487,
+  "concluant": true
+ },
+ "secondes": 5142.4,
+ "ecrit_le": "2026-08-21T08:16:41.563297+00:00"
+}

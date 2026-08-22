@@ -1,0 +1,43 @@
+{
+ "symbole": "ETHUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100007,
+ "debut": "2023-10-11 23:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T07:00:00+00:00",
+ "spread_points": 2000.0,
+ "spread_prix": 2.0,
+ "n_enter": 5471,
+ "barres_evaluees": 52135,
+ "erreurs": 0,
+ "global": {
+  "n": 5471,
+  "esperance_r": 0.141908,
+  "ecart_type_r": 1.128262,
+  "winrate": 0.517273,
+  "profit_factor": 1.3489,
+  "somme_r": 776.3811,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3569,
+  "esperance_r": 0.133157,
+  "ecart_type_r": 1.119199,
+  "winrate": 0.522275,
+  "profit_factor": 1.3274,
+  "somme_r": 475.2365,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1902,
+  "esperance_r": 0.15833,
+  "ecart_type_r": 1.145191,
+  "winrate": 0.507886,
+  "profit_factor": 1.3894,
+  "somme_r": 301.1446,
+  "concluant": true
+ },
+ "secondes": 6036.7,
+ "ecrit_le": "2026-08-20T17:09:39.419925+00:00"
+}

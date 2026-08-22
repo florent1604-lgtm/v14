@@ -1,0 +1,43 @@
+{
+ "symbole": "XPTUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100003,
+ "debut": "2022-05-20 15:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-20T12:25:00+00:00",
+ "spread_points": 1990.0,
+ "spread_prix": 1.99,
+ "n_enter": 5845,
+ "barres_evaluees": 52157,
+ "erreurs": 0,
+ "global": {
+  "n": 5845,
+  "esperance_r": -0.338526,
+  "ecart_type_r": 1.073075,
+  "winrate": 0.328999,
+  "profit_factor": 0.4872,
+  "somme_r": -1978.6842,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4005,
+  "esperance_r": -0.471525,
+  "ecart_type_r": 1.043945,
+  "winrate": 0.289638,
+  "profit_factor": 0.3661,
+  "somme_r": -1888.457,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1840,
+  "esperance_r": -0.049037,
+  "ecart_type_r": 1.078893,
+  "winrate": 0.414674,
+  "profit_factor": 0.8974,
+  "somme_r": -90.2272,
+  "concluant": true
+ },
+ "secondes": 4938.9,
+ "ecrit_le": "2026-08-21T18:30:29.135350+00:00"
+}

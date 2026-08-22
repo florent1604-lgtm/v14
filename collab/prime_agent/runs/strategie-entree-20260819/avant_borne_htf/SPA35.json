@@ -1,0 +1,43 @@
+{
+ "symbole": "SPA35",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 92077,
+ "debut": "2011-02-28 22:00:00+00:00",
+ "fin": "2026-08-19 17:45:00+00:00",
+ "coupure": "2021-06-23T03:10:00+00:00",
+ "spread_points": 500.0,
+ "spread_prix": 5.0,
+ "n_enter": 5566,
+ "barres_evaluees": 50601,
+ "erreurs": 0,
+ "global": {
+  "n": 5566,
+  "esperance_r": 0.00629,
+  "ecart_type_r": 1.143214,
+  "winrate": 0.421667,
+  "profit_factor": 1.0129,
+  "somme_r": 35.0091,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 1790,
+  "esperance_r": 0.013863,
+  "ecart_type_r": 1.126611,
+  "winrate": 0.439665,
+  "profit_factor": 1.0292,
+  "somme_r": 24.8156,
+  "concluant": true
+ },
+ "verification": {
+  "n": 3776,
+  "esperance_r": 0.0027,
+  "ecart_type_r": 1.151132,
+  "winrate": 0.413136,
+  "profit_factor": 1.0055,
+  "somme_r": 10.1935,
+  "concluant": true
+ },
+ "secondes": 5672.7,
+ "ecrit_le": "2026-08-20T13:50:01.772892+00:00"
+}

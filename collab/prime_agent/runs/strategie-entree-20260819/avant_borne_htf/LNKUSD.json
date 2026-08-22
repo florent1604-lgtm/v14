@@ -1,0 +1,43 @@
+{
+ "symbole": "LNKUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100003,
+ "debut": "2023-10-11 09:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T02:15:00+00:00",
+ "spread_points": 25.0,
+ "spread_prix": 0.025,
+ "n_enter": 5751,
+ "barres_evaluees": 52156,
+ "erreurs": 0,
+ "global": {
+  "n": 5751,
+  "esperance_r": 0.067344,
+  "ecart_type_r": 1.110063,
+  "winrate": 0.464093,
+  "profit_factor": 1.1553,
+  "somme_r": 387.2943,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3784,
+  "esperance_r": 0.151247,
+  "ecart_type_r": 1.107204,
+  "winrate": 0.4963,
+  "profit_factor": 1.3867,
+  "somme_r": 572.3174,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1967,
+  "esperance_r": -0.094064,
+  "ecart_type_r": 1.097929,
+  "winrate": 0.402135,
+  "profit_factor": 0.8175,
+  "somme_r": -185.0231,
+  "concluant": true
+ },
+ "secondes": 2807.1,
+ "ecrit_le": "2026-08-21T11:36:35.537149+00:00"
+}

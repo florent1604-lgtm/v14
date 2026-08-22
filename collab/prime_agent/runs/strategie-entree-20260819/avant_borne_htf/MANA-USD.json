@@ -1,0 +1,43 @@
+{
+ "symbole": "MANA-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100002,
+ "debut": "2023-10-10 18:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-05T21:10:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.0012000000000000001,
+ "n_enter": 6502,
+ "barres_evaluees": 56397,
+ "erreurs": 0,
+ "global": {
+  "n": 6502,
+  "esperance_r": -0.550226,
+  "ecart_type_r": 1.307118,
+  "winrate": 0.326207,
+  "profit_factor": 0.3777,
+  "somme_r": -3577.5678,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3823,
+  "esperance_r": -0.03527,
+  "ecart_type_r": 1.128357,
+  "winrate": 0.434999,
+  "profit_factor": 0.9299,
+  "somme_r": -134.8376,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2679,
+  "esperance_r": -1.28508,
+  "ecart_type_r": 1.188183,
+  "winrate": 0.170959,
+  "profit_factor": 0.1002,
+  "somme_r": -3442.7302,
+  "concluant": true
+ },
+ "secondes": 6845.6,
+ "ecrit_le": "2026-08-20T18:34:09.681886+00:00"
+}

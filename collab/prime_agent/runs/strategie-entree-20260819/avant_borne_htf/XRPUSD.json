@@ -1,0 +1,43 @@
+{
+ "symbole": "XRPUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100002,
+ "debut": "2023-10-12 00:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T07:25:00+00:00",
+ "spread_points": 320.0,
+ "spread_prix": 0.0032,
+ "n_enter": 6506,
+ "barres_evaluees": 52566,
+ "erreurs": 0,
+ "global": {
+  "n": 6506,
+  "esperance_r": -0.440441,
+  "ecart_type_r": 1.202118,
+  "winrate": 0.330925,
+  "profit_factor": 0.4344,
+  "somme_r": -2865.5102,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4444,
+  "esperance_r": -0.568309,
+  "ecart_type_r": 1.221741,
+  "winrate": 0.308731,
+  "profit_factor": 0.3528,
+  "somme_r": -2525.5632,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2062,
+  "esperance_r": -0.164863,
+  "ecart_type_r": 1.109963,
+  "winrate": 0.378758,
+  "profit_factor": 0.7081,
+  "somme_r": -339.947,
+  "concluant": true
+ },
+ "secondes": 6395.0,
+ "ecrit_le": "2026-08-20T16:36:46.551814+00:00"
+}

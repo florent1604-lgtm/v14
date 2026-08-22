@@ -1,0 +1,43 @@
+{
+ "symbole": "XTZ-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99998,
+ "debut": "2023-10-11 03:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T00:10:00+00:00",
+ "spread_points": 40.0,
+ "spread_prix": 0.004,
+ "n_enter": 7478,
+ "barres_evaluees": 57929,
+ "erreurs": 0,
+ "global": {
+  "n": 7478,
+  "esperance_r": -0.93762,
+  "ecart_type_r": 1.29878,
+  "winrate": 0.237497,
+  "profit_factor": 0.1999,
+  "somme_r": -7011.5224,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4313,
+  "esperance_r": -0.450391,
+  "ecart_type_r": 1.172245,
+  "winrate": 0.329005,
+  "profit_factor": 0.4235,
+  "somme_r": -1942.5365,
+  "concluant": true
+ },
+ "verification": {
+  "n": 3165,
+  "esperance_r": -1.601575,
+  "ecart_type_r": 1.161423,
+  "winrate": 0.112796,
+  "profit_factor": 0.0602,
+  "somme_r": -5068.9859,
+  "concluant": true
+ },
+ "secondes": 3182.7,
+ "ecrit_le": "2026-08-21T19:27:52.534092+00:00"
+}

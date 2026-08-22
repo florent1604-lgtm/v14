@@ -1,0 +1,43 @@
+{
+ "symbole": "XAUUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100053,
+ "debut": "2022-05-25 19:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-22T05:45:00+00:00",
+ "spread_points": 15.0,
+ "spread_prix": 0.15,
+ "n_enter": 5561,
+ "barres_evaluees": 53371,
+ "erreurs": 0,
+ "global": {
+  "n": 5561,
+  "esperance_r": 0.116375,
+  "ecart_type_r": 1.101029,
+  "winrate": 0.600252,
+  "profit_factor": 1.2868,
+  "somme_r": 647.1624,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3609,
+  "esperance_r": 0.083079,
+  "ecart_type_r": 1.104699,
+  "winrate": 0.58271,
+  "profit_factor": 1.1955,
+  "somme_r": 299.8319,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1952,
+  "esperance_r": 0.177936,
+  "ecart_type_r": 1.091823,
+  "winrate": 0.632684,
+  "profit_factor": 1.4807,
+  "somme_r": 347.3305,
+  "concluant": true
+ },
+ "secondes": 4949.8,
+ "ecrit_le": "2026-08-21T16:44:21.908827+00:00"
+}

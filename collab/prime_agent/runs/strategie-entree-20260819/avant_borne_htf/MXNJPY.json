@@ -1,0 +1,43 @@
+{
+ "symbole": "MXNJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99992,
+ "debut": "2022-08-11 13:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T03:35:00+00:00",
+ "spread_points": 210.0,
+ "spread_prix": 0.0021000000000000003,
+ "n_enter": 5713,
+ "barres_evaluees": 53739,
+ "erreurs": 0,
+ "global": {
+  "n": 5713,
+  "esperance_r": -0.085218,
+  "ecart_type_r": 1.071792,
+  "winrate": 0.386837,
+  "profit_factor": 0.8291,
+  "somme_r": -486.852,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3755,
+  "esperance_r": -0.035237,
+  "ecart_type_r": 1.075743,
+  "winrate": 0.409854,
+  "profit_factor": 0.9252,
+  "somme_r": -132.3139,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1958,
+  "esperance_r": -0.181072,
+  "ecart_type_r": 1.057858,
+  "winrate": 0.342697,
+  "profit_factor": 0.672,
+  "somme_r": -354.5381,
+  "concluant": true
+ },
+ "secondes": 2788.2,
+ "ecrit_le": "2026-08-21T11:35:28.442014+00:00"
+}

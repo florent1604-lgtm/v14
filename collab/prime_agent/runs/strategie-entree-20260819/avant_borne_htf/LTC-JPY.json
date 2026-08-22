@@ -1,0 +1,43 @@
+{
+ "symbole": "LTC-JPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100002,
+ "debut": "2023-10-11 13:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T03:35:00+00:00",
+ "spread_points": 400.0,
+ "spread_prix": 40.0,
+ "n_enter": 6556,
+ "barres_evaluees": 54549,
+ "erreurs": 0,
+ "global": {
+  "n": 6556,
+  "esperance_r": -0.423367,
+  "ecart_type_r": 1.174385,
+  "winrate": 0.336181,
+  "profit_factor": 0.4433,
+  "somme_r": -2775.5968,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4121,
+  "esperance_r": -0.258348,
+  "ecart_type_r": 1.148454,
+  "winrate": 0.37588,
+  "profit_factor": 0.5978,
+  "somme_r": -1064.6501,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2435,
+  "esperance_r": -0.702648,
+  "ecart_type_r": 1.165148,
+  "winrate": 0.268994,
+  "profit_factor": 0.2683,
+  "somme_r": -1710.9467,
+  "concluant": true
+ },
+ "secondes": 4823.3,
+ "ecrit_le": "2026-08-20T07:43:36.207688+00:00"
+}

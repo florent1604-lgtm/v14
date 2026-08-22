@@ -1,0 +1,43 @@
+{
+ "symbole": "USDKRW",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 78173,
+ "debut": "2022-09-05 00:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2025-04-25T05:10:00+00:00",
+ "spread_points": 53.0,
+ "spread_prix": 0.53,
+ "n_enter": 4234,
+ "barres_evaluees": 45308,
+ "erreurs": 0,
+ "global": {
+  "n": 4234,
+  "esperance_r": -0.251143,
+  "ecart_type_r": 1.10297,
+  "winrate": 0.333727,
+  "profit_factor": 0.5988,
+  "somme_r": -1063.3413,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2806,
+  "esperance_r": -0.257371,
+  "ecart_type_r": 1.110417,
+  "winrate": 0.338204,
+  "profit_factor": 0.5952,
+  "somme_r": -722.1819,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1428,
+  "esperance_r": -0.238907,
+  "ecart_type_r": 1.088471,
+  "winrate": 0.32493,
+  "profit_factor": 0.6063,
+  "somme_r": -341.1594,
+  "concluant": true
+ },
+ "secondes": 4016.8,
+ "ecrit_le": "2026-08-21T15:21:51.674802+00:00"
+}

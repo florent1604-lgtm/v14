@@ -1,0 +1,43 @@
+{
+ "symbole": "DJ30.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99993,
+ "debut": "2022-05-10 15:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-17T04:25:00+00:00",
+ "spread_points": 400.0,
+ "spread_prix": 4.0,
+ "n_enter": 4899,
+ "barres_evaluees": 52535,
+ "erreurs": 0,
+ "global": {
+  "n": 4899,
+  "esperance_r": 0.06711,
+  "ecart_type_r": 1.120328,
+  "winrate": 0.544601,
+  "profit_factor": 1.1529,
+  "somme_r": 328.7698,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3328,
+  "esperance_r": 0.063104,
+  "ecart_type_r": 1.11978,
+  "winrate": 0.536659,
+  "profit_factor": 1.1433,
+  "somme_r": 210.0088,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1571,
+  "esperance_r": 0.075596,
+  "ecart_type_r": 1.121797,
+  "winrate": 0.561426,
+  "profit_factor": 1.1733,
+  "somme_r": 118.761,
+  "concluant": true
+ },
+ "secondes": 5548.4,
+ "ecrit_le": "2026-08-20T15:41:06.832350+00:00"
+}

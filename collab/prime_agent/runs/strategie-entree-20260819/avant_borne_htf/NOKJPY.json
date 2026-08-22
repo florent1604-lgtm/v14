@@ -1,0 +1,43 @@
+{
+ "symbole": "NOKJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99995,
+ "debut": "2022-08-12 16:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T12:40:00+00:00",
+ "spread_points": 483.0,
+ "spread_prix": 0.00483,
+ "n_enter": 5371,
+ "barres_evaluees": 54241,
+ "erreurs": 0,
+ "global": {
+  "n": 5371,
+  "esperance_r": -0.131247,
+  "ecart_type_r": 1.085063,
+  "winrate": 0.357103,
+  "profit_factor": 0.7548,
+  "somme_r": -704.9293,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3690,
+  "esperance_r": -0.117297,
+  "ecart_type_r": 1.086994,
+  "winrate": 0.369377,
+  "profit_factor": 0.7782,
+  "somme_r": -432.8272,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1681,
+  "esperance_r": -0.161869,
+  "ecart_type_r": 1.080505,
+  "winrate": 0.330161,
+  "profit_factor": 0.7052,
+  "somme_r": -272.1021,
+  "concluant": true
+ },
+ "secondes": 4723.6,
+ "ecrit_le": "2026-08-21T12:51:53.288726+00:00"
+}

@@ -1,0 +1,43 @@
+{
+ "symbole": "SOL-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100003,
+ "debut": "2023-10-11 02:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-05T23:55:00+00:00",
+ "spread_points": 200.0,
+ "spread_prix": 0.2,
+ "n_enter": 5561,
+ "barres_evaluees": 53524,
+ "erreurs": 0,
+ "global": {
+  "n": 5561,
+  "esperance_r": 0.117448,
+  "ecart_type_r": 1.137496,
+  "winrate": 0.488581,
+  "profit_factor": 1.2782,
+  "somme_r": 653.1309,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3574,
+  "esperance_r": 0.180537,
+  "ecart_type_r": 1.12781,
+  "winrate": 0.508954,
+  "profit_factor": 1.4685,
+  "somme_r": 645.2405,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1987,
+  "esperance_r": 0.003971,
+  "ecart_type_r": 1.146288,
+  "winrate": 0.451938,
+  "profit_factor": 1.0081,
+  "somme_r": 7.8904,
+  "concluant": true
+ },
+ "secondes": 4665.6,
+ "ecrit_le": "2026-08-21T12:53:14.130052+00:00"
+}

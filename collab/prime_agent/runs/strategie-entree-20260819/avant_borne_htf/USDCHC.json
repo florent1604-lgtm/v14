@@ -1,0 +1,43 @@
+{
+ "symbole": "USDCHC",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 25798,
+ "debut": "2025-03-13 21:15:00+00:00",
+ "fin": "2026-03-27 20:45:00+00:00",
+ "coupure": "2025-11-21T12:55:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.00012000000000000002,
+ "n_enter": 3254,
+ "barres_evaluees": 18468,
+ "erreurs": 0,
+ "global": {
+  "n": 3254,
+  "esperance_r": -8.166374,
+  "ecart_type_r": 2.741966,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -26573.3799,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2139,
+  "esperance_r": -8.092214,
+  "ecart_type_r": 2.652145,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -17309.2468,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1115,
+  "esperance_r": -8.30864,
+  "ecart_type_r": 2.902441,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -9264.1331,
+  "concluant": true
+ },
+ "secondes": 2227.9,
+ "ecrit_le": "2026-08-21T14:38:09.113310+00:00"
+}

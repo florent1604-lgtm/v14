@@ -1,0 +1,43 @@
+{
+ "symbole": "WTI.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100036,
+ "debut": "2022-05-26 14:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-22T11:55:00+00:00",
+ "spread_points": 3.0,
+ "spread_prix": 0.03,
+ "n_enter": 5609,
+ "barres_evaluees": 50541,
+ "erreurs": 0,
+ "global": {
+  "n": 5609,
+  "esperance_r": 0.151087,
+  "ecart_type_r": 1.125328,
+  "winrate": 0.544839,
+  "profit_factor": 1.3784,
+  "somme_r": 847.4493,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3765,
+  "esperance_r": 0.148827,
+  "ecart_type_r": 1.123445,
+  "winrate": 0.548738,
+  "profit_factor": 1.373,
+  "somme_r": 560.3329,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1844,
+  "esperance_r": 0.155703,
+  "ecart_type_r": 1.129455,
+  "winrate": 0.536876,
+  "profit_factor": 1.3896,
+  "somme_r": 287.1164,
+  "concluant": true
+ },
+ "secondes": 4734.7,
+ "ecrit_le": "2026-08-21T18:34:49.622791+00:00"
+}

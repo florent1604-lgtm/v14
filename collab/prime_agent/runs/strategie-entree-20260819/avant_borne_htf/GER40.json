@@ -1,0 +1,43 @@
+{
+ "symbole": "GER40",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100037,
+ "debut": "2022-04-01 10:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-04T02:40:00+00:00",
+ "spread_points": 100.0,
+ "spread_prix": 1.0,
+ "n_enter": 5326,
+ "barres_evaluees": 56528,
+ "erreurs": 0,
+ "global": {
+  "n": 5326,
+  "esperance_r": 0.106434,
+  "ecart_type_r": 1.104339,
+  "winrate": 0.593879,
+  "profit_factor": 1.258,
+  "somme_r": 566.8689,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3571,
+  "esperance_r": 0.100158,
+  "ecart_type_r": 1.102963,
+  "winrate": 0.592831,
+  "profit_factor": 1.2416,
+  "somme_r": 357.6651,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1755,
+  "esperance_r": 0.119204,
+  "ecart_type_r": 1.107339,
+  "winrate": 0.596011,
+  "profit_factor": 1.292,
+  "somme_r": 209.2038,
+  "concluant": true
+ },
+ "secondes": 5056.9,
+ "ecrit_le": "2026-08-21T10:49:48.270232+00:00"
+}

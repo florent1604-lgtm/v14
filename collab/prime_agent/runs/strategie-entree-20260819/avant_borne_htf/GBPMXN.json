@@ -1,0 +1,43 @@
+{
+ "symbole": "GBPMXN",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99999,
+ "debut": "2022-08-12 00:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T07:10:00+00:00",
+ "spread_points": 116.0,
+ "spread_prix": 0.011600000000000001,
+ "n_enter": 5145,
+ "barres_evaluees": 57235,
+ "erreurs": 0,
+ "global": {
+  "n": 5145,
+  "esperance_r": -0.274568,
+  "ecart_type_r": 1.105294,
+  "winrate": 0.331195,
+  "profit_factor": 0.5722,
+  "somme_r": -1412.651,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3614,
+  "esperance_r": -0.228889,
+  "ecart_type_r": 1.088013,
+  "winrate": 0.34145,
+  "profit_factor": 0.6198,
+  "somme_r": -827.2032,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1531,
+  "esperance_r": -0.382396,
+  "ecart_type_r": 1.138164,
+  "winrate": 0.306989,
+  "profit_factor": 0.4806,
+  "somme_r": -585.4478,
+  "concluant": true
+ },
+ "secondes": 4145.9,
+ "ecrit_le": "2026-08-21T09:25:30.848350+00:00"
+}

@@ -1,0 +1,43 @@
+{
+ "symbole": "MKR-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99994,
+ "debut": "2022-10-26 11:00:00+00:00",
+ "fin": "2025-09-10 20:45:00+00:00",
+ "coupure": "2024-09-25T17:30:00+00:00",
+ "spread_points": 565.0,
+ "spread_prix": 5.65,
+ "n_enter": 6337,
+ "barres_evaluees": 54163,
+ "erreurs": 0,
+ "global": {
+  "n": 6337,
+  "esperance_r": -0.466715,
+  "ecart_type_r": 1.246405,
+  "winrate": 0.328389,
+  "profit_factor": 0.4224,
+  "somme_r": -2957.5723,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4368,
+  "esperance_r": -0.642469,
+  "ecart_type_r": 1.259307,
+  "winrate": 0.286859,
+  "profit_factor": 0.3144,
+  "somme_r": -2806.3046,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1969,
+  "esperance_r": -0.076825,
+  "ecart_type_r": 1.123357,
+  "winrate": 0.420518,
+  "profit_factor": 0.8528,
+  "somme_r": -151.2677,
+  "concluant": true
+ },
+ "secondes": 3367.1,
+ "ecrit_le": "2026-08-20T20:51:34.691692+00:00"
+}

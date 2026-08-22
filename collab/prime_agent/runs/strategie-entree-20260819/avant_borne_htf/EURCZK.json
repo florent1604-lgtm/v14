@@ -1,0 +1,43 @@
+{
+ "symbole": "EURCZK",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99981,
+ "debut": "2022-08-12 15:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T12:10:00+00:00",
+ "spread_points": 102.0,
+ "spread_prix": 0.0102,
+ "n_enter": 5845,
+ "barres_evaluees": 58389,
+ "erreurs": 0,
+ "global": {
+  "n": 5845,
+  "esperance_r": -0.856958,
+  "ecart_type_r": 1.015929,
+  "winrate": 0.197605,
+  "profit_factor": 0.1764,
+  "somme_r": -5008.9189,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3862,
+  "esperance_r": -0.73303,
+  "ecart_type_r": 1.02774,
+  "winrate": 0.223459,
+  "profit_factor": 0.2236,
+  "somme_r": -2830.963,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1983,
+  "esperance_r": -1.098314,
+  "ecart_type_r": 0.947313,
+  "winrate": 0.147252,
+  "profit_factor": 0.1057,
+  "somme_r": -2177.9559,
+  "concluant": true
+ },
+ "secondes": 6641.5,
+ "ecrit_le": "2026-08-20T19:16:11.707441+00:00"
+}

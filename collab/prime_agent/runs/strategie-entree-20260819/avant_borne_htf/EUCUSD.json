@@ -1,0 +1,43 @@
+{
+ "symbole": "EUCUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 28575,
+ "debut": "2025-03-10 01:15:00+00:00",
+ "fin": "2026-05-01 20:45:00+00:00",
+ "coupure": "2025-12-13T14:15:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.00012000000000000002,
+ "n_enter": 3903,
+ "barres_evaluees": 20672,
+ "erreurs": 0,
+ "global": {
+  "n": 3903,
+  "esperance_r": -7.693967,
+  "ecart_type_r": 3.7959,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -30029.5535,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2469,
+  "esperance_r": -7.640643,
+  "ecart_type_r": 3.637641,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -18864.7472,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1434,
+  "esperance_r": -7.785778,
+  "ecart_type_r": 4.053602,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -11164.8063,
+  "concluant": true
+ },
+ "secondes": 2997.4,
+ "ecrit_le": "2026-08-20T17:27:10.682578+00:00"
+}

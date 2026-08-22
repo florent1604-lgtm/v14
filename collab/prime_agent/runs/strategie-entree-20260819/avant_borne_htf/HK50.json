@@ -1,0 +1,43 @@
+{
+ "symbole": "HK50",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100036,
+ "debut": "2020-03-20 01:45:00+00:00",
+ "fin": "2026-08-19 18:45:00+00:00",
+ "coupure": "2024-06-29T13:05:00+00:00",
+ "spread_points": 550.0,
+ "spread_prix": 5.5,
+ "n_enter": 5574,
+ "barres_evaluees": 50411,
+ "erreurs": 0,
+ "global": {
+  "n": 5574,
+  "esperance_r": 0.131057,
+  "ecart_type_r": 1.147987,
+  "winrate": 0.564944,
+  "profit_factor": 1.3082,
+  "somme_r": 730.5092,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3687,
+  "esperance_r": 0.135048,
+  "ecart_type_r": 1.146899,
+  "winrate": 0.570654,
+  "profit_factor": 1.3203,
+  "somme_r": 497.922,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1887,
+  "esperance_r": 0.123258,
+  "ecart_type_r": 1.150375,
+  "winrate": 0.553789,
+  "profit_factor": 1.2851,
+  "somme_r": 232.5872,
+  "concluant": true
+ },
+ "secondes": 5030.5,
+ "ecrit_le": "2026-08-21T10:47:01.460908+00:00"
+}

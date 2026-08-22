@@ -1,0 +1,43 @@
+{
+ "symbole": "EURJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99998,
+ "debut": "2022-08-12 19:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T13:45:00+00:00",
+ "spread_points": 10.0,
+ "spread_prix": 0.01,
+ "n_enter": 5305,
+ "barres_evaluees": 56094,
+ "erreurs": 0,
+ "global": {
+  "n": 5305,
+  "esperance_r": 0.005581,
+  "ecart_type_r": 1.077044,
+  "winrate": 0.551555,
+  "profit_factor": 1.0124,
+  "somme_r": 29.6082,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3620,
+  "esperance_r": 0.025719,
+  "ecart_type_r": 1.075388,
+  "winrate": 0.564088,
+  "profit_factor": 1.0587,
+  "somme_r": 93.1038,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1685,
+  "esperance_r": -0.037683,
+  "ecart_type_r": 1.079643,
+  "winrate": 0.524629,
+  "profit_factor": 0.9204,
+  "somme_r": -63.4956,
+  "concluant": true
+ },
+ "secondes": 3919.3,
+ "ecrit_le": "2026-08-20T20:32:41.730672+00:00"
+}

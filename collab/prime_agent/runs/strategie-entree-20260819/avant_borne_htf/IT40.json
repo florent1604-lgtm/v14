@@ -1,0 +1,43 @@
+{
+ "symbole": "IT40",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 67603,
+ "debut": "2012-08-06 21:00:00+00:00",
+ "fin": "2026-08-19 15:30:00+00:00",
+ "coupure": "2021-12-15T01:20:00+00:00",
+ "spread_points": 900.0,
+ "spread_prix": 9.0,
+ "n_enter": 3632,
+ "barres_evaluees": 38793,
+ "erreurs": 0,
+ "global": {
+  "n": 3632,
+  "esperance_r": 0.166177,
+  "ecart_type_r": 1.163875,
+  "winrate": 0.52891,
+  "profit_factor": 1.3983,
+  "somme_r": 603.5532,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 1416,
+  "esperance_r": 0.118127,
+  "ecart_type_r": 1.160553,
+  "winrate": 0.495763,
+  "profit_factor": 1.2656,
+  "somme_r": 167.2679,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2216,
+  "esperance_r": 0.19688,
+  "ecart_type_r": 1.165217,
+  "winrate": 0.55009,
+  "profit_factor": 1.4926,
+  "somme_r": 436.2853,
+  "concluant": true
+ },
+ "secondes": 2004.1,
+ "ecrit_le": "2026-08-21T11:19:35.758755+00:00"
+}

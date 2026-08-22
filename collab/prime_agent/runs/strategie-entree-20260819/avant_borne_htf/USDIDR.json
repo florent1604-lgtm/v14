@@ -1,0 +1,43 @@
+{
+ "symbole": "USDIDR",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 73074,
+ "debut": "2022-08-31 05:30:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2025-04-23T15:00:00+00:00",
+ "spread_points": 89.0,
+ "spread_prix": 8.9,
+ "n_enter": 4512,
+ "barres_evaluees": 41302,
+ "erreurs": 0,
+ "global": {
+  "n": 4512,
+  "esperance_r": -0.601653,
+  "ecart_type_r": 1.09334,
+  "winrate": 0.257535,
+  "profit_factor": 0.3101,
+  "somme_r": -2714.6573,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2900,
+  "esperance_r": -0.576594,
+  "ecart_type_r": 1.125539,
+  "winrate": 0.27069,
+  "profit_factor": 0.3358,
+  "somme_r": -1672.1229,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1612,
+  "esperance_r": -0.646733,
+  "ecart_type_r": 1.031699,
+  "winrate": 0.233871,
+  "profit_factor": 0.2644,
+  "somme_r": -1042.5344,
+  "concluant": true
+ },
+ "secondes": 2418.0,
+ "ecrit_le": "2026-08-20T20:47:14.518969+00:00"
+}

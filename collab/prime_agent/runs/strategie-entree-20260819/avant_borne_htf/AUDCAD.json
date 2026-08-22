@@ -1,0 +1,78 @@
+{
+ "symbole": "AUDCAD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99999,
+ "debut": "2022-08-12 17:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T12:50:00+00:00",
+ "spread_points": 17.0,
+ "spread_prix": 0.00017,
+ "n_enter": 5137,
+ "barres_evaluees": 58764,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "AUDCAD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 1,
+   "ratio_reconstruit": 1e-05,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 227176.646727,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99999
+  },
+  "htf": {
+   "symbole": "AUDCAD",
+   "timeframe": "H4",
+   "borne_utile": 2718,
+   "barres_avant_exclusion": 34788,
+   "barres_reconstruites": 5,
+   "ratio_reconstruit": 0.00014372772220305852,
+   "ohlc_invalides": 0,
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 233476.680723,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 34783
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5137,
+  "esperance_r": -0.17292,
+  "ecart_type_r": 1.051904,
+  "winrate": 0.347479,
+  "profit_factor": 0.683,
+  "somme_r": -888.2918,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3399,
+  "esperance_r": -0.162733,
+  "ecart_type_r": 1.058168,
+  "winrate": 0.350397,
+  "profit_factor": 0.6998,
+  "somme_r": -553.1279,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1738,
+  "esperance_r": -0.192845,
+  "ecart_type_r": 1.039559,
+  "winrate": 0.341772,
+  "profit_factor": 0.6506,
+  "somme_r": -335.1639,
+  "concluant": true
+ },
+ "secondes": 2978.4,
+ "ecrit_le": "2026-08-22T14:40:54.967770+00:00"
+}

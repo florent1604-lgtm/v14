@@ -1,0 +1,43 @@
+{
+ "symbole": "USDJPC",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 25798,
+ "debut": "2025-03-13 21:15:00+00:00",
+ "fin": "2026-03-27 20:45:00+00:00",
+ "coupure": "2025-11-21T12:55:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.00012000000000000002,
+ "n_enter": 1271,
+ "barres_evaluees": 12781,
+ "erreurs": 0,
+ "global": {
+  "n": 1271,
+  "esperance_r": 0.057043,
+  "ecart_type_r": 1.148909,
+  "winrate": 0.52085,
+  "profit_factor": 1.123,
+  "somme_r": 72.5014,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 795,
+  "esperance_r": 0.097747,
+  "ecart_type_r": 1.15197,
+  "winrate": 0.539623,
+  "profit_factor": 1.2191,
+  "somme_r": 77.7091,
+  "concluant": true
+ },
+ "verification": {
+  "n": 476,
+  "esperance_r": -0.010941,
+  "ecart_type_r": 1.141751,
+  "winrate": 0.489496,
+  "profit_factor": 0.9778,
+  "somme_r": -5.2077,
+  "concluant": true
+ },
+ "secondes": 1306.3,
+ "ecrit_le": "2026-08-20T09:21:18.858751+00:00"
+}

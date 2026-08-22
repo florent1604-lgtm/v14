@@ -1,0 +1,43 @@
+{
+ "symbole": "UKOIL",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100047,
+ "debut": "2022-01-28 21:00:00+00:00",
+ "fin": "2026-08-19 20:45:00+00:00",
+ "coupure": "2025-02-11T04:50:00+00:00",
+ "spread_points": 30.0,
+ "spread_prix": 0.03,
+ "n_enter": 5585,
+ "barres_evaluees": 52812,
+ "erreurs": 0,
+ "global": {
+  "n": 5585,
+  "esperance_r": 0.178455,
+  "ecart_type_r": 1.127704,
+  "winrate": 0.562041,
+  "profit_factor": 1.4606,
+  "somme_r": 996.6729,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3652,
+  "esperance_r": 0.188121,
+  "ecart_type_r": 1.125321,
+  "winrate": 0.578861,
+  "profit_factor": 1.4941,
+  "somme_r": 687.0192,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1933,
+  "esperance_r": 0.160193,
+  "ecart_type_r": 1.13226,
+  "winrate": 0.530264,
+  "profit_factor": 1.4004,
+  "somme_r": 309.6537,
+  "concluant": true
+ },
+ "secondes": 5949.9,
+ "ecrit_le": "2026-08-20T16:38:24.720935+00:00"
+}

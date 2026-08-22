@@ -1,0 +1,43 @@
+{
+ "symbole": "EURNZD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99988,
+ "debut": "2022-08-12 11:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T10:55:00+00:00",
+ "spread_points": 21.0,
+ "spread_prix": 0.00021,
+ "n_enter": 5476,
+ "barres_evaluees": 56063,
+ "erreurs": 0,
+ "global": {
+  "n": 5476,
+  "esperance_r": -0.063404,
+  "ecart_type_r": 1.074564,
+  "winrate": 0.420928,
+  "profit_factor": 0.8693,
+  "somme_r": -347.1981,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3659,
+  "esperance_r": -0.03702,
+  "ecart_type_r": 1.084768,
+  "winrate": 0.438098,
+  "profit_factor": 0.9222,
+  "somme_r": -135.4546,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1817,
+  "esperance_r": -0.116535,
+  "ecart_type_r": 1.052004,
+  "winrate": 0.386351,
+  "profit_factor": 0.7684,
+  "somme_r": -211.7435,
+  "concluant": true
+ },
+ "secondes": 4315.8,
+ "ecrit_le": "2026-08-20T20:28:07.821602+00:00"
+}

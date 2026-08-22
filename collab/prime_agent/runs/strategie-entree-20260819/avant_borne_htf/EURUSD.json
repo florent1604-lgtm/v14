@@ -1,0 +1,43 @@
+{
+ "symbole": "EURUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100000,
+ "debut": "2022-08-12 19:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T13:45:00+00:00",
+ "spread_points": 11.0,
+ "spread_prix": 0.00011,
+ "n_enter": 5275,
+ "barres_evaluees": 55905,
+ "erreurs": 0,
+ "global": {
+  "n": 5275,
+  "esperance_r": -0.067563,
+  "ecart_type_r": 1.079649,
+  "winrate": 0.429763,
+  "profit_factor": 0.8628,
+  "somme_r": -356.3967,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3514,
+  "esperance_r": -0.053247,
+  "ecart_type_r": 1.090917,
+  "winrate": 0.435117,
+  "profit_factor": 0.8915,
+  "somme_r": -187.1096,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1761,
+  "esperance_r": -0.096131,
+  "ecart_type_r": 1.056532,
+  "winrate": 0.41908,
+  "profit_factor": 0.806,
+  "somme_r": -169.2871,
+  "concluant": true
+ },
+ "secondes": 4890.9,
+ "ecrit_le": "2026-08-21T08:12:30.099036+00:00"
+}

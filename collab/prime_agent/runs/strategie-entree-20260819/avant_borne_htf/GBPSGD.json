@@ -1,0 +1,43 @@
+{
+ "symbole": "GBPSGD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99997,
+ "debut": "2022-08-12 18:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T13:15:00+00:00",
+ "spread_points": 32.0,
+ "spread_prix": 0.00032,
+ "n_enter": 5161,
+ "barres_evaluees": 54443,
+ "erreurs": 0,
+ "global": {
+  "n": 5161,
+  "esperance_r": -0.269621,
+  "ecart_type_r": 1.02536,
+  "winrate": 0.31583,
+  "profit_factor": 0.5473,
+  "somme_r": -1391.5154,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3455,
+  "esperance_r": -0.262438,
+  "ecart_type_r": 1.029887,
+  "winrate": 0.318379,
+  "profit_factor": 0.5573,
+  "somme_r": -906.7241,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1706,
+  "esperance_r": -0.284168,
+  "ecart_type_r": 1.016277,
+  "winrate": 0.310668,
+  "profit_factor": 0.5273,
+  "somme_r": -484.7913,
+  "concluant": true
+ },
+ "secondes": 5132.2,
+ "ecrit_le": "2026-08-21T10:47:40.103930+00:00"
+}

@@ -1,0 +1,43 @@
+{
+ "symbole": "US30",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100001,
+ "debut": "2022-05-10 12:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-17T03:25:00+00:00",
+ "spread_points": 200.0,
+ "spread_prix": 2.0,
+ "n_enter": 4896,
+ "barres_evaluees": 53503,
+ "erreurs": 0,
+ "global": {
+  "n": 4896,
+  "esperance_r": 0.115332,
+  "ecart_type_r": 1.126903,
+  "winrate": 0.587418,
+  "profit_factor": 1.2751,
+  "somme_r": 564.6658,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3303,
+  "esperance_r": 0.109207,
+  "ecart_type_r": 1.124198,
+  "winrate": 0.585528,
+  "profit_factor": 1.2592,
+  "somme_r": 360.7112,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1593,
+  "esperance_r": 0.128032,
+  "ecart_type_r": 1.132739,
+  "winrate": 0.591337,
+  "profit_factor": 1.3087,
+  "somme_r": 203.9546,
+  "concluant": true
+ },
+ "secondes": 4689.9,
+ "ecrit_le": "2026-08-21T14:14:00.724669+00:00"
+}

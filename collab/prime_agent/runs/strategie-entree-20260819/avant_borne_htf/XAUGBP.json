@@ -1,0 +1,43 @@
+{
+ "symbole": "XAUGBP",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100003,
+ "debut": "2022-05-26 07:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-22T09:45:00+00:00",
+ "spread_points": 28.0,
+ "spread_prix": 0.28,
+ "n_enter": 5547,
+ "barres_evaluees": 52762,
+ "erreurs": 0,
+ "global": {
+  "n": 5547,
+  "esperance_r": 0.050621,
+  "ecart_type_r": 1.088409,
+  "winrate": 0.526591,
+  "profit_factor": 1.117,
+  "somme_r": 280.7941,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3644,
+  "esperance_r": -0.011726,
+  "ecart_type_r": 1.07709,
+  "winrate": 0.475851,
+  "profit_factor": 0.9745,
+  "somme_r": -42.7309,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1903,
+  "esperance_r": 0.170008,
+  "ecart_type_r": 1.100226,
+  "winrate": 0.623752,
+  "profit_factor": 1.4454,
+  "somme_r": 323.525,
+  "concluant": true
+ },
+ "secondes": 5672.9,
+ "ecrit_le": "2026-08-20T19:53:52.456826+00:00"
+}

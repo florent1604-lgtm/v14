@@ -1,0 +1,43 @@
+{
+ "symbole": "XRP-JPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100001,
+ "debut": "2023-10-08 15:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-05T04:20:00+00:00",
+ "spread_points": 290.0,
+ "spread_prix": 0.29,
+ "n_enter": 5794,
+ "barres_evaluees": 53035,
+ "erreurs": 0,
+ "global": {
+  "n": 5794,
+  "esperance_r": -0.068904,
+  "ecart_type_r": 1.162041,
+  "winrate": 0.444425,
+  "profit_factor": 0.8704,
+  "somme_r": -399.2316,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3787,
+  "esperance_r": -0.14124,
+  "ecart_type_r": 1.169174,
+  "winrate": 0.439662,
+  "profit_factor": 0.7553,
+  "somme_r": -534.8772,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2007,
+  "esperance_r": 0.067586,
+  "ecart_type_r": 1.136271,
+  "winrate": 0.453413,
+  "profit_factor": 1.1515,
+  "somme_r": 135.6456,
+  "concluant": true
+ },
+ "secondes": 5899.0,
+ "ecrit_le": "2026-08-20T12:22:02.569583+00:00"
+}

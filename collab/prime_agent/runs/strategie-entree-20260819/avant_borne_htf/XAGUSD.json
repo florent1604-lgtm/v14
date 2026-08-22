@@ -1,0 +1,43 @@
+{
+ "symbole": "XAGUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100051,
+ "debut": "2022-05-31 18:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-24T05:25:00+00:00",
+ "spread_points": 22.0,
+ "spread_prix": 0.022,
+ "n_enter": 5565,
+ "barres_evaluees": 51427,
+ "erreurs": 0,
+ "global": {
+  "n": 5565,
+  "esperance_r": 0.019202,
+  "ecart_type_r": 1.119462,
+  "winrate": 0.45301,
+  "profit_factor": 1.0414,
+  "somme_r": 106.8571,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3658,
+  "esperance_r": -0.064554,
+  "ecart_type_r": 1.108992,
+  "winrate": 0.390377,
+  "profit_factor": 0.8729,
+  "somme_r": -236.1399,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1907,
+  "esperance_r": 0.179862,
+  "ecart_type_r": 1.122199,
+  "winrate": 0.573152,
+  "profit_factor": 1.4738,
+  "somme_r": 342.997,
+  "concluant": true
+ },
+ "secondes": 4526.8,
+ "ecrit_le": "2026-08-21T17:30:45.205273+00:00"
+}

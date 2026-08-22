@@ -1,0 +1,43 @@
+{
+ "symbole": "USDBRL",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 28460,
+ "debut": "2022-09-02 12:30:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2025-04-24T09:20:00+00:00",
+ "spread_points": 22.0,
+ "spread_prix": 0.0022,
+ "n_enter": 1420,
+ "barres_evaluees": 15188,
+ "erreurs": 0,
+ "global": {
+  "n": 1420,
+  "esperance_r": -0.010017,
+  "ecart_type_r": 1.153678,
+  "winrate": 0.395775,
+  "profit_factor": 0.9801,
+  "somme_r": -14.2248,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 890,
+  "esperance_r": 0.007004,
+  "ecart_type_r": 1.162427,
+  "winrate": 0.405618,
+  "profit_factor": 1.014,
+  "somme_r": 6.2335,
+  "concluant": true
+ },
+ "verification": {
+  "n": 530,
+  "esperance_r": -0.038601,
+  "ecart_type_r": 1.139354,
+  "winrate": 0.379245,
+  "profit_factor": 0.9243,
+  "somme_r": -20.4583,
+  "concluant": true
+ },
+ "secondes": 1552.8,
+ "ecrit_le": "2026-08-20T13:00:30.719090+00:00"
+}

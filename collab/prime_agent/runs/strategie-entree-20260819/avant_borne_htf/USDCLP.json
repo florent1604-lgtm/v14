@@ -1,0 +1,43 @@
+{
+ "symbole": "USDCLP",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 12826,
+ "debut": "2022-09-21 13:15:00+00:00",
+ "fin": "2026-08-19 16:00:00+00:00",
+ "coupure": "2025-04-30T15:05:00+00:00",
+ "spread_points": 59.0,
+ "spread_prix": 0.59,
+ "n_enter": 674,
+ "barres_evaluees": 6853,
+ "erreurs": 0,
+ "global": {
+  "n": 674,
+  "esperance_r": 0.063145,
+  "ecart_type_r": 1.227517,
+  "winrate": 0.406528,
+  "profit_factor": 1.1247,
+  "somme_r": 42.5595,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 403,
+  "esperance_r": 0.093497,
+  "ecart_type_r": 1.22548,
+  "winrate": 0.409429,
+  "profit_factor": 1.1919,
+  "somme_r": 37.6792,
+  "concluant": true
+ },
+ "verification": {
+  "n": 271,
+  "esperance_r": 0.018008,
+  "ecart_type_r": 1.231421,
+  "winrate": 0.402214,
+  "profit_factor": 1.0337,
+  "somme_r": 4.8803,
+  "concluant": true
+ },
+ "secondes": 668.2,
+ "ecrit_le": "2026-08-20T15:25:28.620917+00:00"
+}

@@ -178,14 +178,59 @@ d'entree — trancher demande un rejeu A/B.
 
 ---
 
-## 7. Etat au moment ou j'ecris
+## 7. Le run est reparti, et il RECALCULE TOUT
 
 ```
-prime-agent    relance 19:32, session neuve Opus 5
-backfill       0 processus, run arrete a 34/149
-sentinelle     _RUN_FAILED.json toujours en place
-services       aucun autre redemarrage
+19:48   8 lots relances, 16 processus
+        sentinelle effacee (archivee dans
+        collab/prime_agent/runs/strategie-entree-20260819/_RUN_FAILED_20260822T1903.json)
+        fin estimee ~09h15 le 23/08
 ```
 
-Le lanceur a `--effacer-sentinelle` et reprend sans refaire les 34 acquis.
-Rien n'est relance sans le dire.
+**Il ne reprend pas aux 34 acquis, il refait les 149.** Ce n'est pas un
+accident : j'ai touche a `rejeu_univers.py` et a `archive_barres.py`, donc le
+`snapshot_id` a change, donc `artefact_brut_valide` declare les 34 artefacts
+perimes. C'est ton snapshot transitif (`dbfdeb2`) qui joue son role — interdire
+qu'un meme jeu de resultats melange deux versions du moteur.
+
+J'ai laisse faire plutot que de forcer la reprise. Mon raisonnement est que la
+marge de prechauffe rend les resultats identiques, mais un raisonnement n'est
+pas une mesure, et ton garde-fou existe precisement pour ne pas avoir a me
+croire.
+
+Pour que ce soit verifiable, **les 148 resumes precedents sont figes** dans
+`collab/prime_agent/runs/strategie-entree-20260819/avant_borne_htf/`. Quand les
+premiers symboles retomberont, comparer : AAVE-USD doit rendre exactement
+n=5805, esp −0,0258 R. Si l'ecart est nul sur une dizaine de symboles, la borne
+HTF est neutre et c'est demontre. Sinon, c'est moi qui ai tort et il faudra
+revenir sur le commit `3bbbc11`.
+
+## 8. Commits de la journee, cote Claude
+
+```
+cdd09ec  mesurer le cout par trade et mettre a l epreuve l affinage M5
+3bbbc11  porter le refus qualite sur la fenetre rendue, pas sur le fichier
+```
+
+Tout est sur `master`, 2103 tests passes, lint propre.
+
+## 9. Ce qui t'attend, par ordre d'urgence
+
+1. **Verifier la neutralite de la borne HTF** contre `avant_borne_htf/`. C'est
+   le seul point ou j'ai modifie ton moteur ; si je me suis trompe, tout le
+   reste attend.
+2. **Arbitrer la porte de cout** (section 6a). C'est un changement de seuil,
+   donc ta decision, et c'est le levier le plus fort mesure a ce jour :
+   verification de −0,1454 R a +0,1620 R.
+3. **Decider du marquage de granularite reelle** dans l'archive (section 4).
+   59 symboles portent des barres journalieres etiquetees H4. Sans impact
+   mesure aujourd'hui, mais c'est une bombe a retardement pour tout rejeu qui
+   remonterait plus loin que le M15 disponible.
+4. **Rendre la main a Codex** pour l'A/B : les artefacts bruts portent
+   desormais `decision_at`, `quantity`, `asset_class`, `trade_id`, `side`.
+
+## 10. Ce que je n'ai pas fait
+
+Aucune donnee d'archive modifiee. Aucun seuil, quorum ou parametre de risque
+touche. Aucun ordre, aucun armement. Le module `entry_refine` est inerte.
+Le seul service redemarre est le tien, sur demande explicite de Florent.

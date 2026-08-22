@@ -1,0 +1,43 @@
+{
+ "symbole": "USDJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100007,
+ "debut": "2022-08-12 18:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T13:20:00+00:00",
+ "spread_points": 10.0,
+ "spread_prix": 0.01,
+ "n_enter": 5396,
+ "barres_evaluees": 56105,
+ "erreurs": 0,
+ "global": {
+  "n": 5396,
+  "esperance_r": 0.036718,
+  "ecart_type_r": 1.097611,
+  "winrate": 0.545404,
+  "profit_factor": 1.0827,
+  "somme_r": 198.1302,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3556,
+  "esperance_r": 0.059861,
+  "ecart_type_r": 1.111303,
+  "winrate": 0.554837,
+  "profit_factor": 1.1361,
+  "somme_r": 212.8674,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1840,
+  "esperance_r": -0.008009,
+  "ecart_type_r": 1.069532,
+  "winrate": 0.527174,
+  "profit_factor": 0.9823,
+  "somme_r": -14.7372,
+  "concluant": true
+ },
+ "secondes": 6052.7,
+ "ecrit_le": "2026-08-20T18:19:18.792466+00:00"
+}

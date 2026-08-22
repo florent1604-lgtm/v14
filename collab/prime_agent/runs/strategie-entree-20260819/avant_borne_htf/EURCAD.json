@@ -1,0 +1,43 @@
+{
+ "symbole": "EURCAD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100060,
+ "debut": "2022-08-12 03:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T08:20:00+00:00",
+ "spread_points": 15.0,
+ "spread_prix": 0.00015000000000000001,
+ "n_enter": 5227,
+ "barres_evaluees": 54388,
+ "erreurs": 0,
+ "global": {
+  "n": 5227,
+  "esperance_r": -0.1184,
+  "ecart_type_r": 1.044802,
+  "winrate": 0.404821,
+  "profit_factor": 0.7644,
+  "somme_r": -618.8757,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3452,
+  "esperance_r": -0.099262,
+  "ecart_type_r": 1.052434,
+  "winrate": 0.413384,
+  "profit_factor": 0.7988,
+  "somme_r": -342.6521,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1775,
+  "esperance_r": -0.155619,
+  "ecart_type_r": 1.029071,
+  "winrate": 0.388169,
+  "profit_factor": 0.7011,
+  "somme_r": -276.2236,
+  "concluant": true
+ },
+ "secondes": 5842.9,
+ "ecrit_le": "2026-08-20T19:27:21.437252+00:00"
+}

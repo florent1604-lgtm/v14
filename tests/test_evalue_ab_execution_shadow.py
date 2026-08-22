@@ -103,12 +103,13 @@ def _ecrire_artefact_scelle(
     *,
     complet: bool = False,
     zero: bool = False,
+    quantity_unit: str = "risk_unit",
 ) -> None:
     dossier = racine / "EURUSD"
     dossier.mkdir(parents=True)
     trade = {
-        "schema_version": 1,
-        "trade_id": "bt:v1:abc",
+        "schema_version": 2,
+        "trade_id": "bt:v2:abc",
         "ordinal": 0,
         "symbol": "EURUSD",
         "split": "verification",
@@ -124,7 +125,8 @@ def _ecrire_artefact_scelle(
     if complet:
         trade.update({
             "decision_at": "2026-08-21T00:00:00+00:00",
-            "quantity": 0.1,
+            "quantity": 1.0,
+            "quantity_unit": quantity_unit,
             "asset_class": "fx",
         })
     brut = b"" if zero else _canonique(trade)
@@ -132,7 +134,7 @@ def _ecrire_artefact_scelle(
     resumes.mkdir(parents=True)
     (resumes / "EURUSD.json").write_bytes(resume)
     manifeste = {
-        "schema_version": 1,
+        "schema_version": 2,
         "artifact_type": "v14.offline_replay.trades",
         "symbol": "EURUSD",
         "snapshot": {"snapshot_id": "a" * 64},
@@ -340,6 +342,25 @@ def test_fallback_inconnu_est_refuse(tmp_path: Path):
 
     assert rapport["status"] == "BLOCKED"
     assert "EXECUTION_ASSUMPTIONS_INVALID" in {
+        blocage["code"] for blocage in rapport["blockers"]
+    }
+
+
+def test_quantite_normalisee_ne_se_fait_pas_passer_pour_un_lot(tmp_path: Path):
+    quotes = tmp_path / "quotes"
+    bruts = tmp_path / "bruts"
+    resumes = tmp_path / "resumes"
+    _ecrire_quote(quotes, complet=True)
+    _ecrire_artefact_scelle(
+        bruts, resumes, complet=True, quantity_unit="broker_lot",
+    )
+
+    rapport = ab.auditer_disponibilite(
+        bruts, quotes, resumes, _hypotheses(),
+    )
+
+    assert rapport["status"] == "BLOCKED"
+    assert "INTENT_VALUES_INVALID" in {
         blocage["code"] for blocage in rapport["blockers"]
     }
 

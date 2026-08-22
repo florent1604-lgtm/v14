@@ -38,7 +38,14 @@ METRIQUES = (
     "opportunity_cost_r",
     "net_intention_to_trade_r",
 )
-CHAMPS_INTENTION = {"decision_at", "asset_class", "quantity", "side", "trade_id"}
+CHAMPS_INTENTION = {
+    "decision_at",
+    "asset_class",
+    "quantity",
+    "quantity_unit",
+    "side",
+    "trade_id",
+}
 CHAMPS_PASSIF = {
     "bid_size",
     "ask_size",
@@ -227,6 +234,8 @@ def _artefact_scelle(dossier: Path, resumes: Path) -> tuple[dict, list[dict]]:
     sceau = corps.pop("manifest_sha256")
     if sceau != _sha256(_canonique(corps)):
         raise ValueError("sceau manifeste invalide")
+    if manifeste.get("schema_version") != 2:
+        raise ValueError("schema brut incompatible")
     if manifeste.get("symbol") != symbole:
         raise ValueError("symbole manifeste incoherent")
     brut = chemin_trades.read_bytes()
@@ -246,6 +255,8 @@ def _artefact_scelle(dossier: Path, resumes: Path) -> tuple[dict, list[dict]]:
         raise ValueError("trade brut non objet")
     if any(ligne.get("symbol") != symbole for ligne in lignes):
         raise ValueError("symbole trade incoherent")
+    if any(ligne.get("schema_version") != 2 for ligne in lignes):
+        raise ValueError("schema trade incompatible")
     identifiants = [ligne.get("trade_id") for ligne in lignes]
     if any(not isinstance(identifiant, str) or not identifiant for identifiant in identifiants):
         raise ValueError("trade_id absent")
@@ -266,6 +277,8 @@ def _fenetre_intentions(intentions: list[dict]) -> tuple[float, float]:
         if side not in {-1.0, 1.0}:
             raise ValueError("side doit valoir -1 ou 1")
         _nombre_fini(intention["quantity"], strictement_positif=True)
+        if intention["quantity_unit"] != "risk_unit":
+            raise ValueError("quantity_unit doit valoir risk_unit")
         if not str(intention["asset_class"]).strip():
             raise ValueError("classe d'actif vide")
         decisions.append(decision)
@@ -399,6 +412,11 @@ def auditer_disponibilite(
             blocages.append(_blocage(
                 "INTENT_QUANTITY_UNOBSERVABLE", symbole,
                 "quantite intention-to-trade absente",
+            ))
+        if "quantity_unit" in champs_absents:
+            blocages.append(_blocage(
+                "INTENT_QUANTITY_UNIT_UNOBSERVABLE", symbole,
+                "unite de quantite normalisee absente",
             ))
         fenetre_intentions = None
         if not intentions:

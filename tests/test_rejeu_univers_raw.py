@@ -37,6 +37,16 @@ def _trade(*, entree: str, sortie: str, pnl_r: float, cost_r: float) -> Trade:
     )
 
 
+def _snapshot(identifiant: str = "a", *, ltf: str = "M15",
+              asset_class: str = "fx") -> dict:
+    return {
+        "snapshot_id": identifiant * 64,
+        "schema_version": 2,
+        "asset_class": asset_class,
+        "protocol": {"ltf": ltf},
+    }
+
+
 def test_artefact_brut_est_deterministe_et_separe_calibration_verification():
     trades = [
         _trade(
@@ -52,7 +62,7 @@ def test_artefact_brut_est_deterministe_et_separe_calibration_verification():
             cost_r=0.1,
         ),
     ]
-    snapshot = {"snapshot_id": "a" * 64, "schema_version": 1}
+    snapshot = _snapshot()
 
     brut_1, manifeste_1 = ru.construire_artefact_brut(
         "EURUSD", trades, coupure="2026-02-01T00:00:00+00:00", snapshot=snapshot
@@ -69,7 +79,11 @@ def test_artefact_brut_est_deterministe_et_separe_calibration_verification():
     assert lignes[0]["net_r"] == 0.8
     assert lignes[0]["cost_r"] == 0.2
     assert len({ligne["trade_id"] for ligne in lignes}) == 2
-    assert all(ligne["trade_id"].startswith("bt:v1:") for ligne in lignes)
+    assert all(ligne["trade_id"].startswith("bt:v2:") for ligne in lignes)
+    assert lignes[0]["decision_at"] == "2026-01-01T00:15:00+00:00"
+    assert lignes[0]["quantity"] == 1.0
+    assert lignes[0]["quantity_unit"] == "risk_unit"
+    assert lignes[0]["asset_class"] == "fx"
     assert manifeste_1["counts"] == {
         "trades": 2,
         "calibration": 1,
@@ -91,6 +105,7 @@ def test_snapshot_scellé_les_sources_le_protocole_et_le_moteur(tmp_path: Path):
         "symbole": "EURUSD",
         "ltf_tf": "M15",
         "htf_tf": "H4",
+        "asset_class": "fx",
         "barres": None,
         "pas": 1,
         "spec": {"point": 0.00001},
@@ -139,7 +154,7 @@ def test_snapshot_moteur_inclut_les_dependances_directes_du_builder():
 
 
 def test_persistance_atomique_est_validable_et_detecte_une_alteration(tmp_path: Path):
-    snapshot = {"snapshot_id": "b" * 64, "schema_version": 1}
+    snapshot = _snapshot("b")
     brut, manifeste = ru.construire_artefact_brut(
         "EURUSD",
         [_trade(
@@ -167,7 +182,7 @@ def test_persistance_atomique_est_validable_et_detecte_une_alteration(tmp_path: 
 
 
 def test_persistance_refuse_un_brut_qui_ne_correspond_pas_au_manifeste(tmp_path: Path):
-    snapshot = {"snapshot_id": "c" * 64, "schema_version": 1}
+    snapshot = _snapshot("c")
     brut, manifeste = ru.construire_artefact_brut(
         "EURUSD", [], coupure="2026-02-01T00:00:00+00:00", snapshot=snapshot
     )
@@ -198,6 +213,37 @@ def test_split_temporel_ne_depend_pas_du_separateur_espace_ou_t():
 
     assert calibration == [avant]
     assert verification == [frontiere]
+
+
+@pytest.mark.parametrize("ltf", ["", "MN1", "M17"])
+def test_artefact_refuse_un_timeframe_sans_cloture_deterministe(ltf: str):
+    trade = _trade(
+        entree="2026-01-01T00:00:00+00:00",
+        sortie="2026-01-01T01:00:00+00:00",
+        pnl_r=0.8,
+        cost_r=0.2,
+    )
+
+    with pytest.raises(ValueError, match="timeframe"):
+        ru.construire_artefact_brut(
+            "EURUSD", [trade], coupure="2026-02-01T00:00:00+00:00",
+            snapshot=_snapshot(ltf=ltf),
+        )
+
+
+def test_artefact_refuse_une_barre_sans_fuseau():
+    trade = _trade(
+        entree="2026-01-01T00:00:00",
+        sortie="2026-01-01T01:00:00+00:00",
+        pnl_r=0.8,
+        cost_r=0.2,
+    )
+
+    with pytest.raises(ValueError, match="fuseau"):
+        ru.construire_artefact_brut(
+            "EURUSD", [trade], coupure="2026-02-01T00:00:00+00:00",
+            snapshot=_snapshot(),
+        )
 
 
 def test_rejouer_symbole_brut_retourne_les_trades_sans_changer_le_resume(monkeypatch):
@@ -236,7 +282,7 @@ def test_traiter_symbole_publie_resume_et_brut_puis_reprend_sur_les_deux(
         tmp_path: Path, monkeypatch):
     dest = tmp_path / "resumes"
     dest_brut = tmp_path / "brut"
-    snapshot = {"snapshot_id": "d" * 64, "schema_version": 1}
+    snapshot = _snapshot("d")
     trade = _trade(
         entree="2026-01-01T00:00:00+00:00",
         sortie="2026-01-01T01:00:00+00:00",
@@ -289,7 +335,7 @@ def test_interruption_apres_brut_ne_valide_pas_un_ancien_resume(tmp_path: Path,
     dest_brut = tmp_path / "brut"
     dest.mkdir()
     (dest / "EURUSD.json").write_text('{"ancien":true}', encoding="utf-8")
-    snapshot = {"snapshot_id": "e" * 64, "schema_version": 1}
+    snapshot = _snapshot("e")
     trade = _trade(
         entree="2026-01-01T00:00:00+00:00",
         sortie="2026-01-01T01:00:00+00:00",

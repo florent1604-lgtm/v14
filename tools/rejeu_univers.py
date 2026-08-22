@@ -42,7 +42,7 @@ import os
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -53,6 +53,7 @@ from titanium.data.archive_barres import (  # noqa: E402
     chemin as chemin_archive,
     inventaire,
 )
+from titanium.edge import asset_class_of  # noqa: E402
 
 DEST = RACINE / "results" / "rejeu_univers"
 DEST_BRUT = RACINE / "results" / "rejeu_univers_brut"
@@ -78,7 +79,21 @@ CLOTURES_MIN = 60
 PART_CALIBRATION = 2.0 / 3.0
 
 #: Schema des artefacts bruts, independant du schema des resumes historiques.
-SCHEMA_BRUT = 1
+SCHEMA_BRUT = 2
+
+# Un index de barre MT5 designe son ouverture. La decision du backtest utilise
+# son close; l'instant causal est donc l'ouverture + la duree fixe du TF.
+# MN1 est volontairement absent: sa duree varie avec le calendrier.
+DUREE_TIMEFRAME_S = {
+    "M1": 60,
+    "M5": 5 * 60,
+    "M15": 15 * 60,
+    "M30": 30 * 60,
+    "H1": 60 * 60,
+    "H4": 4 * 60 * 60,
+    "D1": 24 * 60 * 60,
+    "W1": 7 * 24 * 60 * 60,
+}
 
 
 def _json_canonique(valeur) -> bytes:
@@ -107,14 +122,19 @@ def _nom_stable(chemin: Path) -> str:
 
 
 def construire_snapshot_rejeu(*, symbole: str, ltf_tf: str, htf_tf: str,
+                               asset_class: str,
                                barres: int | None, pas: int, spec: dict,
                                qualite: dict | None = None,
                                fichiers_entree: dict[str, Path],
                                fichiers_moteur: list[Path]) -> dict:
     """Scelle les donnees, le protocole et le code qui determinent un rejeu."""
+    classe = str(asset_class or "").strip().lower()
+    if not classe:
+        raise ValueError("classe d'actif absente du snapshot")
     snapshot = {
         "schema_version": SCHEMA_BRUT,
         "symbol": symbole,
+        "asset_class": classe,
         "sources": {
             nom: {
                 "name": _nom_stable(chemin),
@@ -151,6 +171,19 @@ def _instant(valeur: str) -> datetime:
     return datetime.fromisoformat(str(valeur).replace("Z", "+00:00"))
 
 
+def _decision_at(bar_entree: str, snapshot: dict) -> str:
+    """Rend la cloture UTC de la barre qui a effectivement produit le signal."""
+    timeframe = str(snapshot.get("protocol", {}).get("ltf", "")).upper()
+    duree = DUREE_TIMEFRAME_S.get(timeframe)
+    if duree is None:
+        raise ValueError(f"timeframe LTF sans duree fixe: {timeframe or '?'}")
+    instant = _instant(bar_entree)
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ValueError("barre d'entree sans fuseau")
+    decision = instant.astimezone(timezone.utc) + timedelta(seconds=duree)
+    return decision.isoformat()
+
+
 def separer_trades(trades: list, coupure: str) -> tuple[list, list]:
     """Separe chronologiquement sans comparer les representations ISO en texte."""
     tries = sorted(trades, key=lambda trade: _instant(trade.bar_entree))
@@ -165,24 +198,39 @@ def construire_artefact_brut(symbole: str, trades: list, *, coupure: str,
                              snapshot: dict) -> tuple[bytes, dict]:
     """Construit les lignes et leur manifeste, sans horloge ni alea runtime."""
     lignes = []
+    classe = str(snapshot.get("asset_class", "")).strip().lower()
+    if not classe:
+        raise ValueError("classe d'actif absente du snapshot")
+    # Valider les horloges avant le split garantit une erreur explicite, plutot
+    # qu'une comparaison datetime naive/aware accidentelle.
+    for trade in trades:
+        _decision_at(trade.bar_entree, snapshot)
     calibration, verification = separer_trades(trades, coupure)
     for ordinal, trade in enumerate(calibration + verification):
         split = "calibration" if ordinal < len(calibration) else "verification"
+        decision_at = _decision_at(trade.bar_entree, snapshot)
         identite = {
             "snapshot_id": snapshot["snapshot_id"],
             "ordinal": ordinal,
             "symbol": symbole,
-            "bar_entree": trade.bar_entree,
+            "decision_at": decision_at,
             "bar_sortie": trade.bar_sortie,
             "side": trade.side,
+            "quantity": 1.0,
+            "quantity_unit": "risk_unit",
+            "asset_class": classe,
         }
         lignes.append({
             "schema_version": SCHEMA_BRUT,
-            "trade_id": f"bt:v1:{_sha256(_json_canonique(identite))}",
+            "trade_id": f"bt:v2:{_sha256(_json_canonique(identite))}",
             "ordinal": ordinal,
             "symbol": symbole,
             "split": split,
             "side": trade.side,
+            "decision_at": decision_at,
+            "quantity": 1.0,
+            "quantity_unit": "risk_unit",
+            "asset_class": classe,
             "bar_entree": trade.bar_entree,
             "bar_sortie": trade.bar_sortie,
             "prix_entree": trade.prix_entree,
@@ -325,7 +373,13 @@ def artefact_brut_valide(destination: Path, symbole: str,
         return all(
             ligne["schema_version"] == SCHEMA_BRUT
             and ligne["symbol"] == symbole
+            and str(ligne["trade_id"]).startswith("bt:v2:")
             and ligne["ordinal"] == ordinal
+            and ligne["decision_at"] == _decision_at(
+                ligne["bar_entree"], manifeste["snapshot"])
+            and ligne["quantity"] == 1.0
+            and ligne["quantity_unit"] == "risk_unit"
+            and ligne["asset_class"] == manifeste["snapshot"]["asset_class"]
             and abs((ligne["gross_r"] - ligne["cost_r"]) - ligne["net_r"]) < 1e-8
             for ordinal, ligne in enumerate(lignes)
         )
@@ -348,6 +402,7 @@ def snapshot_rejeu_courant(*, symbole: str, ltf_tf: str, htf_tf: str,
         symbole=symbole,
         ltf_tf=ltf_tf,
         htf_tf=htf_tf,
+        asset_class=asset_class_of(symbole),
         barres=barres,
         pas=pas,
         spec=specifications().get(symbole, {}),

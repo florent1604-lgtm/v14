@@ -43,6 +43,11 @@ import numpy as np
 import pyarrow.parquet as pq
 
 RACINE = Path(__file__).resolve().parent.parent
+if str(RACINE) not in sys.path:
+    sys.path.insert(0, str(RACINE))
+
+from tools import epoque_rejeu  # noqa: E402
+
 REJEU = RACINE / "results" / "rejeu_univers"
 BARRES = RACINE / "results" / "barres"
 BORNES = RACINE / "results" / "bornes_barres_utiles.json"
@@ -54,9 +59,38 @@ MIN_COMMUN = 500
 SEUIL_REDONDANCE = 0.80
 
 
-def charger_rejeu() -> list[dict]:
-    """Resultats du rejeu, un dict par symbole."""
-    out = []
+#: Empreinte du moteur : deux artefacts d'empreintes differentes ne se
+#: comparent pas. Un classement qui melange deux generations de moteur est un
+#: artefact de version, pas une mesure.
+REJEU_BRUT = RACINE / "results" / "rejeu_univers_brut"
+#: Sous ce nombre d'artefacts a l'epoque courante, un classement n'est pas
+#: publiable : il decrirait l'ordre d'arrivee des lots, pas l'univers.
+SYMBOLES_MIN = 30
+
+
+def empreinte_moteur_courante() -> str:
+    """Empreinte du moteur present sur disque."""
+    return epoque_rejeu.empreinte_courante()
+
+
+def empreinte_moteur_artefact(symbole: str) -> str:
+    """Empreinte scellee dans le manifeste brut; vide si l'artefact n'en a pas."""
+    return epoque_rejeu.empreinte_artefact(REJEU_BRUT, symbole)
+
+
+def charger_rejeu(*, epoque: str = "courante") -> tuple[list[dict], dict]:
+    """Resultats du rejeu, un dict par symbole, et le tri par epoque.
+
+    ``results/rejeu_univers`` est un dossier vivant : un backfill le remplit
+    symbole par symbole pendant des heures, et les resumes de la generation
+    precedente y restent jusqu'a leur reecriture. Les lire tous revient a
+    classer des actifs mesures par des moteurs differents. On ne garde donc,
+    par defaut, que les artefacts scelles par le moteur present sur disque.
+    """
+    if epoque not in ("courante", "toutes"):
+        raise ValueError("epoque doit valoir 'courante' ou 'toutes'")
+    courante = empreinte_moteur_courante()
+    out, ecartes = [], {}
     for chemin in sorted(REJEU.glob("*.json")):
         try:
             o = json.loads(chemin.read_text(encoding="utf-8"))
@@ -65,8 +99,14 @@ def charger_rejeu() -> list[dict]:
         cal, glo = o.get("calibration") or {}, o.get("global") or {}
         if not isinstance(glo.get("esperance_r"), (int, float)):
             continue
+        symbole = o.get("symbole") or chemin.stem
+        empreinte = empreinte_moteur_artefact(symbole)
+        if epoque == "courante" and empreinte != courante:
+            ecartes[symbole] = empreinte[:16] if empreinte else "sans_manifeste"
+            continue
         out.append({
-            "symbole": o.get("symbole") or chemin.stem,
+            "symbole": symbole,
+            "empreinte_moteur": empreinte or None,
             "esp_cal": cal.get("esperance_r"),
             "n_cal": cal.get("n"),
             "esp_glo": glo["esperance_r"],
@@ -75,7 +115,14 @@ def charger_rejeu() -> list[dict]:
             "pf": glo.get("profit_factor"),
             "ecart_type": glo.get("ecart_type_r"),
         })
-    return out
+    tri = {
+        "empreinte_moteur_courante": courante[:16],
+        "retenus": len(out),
+        "ecartes": len(ecartes),
+        "epoques_ecartees": sorted(set(ecartes.values())),
+        "epoque_demandee": epoque,
+    }
+    return out, tri
 
 
 def bornes() -> dict:
@@ -135,11 +182,32 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--tf", default="H1", help="timeframe des correlations")
     ap.add_argument("--top", type=int, default=25)
+    ap.add_argument(
+        "--epoque", choices=("courante", "toutes"), default="courante",
+        help="'courante' ne garde que les artefacts scelles par le moteur "
+             "present sur disque; 'toutes' melange les generations et ne sert "
+             "qu'au diagnostic",
+    )
+    ap.add_argument(
+        "--min-symboles", type=int, default=SYMBOLES_MIN,
+        help="plancher de symboles sous lequel le classement n'est pas publie",
+    )
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    R = charger_rejeu()
-    print(f"rejeu : {len(R)} symboles termines\n")
+    R, tri = charger_rejeu(epoque=args.epoque)
+    print(f"rejeu : {len(R)} symboles termines a l'epoque {args.epoque} "
+          f"(moteur {tri['empreinte_moteur_courante']})")
+    if tri["ecartes"]:
+        print(f"  {tri['ecartes']} artefacts d'une AUTRE generation ecartes "
+              f"{tri['epoques_ecartees']} — un backfill est probablement en cours")
+    print()
+    if len(R) < args.min_symboles:
+        print(f"REFUS: {len(R)} symboles a l'epoque courante, plancher "
+              f"{args.min_symboles}. Un classement sur cet echantillon "
+              "decrirait l'ordre des lots, pas l'univers. Attendre la fin du "
+              "backfill, ou forcer avec --min-symboles.")
+        return 2
 
     positifs = [r for r in R if r["esp_glo"] > 0]
     esp = [r["esp_glo"] for r in R]
@@ -200,6 +268,7 @@ def main() -> int:
         "grappes": groupes,
         "genere_le": datetime.now(timezone.utc).isoformat(),
         "timeframe_correlation": args.tf,
+        "epoque": tri,
         "rejeu": R,
         "survivants": [r["symbole"] for r in survivants],
         "paires_redondantes": [

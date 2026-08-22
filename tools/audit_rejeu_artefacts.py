@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import json
 import sys
 from collections import Counter
@@ -19,6 +18,8 @@ from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
+
+from tools import epoque_rejeu  # noqa: E402
 
 
 def _json(path: Path) -> dict | None:
@@ -45,11 +46,12 @@ def _baseline(path: Path) -> dict[str, int]:
 
 
 def _fingerprint_moteur(manifeste: dict) -> str:
-    moteur = (manifeste.get("snapshot") or {}).get("engine") or []
-    brut = json.dumps(
-        moteur, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(brut).hexdigest() if moteur else ""
+    """Empreinte du moteur scellee dans le manifeste; vide s'il n'y en a pas.
+
+    La definition vit dans ``tools/epoque_rejeu.py`` : l'audit et l'analyse
+    doivent trancher l'epoque d'un artefact avec la MEME regle.
+    """
+    return epoque_rejeu.empreinte_manifeste(manifeste)
 
 
 def auditer(racine: Path = RACINE, ltf: str = "M15") -> dict:
@@ -66,6 +68,10 @@ def auditer(racine: Path = RACINE, ltf: str = "M15") -> dict:
 
     details = []
     moteurs: Counter[str] = Counter()
+    # Empreinte du moteur SUR DISQUE : la seule a laquelle un artefact doit
+    # etre compare. Un dossier homogene mais perime est tout aussi trompeur
+    # qu'un dossier melange.
+    courant = epoque_rejeu.empreinte_courante()
     for symbole in symboles:
         resume_path = resumes / f"{symbole}.json"
         manifeste_path = bruts / symbole / "manifest.json"
@@ -75,6 +81,7 @@ def auditer(racine: Path = RACINE, ltf: str = "M15") -> dict:
         raisons: list[str] = []
         status = "missing"
         n = None
+        empreinte = ""
 
         if resume is not None:
             try:
@@ -132,6 +139,11 @@ def auditer(racine: Path = RACINE, ltf: str = "M15") -> dict:
             "trades": n,
             "baseline_trades": baseline.get(symbole),
             "reasons": raisons,
+            "engine_fingerprint": empreinte,
+            # Scelle par une AUTRE version du moteur que celle presente sur
+            # disque : l'artefact est techniquement valide et pourtant
+            # incomparable aux suivants.
+            "stale": bool(empreinte) and empreinte != courant,
         })
 
     comptes = Counter(item["status"] for item in details)
@@ -143,6 +155,15 @@ def auditer(racine: Path = RACINE, ltf: str = "M15") -> dict:
     if len(moteurs) > 1:
         avertissements.append(
             f"empreintes moteur mixtes: {len(moteurs)} generations")
+    perimes = [item["symbol"] for item in details if item["stale"]]
+    if perimes:
+        avertissements.append(
+            f"{len(perimes)} artefact(s) scelles par une autre generation que "
+            f"le moteur courant {courant[:16]}: {', '.join(perimes[:12])}")
+    if comptes["legacy"]:
+        avertissements.append(
+            f"{comptes['legacy']} resume(s) sans manifeste: aucune epoque, "
+            "aucun trade brut, incomparables aux artefacts scelles")
 
     return {
         "schema_version": 1,
@@ -156,6 +177,8 @@ def auditer(racine: Path = RACINE, ltf: str = "M15") -> dict:
             "missing": comptes["missing"],
         },
         "engine_fingerprints": dict(moteurs),
+        "engine_fingerprint_courant": courant,
+        "stale": len([item for item in details if item["stale"]]),
         "warnings": avertissements,
         "details": details,
     }

@@ -1,0 +1,41 @@
+{
+  "epoch": {
+    "head": "a4ccf5b781486e33c9e2ad93af42ef3df8f477fc",
+    "completed": 97,
+    "universe": 149,
+    "newest_result": "2026-08-21T08:19:27.118515+00:00"
+  },
+  "replay": {
+    "median_verification_r": -0.125838,
+    "positive_verification": 25,
+    "positive_calibration": 27,
+    "positive_both": 18,
+    "bh_ci95_candidates": 13,
+    "median_degradation_calibration_positive": -0.024503,
+    "candidates": ["USTECH", "UKOIL", "BTCUSD", "ETHUSD", "FRA40", "BTC-JPY", "NAS100.fs", "COFFEE.fs", "BRENT.fs", "BNB-USD", "US500", "S&P.fs", "DJ30.fs"]
+  },
+  "correlations": {
+    "timeframe": "H1",
+    "symbols": 148,
+    "bars": 31830,
+    "blocks": 79,
+    "pca_variance_first3": 0.4599,
+    "lead_lag_verdict": "NO-GO predictive; use contemporaneous blocks for risk only"
+  },
+  "limit_lifecycle": {
+    "events": 1312,
+    "placed": 525,
+    "filled": 268,
+    "fill_rate": 0.510476,
+    "wilson95": [0.467795, 0.553005],
+    "by_class": {
+      "energie": {"placed": 48, "filled": 39, "fill_rate": 0.8125},
+      "metaux": {"placed": 42, "filled": 28, "fill_rate": 0.666667},
+      "indices": {"placed": 147, "filled": 93, "fill_rate": 0.632653},
+      "agricole": {"placed": 9, "filled": 4, "fill_rate": 0.444444},
+      "fx": {"placed": 217, "filled": 85, "fill_rate": 0.391705},
+      "crypto": {"placed": 62, "filled": 19, "fill_rate": 0.306452}
+    }
+  },
+  "promotion": "NO-GO; SHADOW/PAPER candidates only"
+}

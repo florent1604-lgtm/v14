@@ -54,6 +54,30 @@ class ArchiveObsoleteError(ValueError):
     """L'archive existe mais n'est pas au schema attendu."""
 
 
+def _ohlc_invalides(df, colonnes_ohlc):
+    """Masque des barres dont l'OHLC est inexploitable.
+
+    Trois familles : valeur non finie, valeur nulle ou negative, et incoherence
+    interne (bas au-dessus du haut, ouverture ou cloture hors de la plage).
+
+    Extrait pour etre applique DEUX fois sur des perimetres differents : une
+    mesure sur l'archive entiere, qui informe, et un refus sur la fenetre
+    rendue, qui decide.
+    """
+    import numpy as np
+    import pandas as pd
+
+    ohlc = df.loc[:, list(colonnes_ohlc)].apply(pd.to_numeric, errors="coerce")
+    finies = np.isfinite(ohlc.to_numpy()).all(axis=1)
+    positives = (ohlc > 0).all(axis=1).to_numpy()
+    coherentes = (
+        (ohlc["low"] <= ohlc["high"])
+        & ohlc["open"].between(ohlc["low"], ohlc["high"], inclusive="both")
+        & ohlc["close"].between(ohlc["low"], ohlc["high"], inclusive="both")
+    ).to_numpy()
+    return ~(finies & positives & coherentes)
+
+
 class ArchiveQualiteError(ValueError):
     """L'archive ne satisfait pas un invariant ou une porte de qualite."""
 
@@ -95,6 +119,7 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
                    fraicheur_max_s: float | None = None,
                    ratio_reconstruit_max: float | None = None,
                    tolerance_future_s: float = 0.0,
+                   depuis_utc=None,
                    maintenant_utc=None):
     """Rend les barres archivees, au contrat de ``get_rates``.
 
@@ -102,6 +127,11 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
         symbole: instrument tel que nomme par le courtier.
         timeframe: M1, M5, M15, H1, H4 ou D1.
         count: nombre de barres les plus RECENTES a rendre. ``None`` = tout.
+        depuis_utc: borne basse temporelle. Les barres anterieures sont
+            ecartees AVANT la validation OHLC, parce qu'on ne refuse pas une
+            archive pour des barres qu'on ne rend pas. Sert au chargement du
+            HTF, qui n'a pas de ``count`` naturel : sa portee utile est celle
+            du LTF qu'il accompagne, pas la profondeur du fichier.
         depuis_borne_utile: demarre a la premiere barre exploitable publiee par
             l'archiveur. Mettre a ``False`` expose le prefixe fabrique.
         exclure_reconstruites: jette les barres fabriquees residuelles apres la
@@ -197,23 +227,11 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
         raise ArchiveQualiteError(
             f"{symbole_normalise} {timeframe_normalise}: aucune barre exploitable")
 
-    import numpy as np
-
-    ohlc = df.loc[:, colonnes_ohlc].apply(pd.to_numeric, errors="coerce")
-    finies = np.isfinite(ohlc.to_numpy()).all(axis=1)
-    positives = (ohlc > 0).all(axis=1).to_numpy()
-    coherentes = (
-        (ohlc["low"] <= ohlc["high"])
-        & ohlc["open"].between(ohlc["low"], ohlc["high"], inclusive="both")
-        & ohlc["close"].between(ohlc["low"], ohlc["high"], inclusive="both")
-    ).to_numpy()
-    invalides = ~(finies & positives & coherentes)
-    nombre_invalides = int(invalides.sum())
-    if nombre_invalides:
-        exemples = df.loc[invalides, "time_utc"].head(3).astype(str).tolist()
-        raise ArchiveQualiteError(
-            f"{symbole_normalise} {timeframe_normalise}: {nombre_invalides} "
-            f"OHLC invalides (exemples time_utc: {', '.join(exemples)})")
+    # Mesure sur l'archive ENTIERE, pour la tracabilite. Elle ne decide de
+    # rien : le refus porte plus bas, sur la seule fenetre effectivement
+    # rendue. Voir la note de portee attachee a ce refus.
+    invalides_archive = _ohlc_invalides(df, colonnes_ohlc)
+    nombre_invalides_archive = int(invalides_archive.sum())
 
     df["time"] = pd.to_datetime(df["time_utc"], unit="s", utc=True)
     if df["time"].isna().any():
@@ -251,12 +269,56 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
     for col in ("tick_volume", "real_volume"):
         if col in df.columns and df[col].dtype.kind in "ui":
             df[col] = df[col].astype("float64")
+    if depuis_utc is not None:
+        borne_basse = pd.Timestamp(depuis_utc)
+        borne_basse = (borne_basse.tz_localize("UTC")
+                       if borne_basse.tzinfo is None
+                       else borne_basse.tz_convert("UTC"))
+        df = df[df.index >= borne_basse]
+        if df.empty:
+            raise ArchiveQualiteError(
+                f"{symbole_normalise} {timeframe_normalise}: aucune barre "
+                f"depuis {borne_basse.isoformat()}")
+
+    if count is not None:
+        df = df.tail(int(count))
+        if df.empty:
+            raise ArchiveQualiteError(
+                f"{symbole_normalise} {timeframe_normalise}: aucune barre "
+                f"exploitable dans les {int(count)} dernieres")
+
+    # PORTEE DU REFUS — la fenetre rendue, pas le fichier.
+    #
+    # Cette validation tournait sur l'archive entiere, avant que ``count`` ne
+    # la reduise quelques lignes plus bas. Consequence mesuree le 22/08/2026 :
+    # UNE barre DJ30.fs du 23 novembre 2009, portant ``low = 0.00``, a fait
+    # echouer le lot 0 du backfill a 19:03, qui a publie ``_RUN_FAILED.json``,
+    # qui a arrete les sept autres lots. Un rejeu de 149 symboles interrompu a
+    # 32 par une barre qu'aucun trade ne touche et que la fonction jetait de
+    # toute facon.
+    #
+    # La barre est authentique : ``copy_rates_range`` la rend aujourd'hui
+    # encore avec ``low = 0.00``, sur D1, H4 et H1. Le defaut est chez le
+    # courtier, pas dans l'archive — il n'est donc ni reparable a partir de la
+    # source, ni interpolable sans fabriquer un prix qui n'a jamais existe.
+    #
+    # Le garde-fou garde toute sa force : une barre invalide DANS la fenetre
+    # rendue fait toujours echouer, fail-closed. Ce qui change est seulement
+    # qu'on ne refuse plus des donnees qu'on ne rend pas. Le compte sur
+    # l'archive complete reste publie dans ``archive_quality`` pour que
+    # l'anomalie demeure visible au lieu d'etre tue.
+    invalides = _ohlc_invalides(df, colonnes_ohlc)
+    nombre_invalides = int(invalides.sum())
+    if nombre_invalides:
+        exemples = df.loc[invalides, "time_utc"].head(3).astype(str).tolist()
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: {nombre_invalides} "
+            f"OHLC invalides (exemples time_utc: {', '.join(exemples)})")
+
     if colonnes_get_rates:
         df = df[[c for c in COLONNES if c in df.columns]]
     else:
         df = df.drop(columns=["time_utc"], errors="ignore")
-    if count is not None:
-        df = df.tail(int(count))
     df.attrs["archive_quality"] = {
         "symbole": symbole_normalise,
         "timeframe": timeframe_normalise,
@@ -265,6 +327,8 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
         "barres_reconstruites": barres_reconstruites,
         "ratio_reconstruit": float(ratio_reconstruit),
         "ohlc_invalides": nombre_invalides,
+        "ohlc_invalides_archive": nombre_invalides_archive,
+        "depuis_utc": None if depuis_utc is None else str(depuis_utc),
         "derniere_barre_utc": derniere_barre.isoformat(),
         "age_secondes": age_secondes,
         "avance_secondes": avance_secondes,

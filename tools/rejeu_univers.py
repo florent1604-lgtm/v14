@@ -520,6 +520,8 @@ def rejouer_symbole_brut(symbole: str, ltf_tf: str, htf_tf: str,
                          ratio_reconstruit_max: float | None = None,
                          tolerance_future_s: float = 0.0,
                          maintenant_utc=None) -> tuple[dict, list]:
+    import pandas as pd
+
     from titanium.backtest import rejouer
 
     t0 = time.time()
@@ -530,7 +532,28 @@ def rejouer_symbole_brut(symbole: str, ltf_tf: str, htf_tf: str,
         "maintenant_utc": maintenant_utc,
     }
     ltf = charger_barres(symbole, ltf_tf, barres, **portes_qualite)
-    htf = charger_barres(symbole, htf_tf, **portes_qualite)
+    # Le HTF n'a pas de `count` naturel : il doit couvrir toute la portee du
+    # LTF, pas une profondeur fixe. On le borne donc a la portee du LTF, moins
+    # une marge de prechauffe genereuse.
+    #
+    # Cinq ans, alors que le plus long indicateur HTF est une SMA 200 — soit
+    # 33 jours en H4 et 200 jours en D1. La marge est deux ordres de grandeur
+    # au-dessus du besoin : l'amorcage des indicateurs est donc rigoureusement
+    # identique a un chargement integral, et les 34 symboles deja rejoues
+    # restent comparables aux suivants.
+    #
+    # Ce qui change est ailleurs. Le HTF etait charge sans borne, donc VALIDE
+    # sur toute la profondeur du fichier. Le 22/08/2026 une barre DJ30.fs du
+    # 23 novembre 2009 portant `low = 0.00` a fait echouer le lot 0, qui a
+    # publie `_RUN_FAILED.json`, qui a arrete les sept autres : 149 symboles
+    # interrompus a 32. Or le M15 de DJ30.fs commence le 10 mai 2022 — treize
+    # ans apres cette barre, que le rejeu ne pouvait donc jamais lire.
+    # La barre est authentique et non reparable : `copy_rates_range` la rend
+    # encore aujourd'hui avec `low = 0.00`, en D1 comme en H4 et H1.
+    marge_prechauffe = pd.Timedelta(days=1826)
+    htf = charger_barres(symbole, htf_tf,
+                         depuis_utc=ltf.index[0] - marge_prechauffe,
+                         **portes_qualite)
     spec = specifications().get(symbole, {})
     spread = spread_median_prix(ltf, spec)
 

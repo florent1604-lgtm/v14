@@ -265,3 +265,49 @@ def test_index_sans_doublon_a_la_bascule_de_printemps(tmp_path, monkeypatch):
     assert not lu.index.has_duplicates
     assert len(lu) == n - 1
     ab._metadonnees.cache_clear()
+
+
+# ── Portee du refus OHLC : la fenetre rendue, pas le fichier ────────────────
+#
+# Le 22/08/2026 une barre DJ30.fs du 23 novembre 2009 portant ``low = 0.00`` a
+# fait echouer un rejeu de 149 symboles a 32. La barre etait hors de la fenetre
+# demandee : le lecteur la validait puis la jetait. Elle est authentique — le
+# courtier la rend encore aujourd'hui — donc ni reparable ni interpolable.
+
+def test_ohlc_invalide_hors_fenetre_rendue_ne_refuse_pas(archive):
+    """Une barre invalide que ``count`` ecarte ne doit plus bloquer la lecture."""
+    chemin = archive / "M15" / "TESTUSD.parquet"
+    _remplacer_colonne(chemin, "low", 200, 0.0)      # borne utile a 120, donc rendue sans count
+
+    df = ab.charger_barres("TESTUSD", "M15", count=50)   # les 50 dernieres : indices 450-499
+
+    assert len(df) == 50
+    assert df.attrs["archive_quality"]["ohlc_invalides"] == 0
+
+
+def test_ohlc_invalide_hors_fenetre_reste_visible_dans_les_metadonnees(archive):
+    """Ne plus refuser n'est pas taire : l'anomalie doit rester lisible."""
+    chemin = archive / "M15" / "TESTUSD.parquet"
+    _remplacer_colonne(chemin, "low", 200, 0.0)
+
+    df = ab.charger_barres("TESTUSD", "M15", count=50)
+
+    assert df.attrs["archive_quality"]["ohlc_invalides_archive"] == 1
+
+
+def test_ohlc_invalide_dans_la_fenetre_rendue_refuse_toujours(archive):
+    """Le garde-fou garde toute sa force la ou il compte : fail-closed."""
+    chemin = archive / "M15" / "TESTUSD.parquet"
+    _remplacer_colonne(chemin, "low", 480, 0.0)      # dans les 50 dernieres
+
+    with pytest.raises(ab.ArchiveQualiteError, match="OHLC invalides"):
+        ab.charger_barres("TESTUSD", "M15", count=50)
+
+
+def test_sans_count_toute_l_archive_reste_validee(archive):
+    """Sans fenetre demandee, la portee est le fichier : comportement inchange."""
+    chemin = archive / "M15" / "TESTUSD.parquet"
+    _remplacer_colonne(chemin, "low", 200, 0.0)
+
+    with pytest.raises(ab.ArchiveQualiteError, match="OHLC invalides"):
+        ab.charger_barres("TESTUSD", "M15")

@@ -45,14 +45,25 @@ def test_rejeu_propage_les_portes_et_rapporte_la_qualite(monkeypatch):
         maintenant_utc="2026-08-21T00:00:00Z",
     )
 
-    assert len(appels) == 2
-    assert appels[0][3] == {
+    portes = {
         "fraicheur_max_s": 7200,
         "ratio_reconstruit_max": 0.05,
         "tolerance_future_s": 15,
         "maintenant_utc": "2026-08-21T00:00:00Z",
     }
-    assert appels[1][3] == appels[0][3]
+    assert len(appels) == 2
+    assert appels[0][3] == portes
+
+    # Le HTF recoit les memes portes, PLUS une borne basse. Il n'a pas de
+    # `count` naturel : sa portee utile est celle du LTF qu'il accompagne, pas
+    # la profondeur de son fichier. Sans cette borne, il etait valide sur toute
+    # son histoire — et le 22/08/2026 une barre DJ30.fs de 2009 a fait echouer
+    # un rejeu de 149 symboles a 32, alors que le M15 du meme symbole commence
+    # en 2022 et ne pouvait pas la lire.
+    htf_kwargs = dict(appels[1][3])
+    borne = htf_kwargs.pop("depuis_utc")
+    assert htf_kwargs == portes
+    assert borne == pd.Timestamp("2026-08-20", tz="UTC") - pd.Timedelta(days=1826)
     assert sortie["qualite_archive"]["ltf"]["timeframe"] == "M15"
     assert sortie["qualite_archive"]["htf"]["timeframe"] == "H4"
     assert sortie["qualite_archive"]["seuils"] == {

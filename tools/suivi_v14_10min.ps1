@@ -51,10 +51,29 @@ catch {
 }
 
 $rawRoot = Join-Path $Results "rejeu_univers_brut"
-$rawArtifacts = 0
-if (Test-Path -LiteralPath $rawRoot) {
-    $rawArtifacts = @(Get-ChildItem -LiteralPath $rawRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "manifest.json") }).Count
+$audit = $null
+$auditError = ""
+try {
+    $python = Join-Path $Root ".venv\Scripts\python.exe"
+    $auditText = & $python (Join-Path $Root "tools\audit_rejeu_artefacts.py") --root $Root --json 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "audit exit $LASTEXITCODE : $auditText" }
+    $audit = ($auditText -join "`n") | ConvertFrom-Json
+}
+catch {
+    $auditError = $_.Exception.Message
+}
+$rawArtifacts = if ($audit) { [int]$audit.counts.accepted } else { 0 }
+$targetArtifacts = if ($audit) { [int]$audit.target } else { 0 }
+$auditCompact = $null
+if ($audit) {
+    $invalidDetails = @($audit.details | Where-Object { $_.status -eq "invalid" })
+    $auditCompact = [ordered]@{
+        target = [int]$audit.target
+        counts = $audit.counts
+        warnings = @($audit.warnings)
+        invalid = $invalidDetails
+        engine_fingerprints = @($audit.engine_fingerprints)
+    }
 }
 
 $errorLogs = @()
@@ -71,14 +90,20 @@ if (Test-Path -LiteralPath $Logs) {
 }
 
 $warnings = @()
-if ($workers.Count -eq 0 -and $rawArtifacts -lt 149) {
-    $warnings += "Backfill arrete avant 149 artefacts"
+if ($workers.Count -eq 0 -and $rawArtifacts -lt $targetArtifacts) {
+    $warnings += "Backfill arrete avant $targetArtifacts artefacts valides"
 }
 if ($errorLogs.Count -gt 0) {
     $warnings += "Un ou plusieurs journaux d'erreur du backfill ne sont pas vides"
 }
 if (-not $heartbeat) {
     $warnings += "Heartbeat DEMO absent ou illisible"
+}
+if ($auditError) {
+    $warnings += "Audit rejeu indisponible: $auditError"
+}
+if ($audit -and [int]$audit.counts.invalid -gt 0) {
+    $warnings += "$($audit.counts.invalid) artefact(s) de rejeu invalide(s)"
 }
 
 $lastLimitId = if ($lastLimit) { [string]$lastLimit.event_id } else { "" }
@@ -93,7 +118,10 @@ $state = [ordered]@{
         workers = $workers
         worker_count = $workers.Count
         raw_artifacts = $rawArtifacts
-        target = 149
+        target = $targetArtifacts
+        # La vue permanente conserve uniquement les anomalies et les compteurs.
+        # Les 149 details complets gonflaient inutilement chaque heartbeat.
+        audit = $auditCompact
         error_logs = $errorLogs
     }
     demo = [ordered]@{

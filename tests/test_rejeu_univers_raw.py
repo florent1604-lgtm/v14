@@ -372,3 +372,63 @@ def test_interruption_apres_brut_ne_valide_pas_un_ancien_resume(tmp_path: Path,
     monkeypatch.setattr(ru, "_ecrire_atomique", ecrire_reel)
     assert ru.traiter_symbole("EURUSD", "M15", "H4", None, 1) == resume
     assert appels == ["rejeu", "rejeu"]
+
+
+def test_resultat_vide_n_ecrase_jamais_un_resume_positif(tmp_path: Path,
+                                                         monkeypatch):
+    dest = tmp_path / "resumes"
+    dest_brut = tmp_path / "brut"
+    dest.mkdir()
+    cible = dest / "EURUSD.json"
+    ancien = {"symbole": "EURUSD", "global": {"n": 42}}
+    octets_anciens = json.dumps(ancien).encode("utf-8")
+    cible.write_bytes(octets_anciens)
+
+    vide = {
+        "symbole": "EURUSD",
+        "coupure": "2026-02-01T00:00:00+00:00",
+        "n_enter": 0,
+        "barres_evaluees": 10_000,
+        "global": {"n": 0},
+        "calibration": {"n": 0},
+        "verification": {"n": 0},
+    }
+    monkeypatch.setattr(ru, "DEST", dest)
+    monkeypatch.setattr(ru, "DEST_BRUT", dest_brut)
+    monkeypatch.setattr(ru, "snapshot_rejeu_courant", lambda **_k: _snapshot("f"))
+    monkeypatch.setattr(ru, "rejouer_symbole_brut", lambda *_a, **_k: (vide, []))
+
+    with pytest.raises(ru.RejeuVideSuspect, match="ancien_n=42"):
+        ru.traiter_symbole("EURUSD", "M15", "H4", None, 1, refaire=True)
+
+    assert cible.read_bytes() == octets_anciens
+    assert not (dest_brut / "EURUSD" / "manifest.json").exists()
+
+
+def test_resultat_vide_profond_exige_une_autorisation_explicite():
+    sortie = {
+        "n_enter": 0,
+        "barres_evaluees": ru.BARRES_MIN_ALERTE_ZERO,
+        "global": {"n": 0},
+        "calibration": {"n": 0},
+        "verification": {"n": 0},
+    }
+
+    with pytest.raises(ru.RejeuVideSuspect):
+        ru.valider_resultat_avant_publication(sortie, [])
+
+    ru.valider_resultat_avant_publication(
+        sortie, [], autoriser_vide=True)
+
+
+def test_validation_refuse_un_resume_incoherent_avec_les_trades():
+    sortie = {
+        "n_enter": 2,
+        "barres_evaluees": 10,
+        "global": {"n": 2},
+        "calibration": {"n": 1},
+        "verification": {"n": 1},
+    }
+
+    with pytest.raises(ValueError, match="resume/trades"):
+        ru.valider_resultat_avant_publication(sortie, [])

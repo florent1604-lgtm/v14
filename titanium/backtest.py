@@ -52,6 +52,19 @@ AMORCAGE = 250
 MAX_BARRES = 200
 
 
+def _duree_barre(index: pd.Index) -> pd.Timedelta:
+    """Duree modale des barres, derivee des horodatages sans lire les prix."""
+    try:
+        ecarts = index.to_series().diff().dropna()
+        ecarts = ecarts[ecarts > pd.Timedelta(0)]
+        if ecarts.empty:
+            return pd.Timedelta(0)
+        modes = ecarts.mode()
+        return modes.iloc[0] if not modes.empty else ecarts.median()
+    except Exception:  # noqa: BLE001 - repli deterministe sur l'ouverture
+        return pd.Timedelta(0)
+
+
 def cout_spread_r(spread: float, r_unit: float) -> float:
     """Un spread ask-bid complet rapporté à la distance de risque.
 
@@ -252,7 +265,7 @@ def rejouer(symbol: str, ltf: pd.DataFrame, htf: pd.DataFrame, *,
     Returns:
         Resultat — trades, statistiques nettes de coûts.
     """
-    from titanium.edge import context_from_feats
+    from titanium.edge import asset_class_of, context_from_feats
     from titanium.features.builder import build_feats
     from titanium.gates import confluence_gate
 
@@ -267,6 +280,12 @@ def rejouer(symbol: str, ltf: pd.DataFrame, htf: pd.DataFrame, *,
     except Exception:  # noqa: BLE001
         return res
 
+    # Un rejeu doit dependre de l'horloge de la barre, jamais de l'heure a
+    # laquelle le programme est lance. Sans ces deux valeurs, un rejeu execute
+    # le samedi bloque TOUT l'historique via BLOCK_COST_WEEKEND, crypto comprise.
+    duree_barre = _duree_barre(ltf.index)
+    marche_continu = asset_class_of(symbol) == "crypto"
+
     i = amorcage
     n = len(ltf)
     while i < n - 1:
@@ -276,12 +295,16 @@ def rejouer(symbol: str, ltf: pd.DataFrame, htf: pd.DataFrame, *,
             continue
 
         try:
+            decision_at = ltf.index[i] + duree_barre
             feats = build_feats(
                 ltf.iloc[max(0, i - fenetre + 1):i + 1],
                 htf.iloc[max(0, j - fenetre + 1):j + 1],
-                with_indicators=False)
+                with_indicators=False,
+                now=decision_at,
+                marche_continu=marche_continu)
             res.barres_evaluees += 1
-            d = confluence_gate.evaluate(feats, require_edge=require_edge)
+            d = confluence_gate.evaluate(
+                feats, require_edge=require_edge, decided_at=decision_at)
         except Exception:  # noqa: BLE001
             res.erreurs += 1
             i += pas

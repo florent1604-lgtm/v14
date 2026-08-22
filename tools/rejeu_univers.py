@@ -57,6 +57,7 @@ from titanium.edge import asset_class_of  # noqa: E402
 
 DEST = RACINE / "results" / "rejeu_univers"
 DEST_BRUT = RACINE / "results" / "rejeu_univers_brut"
+ECHEC_SENTINEL = DEST_BRUT / "_RUN_FAILED.json"
 SPECIFICATIONS = RACINE / "results" / "barres" / "_specifications.json"
 FICHIERS_MOTEUR = [
     Path(__file__).resolve(),
@@ -80,6 +81,15 @@ PART_CALIBRATION = 2.0 / 3.0
 
 #: Schema des artefacts bruts, independant du schema des resumes historiques.
 SCHEMA_BRUT = 2
+
+# Un univers profond peut legitiment produire peu de trades, mais zero ENTER
+# sur des milliers de barres est un incident a examiner, pas un artefact a
+# promouvoir silencieusement. Le seuil ne s'applique qu'au cas strictement nul.
+BARRES_MIN_ALERTE_ZERO = 1_000
+
+
+class RejeuVideSuspect(RuntimeError):
+    """Le rejeu a parcouru assez de barres mais ne produit aucune entree."""
 
 # Un index de barre MT5 designe son ouverture. La decision du backtest utilise
 # son close; l'instant causal est donc l'ouverture + la duree fixe du TF.
@@ -295,6 +305,58 @@ def _ecrire_atomique(chemin: Path, contenu: bytes) -> None:
         temporaire.replace(chemin)
     finally:
         temporaire.unlink(missing_ok=True)
+
+
+def _lire_resume(chemin: Path) -> dict | None:
+    try:
+        valeur = json.loads(chemin.read_text(encoding="utf-8"))
+        return valeur if isinstance(valeur, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def valider_resultat_avant_publication(sortie: dict, trades: list, *,
+                                       precedent: dict | None = None,
+                                       autoriser_vide: bool = False) -> None:
+    """Valide la coherence metier avant de toucher a la generation publiee."""
+    global_n = int((sortie.get("global") or {}).get("n", -1))
+    if global_n != len(trades):
+        raise ValueError(
+            f"resume/trades incoherents: global.n={global_n}, trades={len(trades)}")
+
+    calibration = sortie.get("calibration") or {}
+    verification = sortie.get("verification") or {}
+    if "n" in calibration and "n" in verification:
+        splits = int(calibration["n"]) + int(verification["n"])
+        if splits != global_n:
+            raise ValueError(
+                f"splits incoherents: calibration+verification={splits}, global={global_n}")
+
+    n_enter = int(sortie.get("n_enter", global_n))
+    barres = int(sortie.get("barres_evaluees", 0))
+    if n_enter < global_n:
+        raise ValueError(f"n_enter={n_enter} inferieur aux trades={global_n}")
+
+    precedent_n = int(((precedent or {}).get("global") or {}).get("n", 0))
+    zero_suspect = global_n == 0 and (
+        precedent_n > 0 or barres >= BARRES_MIN_ALERTE_ZERO)
+    if zero_suspect and not autoriser_vide:
+        raise RejeuVideSuspect(
+            f"artefact vide refuse: ancien_n={precedent_n}, "
+            f"n_enter={n_enter}, barres_evaluees={barres}")
+
+
+def signaler_echec(symbole: str, erreur: Exception) -> None:
+    """Publie une sentinelle partagee qui arrete les autres lots au prochain tour."""
+    contenu = {
+        "schema_version": 1,
+        "symbol": symbole,
+        "error_type": type(erreur).__name__,
+        "message": str(erreur)[:500],
+        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "pid": os.getpid(),
+    }
+    _ecrire_atomique(ECHEC_SENTINEL, _json_canonique(contenu))
 
 
 def persister_artefact_brut(destination: Path, symbole: str, brut: bytes,
@@ -536,6 +598,7 @@ def rejouer_symbole(symbole: str, ltf_tf: str, htf_tf: str, barres: int | None,
 
 def traiter_symbole(symbole: str, ltf_tf: str, htf_tf: str, barres: int | None,
                     pas: int, *, refaire: bool = False,
+                    autoriser_vide: bool = False,
                     fraicheur_max_s: float | None = None,
                     ratio_reconstruit_max: float | None = None,
                     tolerance_future_s: float = 0.0,
@@ -561,6 +624,9 @@ def traiter_symbole(symbole: str, ltf_tf: str, htf_tf: str, barres: int | None,
         tolerance_future_s=tolerance_future_s,
         maintenant_utc=maintenant_utc,
     )
+    valider_resultat_avant_publication(
+        sortie, trades, precedent=_lire_resume(cible),
+        autoriser_vide=autoriser_vide)
     brut, manifeste = construire_artefact_brut(
         symbole, trades, coupure=sortie["coupure"], snapshot=snapshot)
     resume = json.dumps(sortie, indent=1).encode("utf-8")
@@ -595,6 +661,10 @@ def main() -> int:
     ap.add_argument("--sur", type=int, default=1, help="nombre de lots")
     ap.add_argument("--refaire", action="store_true",
                     help="rejoue meme si la sortie existe deja")
+    ap.add_argument(
+        "--autoriser-vide", action="store_true",
+        help="autorise explicitement un resultat zero (diagnostic seulement)",
+    )
     args = ap.parse_args()
     if args.fraicheur_max_heures < 0:
         ap.error("--fraicheur-max-heures doit etre >= 0")
@@ -609,9 +679,15 @@ def main() -> int:
     symboles = args.symboles or sorted(inventaire(args.ltf))
     lot = [s for i, s in enumerate(symboles) if i % args.sur == args.part]
     DEST.mkdir(parents=True, exist_ok=True)
+    if ECHEC_SENTINEL.is_file():
+        print(f"ARRET: sentinelle presente {ECHEC_SENTINEL}", flush=True)
+        return 2
     print(f"lot {args.part + 1}/{args.sur} : {len(lot)} symboles", flush=True)
 
     for symbole in lot:
+        if ECHEC_SENTINEL.is_file():
+            print(f"ARRET: un autre lot a publie {ECHEC_SENTINEL.name}", flush=True)
+            return 2
         # Trace d'entree : un rejeu a pleine profondeur dure environ une heure
         # par symbole. Sans cette ligne, un lot parait fige pendant tout ce
         # temps et on ne peut pas distinguer un travail en cours d'un blocage.
@@ -620,13 +696,15 @@ def main() -> int:
             sortie = traiter_symbole(
                 symbole, args.ltf, args.htf, args.barres or None, args.pas,
                 refaire=args.refaire,
+                autoriser_vide=args.autoriser_vide,
                 fraicheur_max_s=fraicheur_max_s,
                 ratio_reconstruit_max=args.ratio_reconstruit_max,
                 tolerance_future_s=args.tolerance_future_secondes,
             )
-        except Exception as e:  # un symbole qui casse n'arrete pas le lot
+        except Exception as e:  # fail-closed : le lot entier s'arrete ici
             print(f"{symbole:12} ECHEC {type(e).__name__}: {e}", flush=True)
-            continue
+            signaler_echec(symbole, e)
+            return 1
         if sortie is None:
             print(f"{symbole:12} deja fait (resume + brut valides)", flush=True)
             continue

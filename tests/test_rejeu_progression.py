@@ -47,8 +47,9 @@ def faux_depot(tmp_path, monkeypatch):
 def _sortie(esp_cal: float, esp_ver: float, secondes: float = 600.0) -> str:
     return json.dumps({
         "secondes": secondes,
-        "calibration": {"esperance_r": esp_cal},
-        "verification": {"esperance_r": esp_ver},
+        "global": {"n": 20},
+        "calibration": {"n": 12, "esperance_r": esp_cal},
+        "verification": {"n": 8, "esperance_r": esp_ver},
     })
 
 
@@ -67,8 +68,20 @@ def test_etat_ignore_les_sorties_illisibles(faux_depot):
     """Un JSON tronque par un lot tue ne doit pas faire tomber la vue."""
     (faux_depot / "AAA.json").write_text("{ tronque", encoding="utf-8")
     e = rp.etat("M15")
-    assert e["faits"] == 1
+    assert e["faits"] == 0
+    assert e["invalides"] == 1
     assert e["positifs_verification"] == 0
+
+
+def test_etat_exclut_un_resume_zero_formellement_valide(faux_depot):
+    (faux_depot / "AAA.json").write_text(json.dumps({
+        "global": {"n": 0},
+        "calibration": {"n": 0},
+        "verification": {"n": 0},
+    }), encoding="utf-8")
+    e = rp.etat("M15")
+    assert e["faits"] == 0
+    assert e["invalides"] == 1
 
 
 def test_etat_sans_lot_actif_n_invente_pas_de_fin(faux_depot):

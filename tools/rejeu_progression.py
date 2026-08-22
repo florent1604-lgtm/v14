@@ -44,10 +44,27 @@ def faits() -> dict[str, dict]:
     sorties: dict[str, dict] = {}
     for chemin in DEST.glob("*.json"):
         try:
-            sorties[chemin.stem] = json.loads(chemin.read_text(encoding="utf-8"))
+            sortie = json.loads(chemin.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            sorties[chemin.stem] = {}
+            continue
+        # Un fichier existe n'est pas une preuve de calcul utile. La regression
+        # v2 du 22/08 avait publie six JSON parfaitement lisibles mais avec
+        # n=0. Ils ne doivent jamais etre presentes comme des rejeux termines.
+        tailles = [
+            (sortie.get(section) or {}).get("n")
+            for section in ("global", "calibration", "verification")
+        ]
+        if not any(isinstance(n, (int, float)) and n > 0 for n in tailles):
+            continue
+        sorties[chemin.stem] = sortie
     return sorties
+
+
+def nombre_invalides() -> int:
+    """Nombre de resumes presents mais non exploitables."""
+    if not DEST.is_dir():
+        return 0
+    return len(list(DEST.glob("*.json"))) - len(faits())
 
 
 def _symbole_en_cours(chemin: Path) -> str:
@@ -157,7 +174,11 @@ def etat(ltf: str = "M15") -> dict:
     # Regime COURANT et non moyenne de l'histoire : la duree par symbole depend
     # du nombre de lots qui se partagent la machine, et ce nombre a change en
     # cours de route. On ne garde donc que les derniers resultats ecrits.
-    recents = sorted(DEST.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[:12]
+    recents = [
+        x for x in sorted(
+            DEST.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)
+        if x.stem in sorties
+    ][:12]
     durees = [sorties[x.stem].get("secondes") for x in recents
               if isinstance(sorties.get(x.stem, {}).get("secondes"), (int, float))]
     duree_med = sorted(durees)[len(durees) // 2] if durees else 0.0
@@ -166,7 +187,9 @@ def etat(ltf: str = "M15") -> dict:
 
     dernier = ""
     if sorties:
-        chemin = max(DEST.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        chemin = max(
+            (p for p in DEST.glob("*.json") if p.stem in sorties),
+            key=lambda p: p.stat().st_mtime)
         horodatage = datetime.fromtimestamp(chemin.stat().st_mtime, tz=timezone.utc)
         dernier = horodatage.isoformat(timespec="seconds")
 
@@ -186,6 +209,7 @@ def etat(ltf: str = "M15") -> dict:
         "univers": len(univers),
         "faits": len(connus),
         "restants": len(restants),
+        "invalides": nombre_invalides(),
         "part": (len(connus) / len(univers)) if univers else 0.0,
         "en_cours": en_cours,
         "lots": lots,
@@ -206,6 +230,7 @@ def rendu(e: dict) -> str:
         f"REJEU UNIVERS  {e['ltf']}  {datetime.now().strftime('%d/%m %H:%M:%S')}",
         f"[{barre(e['part'])}] {e['part'] * 100:5.1f}%   {e['faits']}/{e['univers']} symboles"
         f"   restants {e['restants']}",
+        f"resultats invalides exclus : {e['invalides']}",
         f"lots actifs {e['parallelisme']}   mediane/symbole {e['duree_mediane_s'] / 60:.0f} min"
         + (f"   fin estimee dans {heures:.1f} h ({e['fin_estimee'][11:16]}Z)"
            if e["eta_s"] else ""),

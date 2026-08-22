@@ -93,3 +93,43 @@ precisement ce que l'A/B de Codex attend. Duree estimee 14 a 18 h.
   delete`). Index a reconstruire; sans effet sur le correctif.
 - PAPER/DEMO only : rien de ce lot ne touche l'execution, aucun parametre de
   trading n'a ete modifie, aucun service n'a ete redemarre.
+
+## 7. Premiers resultats du backfill v3 (50 min apres lancement)
+
+Les huit lots ont chacun clos leur premier symbole. Les six artefacts detruits
+sont restaures :
+
+```
+AAVE-USD  n=5805  esp -0.0258 R  win 43.5%   verif n=2033  [2938 s]
+ADAUSD    n=6085  esp -0.2233 R  win 38.7%   verif n=2076  [3009 s]
+AUDCAD    n=5137  esp -0.1729 R  win 34.7%   verif n=1738  [2978 s]
+AUDCHF    n=5169  esp -0.1154 R  win 36.5%   verif n=1656  [2953 s]
+AUDJPY    n=5171  esp -0.0193 R  win 50.9%   verif n=1643  [2966 s]
+AUDNZD    n=4894  esp -0.1591 R  win 34.8%   verif n=1529  [2864 s]
+AUDSGD    n=5189  esp -0.1695 R  win 34.5%   verif n=1775  [2999 s]
+AUDUSD    n=5380  esp -0.0717 R  win 40.6%   verif n=1765  [2854 s]
+```
+
+AAVE-USD retrouve **n=5805** contre **n=5806** avant la regression : le
+correctif restitue la mesure d'origine, il ne la deplace pas.
+
+Audit : `accepted=8, legacy=140, invalid=0, missing=1` sur 149. Le seul manquant
+est `USDUSC`, jamais rejoue jusqu'ici; il est dans l'inventaire du lot courant.
+Environ 3 000 s par symbole, 19 symboles par lot : fin attendue vers 15 a 16 h.
+
+Ces esperances sont **negatives sur presque tous ces symboles** — ce sont les
+symboles chers deja identifies. Ce lot repare une mesure, il ne cree pas d'edge.
+
+## 8. GitNexus
+
+L'index etait corrompu (`FTS index 'file_fts' is inconsistent`). `gitnexus clean
+--force` supprime le dossier `.gitnexus` entier, y compris `run.cjs` et le
+runtime OpenSSL, et ce dossier n'est pas versionne. Reconstruction complete par
+le CLI global : 8 593 noeuds, 17 993 aretes, 398 clusters, 300 flux en 50 s,
+puis `tools/gitnexus_team.ps1 sync` repasse au vert.
+
+`detect-changes --repo titanium-v14 --base-ref cd2b47a` : 19 fichiers,
+99 symboles, 52 processus affectes, risque **critical** — attendu, `rejouer` est
+un point de passage central et les flux touches incluent `Analyse ->
+_weekend_block`, exactement la porte en cause. Contrepartie : suite complete
+verte, plus la comparaison numerique avant/apres sur AAVE-USD ci-dessus.

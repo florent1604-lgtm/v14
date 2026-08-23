@@ -1,0 +1,82 @@
+{
+ "symbole": "USDIDR",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 73074,
+ "debut": "2022-08-31 05:30:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2025-04-23T15:00:00+00:00",
+ "spread_points": 89.0,
+ "spread_prix": 8.9,
+ "n_enter": 4502,
+ "barres_evaluees": 41346,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "USDIDR",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 73102,
+   "barres_reconstruites": 28,
+   "ratio_reconstruit": 0.0003830264561845093,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T19:45:00+00:00",
+   "age_secondes": 290628.425373,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 73074
+  },
+  "htf": {
+   "symbole": "USDIDR",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 5066,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-31 05:30:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 300528.44471,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 5066
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 4502,
+  "esperance_r": -0.601351,
+  "ecart_type_r": 1.092964,
+  "winrate": 0.257219,
+  "profit_factor": 0.3101,
+  "somme_r": -2707.28,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2889,
+  "esperance_r": -0.576035,
+  "ecart_type_r": 1.125829,
+  "winrate": 0.270682,
+  "profit_factor": 0.3363,
+  "somme_r": -1664.1656,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1613,
+  "esperance_r": -0.646692,
+  "ecart_type_r": 1.030275,
+  "winrate": 0.233106,
+  "profit_factor": 0.2638,
+  "somme_r": -1043.1144,
+  "concluant": true
+ },
+ "secondes": 2190.7,
+ "ecrit_le": "2026-08-23T05:05:19.106491+00:00"
+}

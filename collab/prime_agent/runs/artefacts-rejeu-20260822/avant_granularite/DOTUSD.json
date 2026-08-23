@@ -1,0 +1,82 @@
+{
+ "symbole": "DOTUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99997,
+ "debut": "2023-10-11 04:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T00:35:00+00:00",
+ "spread_points": 20.0,
+ "spread_prix": 0.02,
+ "n_enter": 7149,
+ "barres_evaluees": 60246,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "DOTUSD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 7,
+   "ratio_reconstruit": 6.999510034297599e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 252432.447959,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99997
+  },
+  "htf": {
+   "symbole": "DOTUSD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 12250,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2018-10-11 04:15:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 258732.473484,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12250
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 7149,
+  "esperance_r": -0.991059,
+  "ecart_type_r": 1.457015,
+  "winrate": 0.251644,
+  "profit_factor": 0.2084,
+  "somme_r": -7085.0787,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3794,
+  "esperance_r": -0.168444,
+  "ecart_type_r": 1.148232,
+  "winrate": 0.397206,
+  "profit_factor": 0.7133,
+  "somme_r": -639.0762,
+  "concluant": true
+ },
+ "verification": {
+  "n": 3355,
+  "esperance_r": -1.921312,
+  "ecart_type_r": 1.184135,
+  "winrate": 0.087034,
+  "profit_factor": 0.041,
+  "somme_r": -6446.0025,
+  "concluant": true
+ },
+ "secondes": 3357.0,
+ "ecrit_le": "2026-08-22T21:48:09.373280+00:00"
+}

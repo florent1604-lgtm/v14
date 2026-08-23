@@ -49,6 +49,9 @@ RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 from titanium.data.archive_barres import (  # noqa: E402
+    BORNES_GRANULARITE,
+    METADONNEES,
+    ArchiveHorsUniversError,
     charger_barres,
     chemin as chemin_archive,
     inventaire,
@@ -58,6 +61,8 @@ from titanium.edge import asset_class_of  # noqa: E402
 DEST = RACINE / "results" / "rejeu_univers"
 DEST_BRUT = RACINE / "results" / "rejeu_univers_brut"
 ECHEC_SENTINEL = DEST_BRUT / "_RUN_FAILED.json"
+#: Registre des symboles sans archive exploitable. Ce n'est pas un echec.
+HORS_UNIVERS = DEST_BRUT / "_HORS_UNIVERS.json"
 SPECIFICATIONS = RACINE / "results" / "barres" / "_specifications.json"
 FICHIERS_MOTEUR = [
     Path(__file__).resolve(),
@@ -75,6 +80,12 @@ FICHIERS_MOTEUR = [
 
 #: Plancher de clotures sous lequel une cellule n'est pas concluante.
 CLOTURES_MIN = 60
+
+#: Profondeur HTF minimale : l'amorcage de ``rejouer`` (250 barres) plus sa
+#: fenetre de features (400). En dessous, aucune barre LTF n'est evaluable et
+#: le symbole ne peut produire qu'un artefact vide. C'est le cas d'USDCOP une
+#: fois la borne de granularite appliquee : 209 barres H4 authentiques.
+PROFONDEUR_MIN_HTF = 650
 
 #: Part de la periode reservee a la calibration. Le reste ne sert qu'a verifier.
 PART_CALIBRATION = 2.0 / 3.0
@@ -359,6 +370,28 @@ def signaler_echec(symbole: str, erreur: Exception) -> None:
     _ecrire_atomique(ECHEC_SENTINEL, _json_canonique(contenu))
 
 
+def signaler_hors_univers(symbole: str, raison: Exception) -> None:
+    """Consigne un symbole sans archive exploitable, sans arreter le lot.
+
+    Le registre est un journal append-only par symbole : il doit rester lisible
+    apres coup pour expliquer pourquoi l'univers rejoue compte moins de
+    symboles que l'archive.
+    """
+    HORS_UNIVERS.parent.mkdir(parents=True, exist_ok=True)
+    registre = {}
+    if HORS_UNIVERS.is_file():
+        try:
+            registre = json.loads(HORS_UNIVERS.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            registre = {}
+    registre[symbole] = {
+        "raison": str(raison)[:300],
+        "type": type(raison).__name__,
+        "constate_le": datetime.now(timezone.utc).isoformat(),
+    }
+    _ecrire_atomique(HORS_UNIVERS, _json_canonique(dict(sorted(registre.items()))))
+
+
 def persister_artefact_brut(destination: Path, symbole: str, brut: bytes,
                             manifeste: dict, *, resume_path: Path | None = None,
                             resume: bytes | None = None) -> None:
@@ -472,10 +505,21 @@ def snapshot_rejeu_courant(*, symbole: str, ltf_tf: str, htf_tf: str,
             "fraicheur_max_s": fraicheur_max_s,
             "ratio_reconstruit_max": ratio_reconstruit_max,
             "tolerance_future_s": tolerance_future_s,
+            # Inscrit dans le protocole pour qu'un manifeste dise, sans lire le
+            # code, sur quelle granularite ses trades ont ete decides.
+            "granularite_stricte": True,
+            "profondeur_min_htf": PROFONDEUR_MIN_HTF,
         },
+        # Les DEUX fichiers de bornes entrent dans le sceau. Ils decident de
+        # la fenetre lue autant que le code : changer une borne change le
+        # resultat sans changer une seule ligne de moteur. Jusqu'au 23/08/2026
+        # ils n'etaient pas scelles — un artefact pouvait donc diverger en
+        # silence, invisible a `artefact_brut_valide`.
         fichiers_entree={
             "ltf": chemin_archive(symbole, ltf_tf),
             "htf": chemin_archive(symbole, htf_tf),
+            "bornes_utiles": METADONNEES,
+            "bornes_granularite": BORNES_GRANULARITE,
         },
         fichiers_moteur=FICHIERS_MOTEUR,
     )
@@ -556,6 +600,11 @@ def rejouer_symbole_brut(symbole: str, ltf_tf: str, htf_tf: str,
                          **portes_qualite)
     spec = specifications().get(symbole, {})
     spread = spread_median_prix(ltf, spec)
+
+    if len(htf) < PROFONDEUR_MIN_HTF:
+        raise ArchiveHorsUniversError(
+            f"{symbole} {htf_tf}: {len(htf)} barres a granularite fiable, "
+            f"plancher {PROFONDEUR_MIN_HTF} (amorcage + fenetre de features)")
 
     res = rejouer(symbole, ltf, htf, spread=spread, pas=pas)
     trades = sorted(res.trades, key=lambda t: t.bar_entree)
@@ -724,6 +773,15 @@ def main() -> int:
                 ratio_reconstruit_max=args.ratio_reconstruit_max,
                 tolerance_future_s=args.tolerance_future_secondes,
             )
+        except ArchiveHorsUniversError as e:
+            # PAS de sentinelle. Un symbole sans archive exploitable ne signale
+            # aucune casse : le courtier n'a pas l'historique, ou la borne de
+            # granularite ne laisse pas de quoi amorcer. Le confondre avec une
+            # anomalie a arrete deux backfills le 22/08/2026. On le consigne et
+            # on continue.
+            print(f"{symbole:12} HORS UNIVERS: {e}", flush=True)
+            signaler_hors_univers(symbole, e)
+            continue
         except Exception as e:  # fail-closed : le lot entier s'arrete ici
             print(f"{symbole:12} ECHEC {type(e).__name__}: {e}", flush=True)
             signaler_echec(symbole, e)

@@ -1,0 +1,57 @@
+V14: cabler la porte de granularite reelle et distinguer le hors-univers
+
+Le fichier H4 declare H4 sur toutes ses lignes. Sur 69 symboles sa portion
+ancienne est en realite journaliere : le courtier sert la serie D1 sous
+l etiquette demandee quand son historique intraday ne remonte pas si loin.
+Un ATR calcule sur un melange de barres 4 h et 24 h additionne deux echelles
+de volatilite -- le resultat n est pas bruite, il est faux.
+
+MESURE DE L ATTEINTE REELLE, sur les trades bruts scelles de l epoque
+16e79f53, et non sur la seule presence de barres grossieres dans le fichier :
+
+  COFFEE.fs   193 / 4574 trades   calibration seule
+  COCOA.fs    244 / 4326          calibration seule
+  IT40        163 / 3624          calibration seule
+  SPA35       188 / 5559          calibration seule
+  USDCLP      203 /  674          calibration seule
+  USDCOP      651 /  651          CALIBRATION ET VERIFICATION
+
+USDCOP porte des barres journalieres etiquetees H4 jusqu au 05/03/2026 :
+la totalite de son rejeu est decidee sur une serie a deux echelles. Le defaut
+n est donc pas cantonne a l histoire ancienne, contrairement a ce que sa
+repartition laissait croire.
+
+charger_barres demarre desormais apres la derniere barre grossiere, borne
+mesuree par tools/borne_granularite.py. Le refus porte sur la fenetre RENDUE,
+comme pour l OHLC : la borne decide, la mesure verifie, et une borne perimee
+par une collecte plus fraiche fait echouer au lieu de passer.
+
+La granularite se mesure sur les horodatages de la SOURCE, avant que les
+barres fabriquees ne soient jetees : retirer une barre reconstruite creuse un
+trou de 24 h qui imite une serie journaliere sans en etre une. Sans cette
+precaution DOGUSD etait refuse pour un trou, pas pour une granularite.
+
+ArchiveHorsUniversError separe enfin les deux refus qui ont arrete deux
+backfills le 22/08. Une archive VIDE ne signale aucune casse : le lot la
+consigne dans _HORS_UNIVERS.json et passe au symbole suivant. Une barre
+CORROMPUE reste fail-closed avec sentinelle. USDUSC (5 barres, toutes
+reconstruites) et USDCOP (209 barres H4 authentiques, sous le plancher
+amorcage + fenetre) sortent ainsi de l univers sans casser un run de 15 h.
+
+Les deux fichiers de bornes entrent dans le sceau du rejeu. Ils decident de
+la fenetre lue autant que le code : jusqu ici un artefact pouvait diverger en
+silence apres un simple recalcul de borne, invisible a artefact_brut_valide.
+
+PORTEE MESUREE sur les 148 symboles : 87 fenetres inchangees, 60 dont le HTF
+demarre plus tard, 4 dont le M15 demarre plus tard, 2 hors univers. Le prefixe
+HTF tombe sous les 400 barres de la fenetre de features sur 7 symboles
+seulement -- COCOA.fs COFFEE.fs IT40 SPA35 GER40 USDCLP USDCOP : ce sont les
+seuls dont les chiffres doivent bouger. Les 141 autres sont attendus
+identiques, et les resumes precedents sont figes dans
+collab/prime_agent/runs/artefacts-rejeu-20260822/avant_granularite/ pour le
+verifier symbole par symbole.
+
+Empreinte moteur 16e79f53 -> 051f50ad : les 148 artefacts sont perimes, le
+rejeu complet est relance. L analyse refuse deja de les classer.
+
+2137 tests passes, 2 skips attendus. Ruff propre.

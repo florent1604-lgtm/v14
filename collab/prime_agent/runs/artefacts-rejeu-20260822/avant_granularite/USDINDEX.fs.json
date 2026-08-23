@@ -1,0 +1,82 @@
+{
+ "symbole": "USDINDEX.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100044,
+ "debut": "2022-01-04 13:30:00+00:00",
+ "fin": "2026-08-19 20:45:00+00:00",
+ "coupure": "2025-02-03T02:20:00+00:00",
+ "spread_points": 32.0,
+ "spread_prix": 0.032,
+ "n_enter": 5359,
+ "barres_evaluees": 58355,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "USDINDEX.FS",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100048,
+   "barres_reconstruites": 4,
+   "ratio_reconstruit": 3.998080921157844e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T20:45:00+00:00",
+   "age_secondes": 286963.329191,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100044
+  },
+  "htf": {
+   "symbole": "USDINDEX.FS",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 14040,
+   "barres_reconstruites": 15,
+   "ratio_reconstruit": 0.0010683760683760685,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-01-04 13:30:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 300463.359876,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12525
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5359,
+  "esperance_r": -0.284853,
+  "ecart_type_r": 1.095103,
+  "winrate": 0.330099,
+  "profit_factor": 0.5564,
+  "somme_r": -1526.5273,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3488,
+  "esperance_r": -0.257675,
+  "ecart_type_r": 1.111463,
+  "winrate": 0.337156,
+  "profit_factor": 0.593,
+  "somme_r": -898.7706,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1871,
+  "esperance_r": -0.335519,
+  "ecart_type_r": 1.062371,
+  "winrate": 0.316943,
+  "profit_factor": 0.4907,
+  "somme_r": -627.7567,
+  "concluant": true
+ },
+ "secondes": 2946.8,
+ "ecrit_le": "2026-08-23T05:16:50.076800+00:00"
+}

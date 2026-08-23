@@ -1,0 +1,82 @@
+{
+ "symbole": "EURHUF",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99978,
+ "debut": "2022-08-12 04:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T08:45:00+00:00",
+ "spread_points": 152.0,
+ "spread_prix": 0.152,
+ "n_enter": 5297,
+ "barres_evaluees": 57016,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "EURHUF",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 22,
+   "ratio_reconstruit": 0.00022,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 255264.858588,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99978
+  },
+  "htf": {
+   "symbole": "EURHUF",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 18112,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 0.00011042402826855124,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-12 04:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 261564.882767,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 14027
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5297,
+  "esperance_r": -0.352104,
+  "ecart_type_r": 1.081496,
+  "winrate": 0.309987,
+  "profit_factor": 0.4833,
+  "somme_r": -1865.0935,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3684,
+  "esperance_r": -0.324339,
+  "ecart_type_r": 1.088712,
+  "winrate": 0.316775,
+  "profit_factor": 0.5129,
+  "somme_r": -1194.866,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1613,
+  "esperance_r": -0.415516,
+  "ecart_type_r": 1.062445,
+  "winrate": 0.294482,
+  "profit_factor": 0.4204,
+  "somme_r": -670.2275,
+  "concluant": true
+ },
+ "secondes": 2149.2,
+ "ecrit_le": "2026-08-22T22:15:14.069215+00:00"
+}

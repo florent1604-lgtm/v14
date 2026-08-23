@@ -1,0 +1,1951 @@
+{
+ "grappes": [
+  [
+   "DJ30.fs",
+   "NAS100.fs",
+   "S&P.fs",
+   "US2000",
+   "US30",
+   "US500",
+   "USTECH"
+  ],
+  [
+   "BRENT.fs",
+   "UKOIL",
+   "USOIL",
+   "WTI.fs"
+  ],
+  [
+   "BTC-JPY",
+   "BTCUSD",
+   "ETH-JPY",
+   "ETHUSD"
+  ],
+  [
+   "FRA40",
+   "GER40",
+   "NETH25"
+  ],
+  [
+   "BCH-JPY",
+   "BCHUSD"
+  ],
+  [
+   "HK50",
+   "HSI.fs"
+  ],
+  [
+   "USDJPC",
+   "USDJPY"
+  ],
+  [
+   "AUS200"
+  ],
+  [
+   "BNB-USD"
+  ],
+  [
+   "COFFEE.fs"
+  ],
+  [
+   "EURJPY"
+  ],
+  [
+   "GBPJPY"
+  ],
+  [
+   "IT40"
+  ],
+  [
+   "JPN225"
+  ],
+  [
+   "LNKUSD"
+  ],
+  [
+   "SOL-USD"
+  ],
+  [
+   "SPA35"
+  ],
+  [
+   "UK100"
+  ],
+  [
+   "USDCLP"
+  ],
+  [
+   "XAUAUD"
+  ],
+  [
+   "XAUUSD"
+  ]
+ ],
+ "genere_le": "2026-08-23T08:59:31.828275+00:00",
+ "timeframe_correlation": "H1",
+ "epoque": {
+  "empreinte_moteur_courante": "16e79f53a610da42",
+  "retenus": 148,
+  "ecartes": 0,
+  "epoques_ecartees": [],
+  "epoque_demandee": "courante"
+ },
+ "rejeu": [
+  {
+   "symbole": "AAVE-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.016732,
+   "n_cal": 3772,
+   "esp_glo": -0.025759,
+   "n_glo": 5805,
+   "winrate": 0.434625,
+   "pf": 0.9484,
+   "ecart_type": 1.143335
+  },
+  {
+   "symbole": "ADAUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.062889,
+   "n_cal": 4009,
+   "esp_glo": -0.223345,
+   "n_glo": 6085,
+   "winrate": 0.387346,
+   "pf": 0.6476,
+   "ecart_type": 1.188181
+  },
+  {
+   "symbole": "AUDCAD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.162733,
+   "n_cal": 3399,
+   "esp_glo": -0.17292,
+   "n_glo": 5137,
+   "winrate": 0.347479,
+   "pf": 0.683,
+   "ecart_type": 1.051904
+  },
+  {
+   "symbole": "AUDCHF",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.105599,
+   "n_cal": 3513,
+   "esp_glo": -0.115432,
+   "n_glo": 5169,
+   "winrate": 0.365061,
+   "pf": 0.7795,
+   "ecart_type": 1.080305
+  },
+  {
+   "symbole": "AUDJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.028423,
+   "n_cal": 3528,
+   "esp_glo": -0.019335,
+   "n_glo": 5171,
+   "winrate": 0.509186,
+   "pf": 0.9581,
+   "ecart_type": 1.075368
+  },
+  {
+   "symbole": "AUDNZD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.177906,
+   "n_cal": 3365,
+   "esp_glo": -0.159137,
+   "n_glo": 4894,
+   "winrate": 0.347977,
+   "pf": 0.6959,
+   "ecart_type": 1.03418
+  },
+  {
+   "symbole": "AUDSGD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.14731,
+   "n_cal": 3414,
+   "esp_glo": -0.169488,
+   "n_glo": 5189,
+   "winrate": 0.345346,
+   "pf": 0.6941,
+   "ecart_type": 1.072686
+  },
+  {
+   "symbole": "AUDUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.068427,
+   "n_cal": 3615,
+   "esp_glo": -0.071701,
+   "n_glo": 5380,
+   "winrate": 0.406134,
+   "pf": 0.8532,
+   "ecart_type": 1.067088
+  },
+  {
+   "symbole": "AUS200",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.039279,
+   "n_cal": 3646,
+   "esp_glo": 0.044095,
+   "n_glo": 5314,
+   "winrate": 0.53105,
+   "pf": 1.1,
+   "ecart_type": 1.101111
+  },
+  {
+   "symbole": "AVAX-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.147366,
+   "n_cal": 3692,
+   "esp_glo": -0.143339,
+   "n_glo": 6099,
+   "winrate": 0.418265,
+   "pf": 0.7604,
+   "ecart_type": 1.215015
+  },
+  {
+   "symbole": "BAT-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.578326,
+   "n_cal": 4272,
+   "esp_glo": -0.870668,
+   "n_glo": 7007,
+   "winrate": 0.249608,
+   "pf": 0.2121,
+   "ecart_type": 1.23458
+  },
+  {
+   "symbole": "BCH-JPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.067781,
+   "n_cal": 3883,
+   "esp_glo": 0.043062,
+   "n_glo": 6004,
+   "winrate": 0.448867,
+   "pf": 1.0923,
+   "ecart_type": 1.14419
+  },
+  {
+   "symbole": "BCHUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.063721,
+   "n_cal": 3912,
+   "esp_glo": 0.035694,
+   "n_glo": 6159,
+   "winrate": 0.445365,
+   "pf": 1.0765,
+   "ecart_type": 1.135877
+  },
+  {
+   "symbole": "BNB-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.068083,
+   "n_cal": 3984,
+   "esp_glo": 0.079127,
+   "n_glo": 6010,
+   "winrate": 0.473544,
+   "pf": 1.1815,
+   "ecart_type": 1.12245
+  },
+  {
+   "symbole": "BRENT.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.157375,
+   "n_cal": 3774,
+   "esp_glo": 0.142002,
+   "n_glo": 5681,
+   "winrate": 0.547087,
+   "pf": 1.3568,
+   "ecart_type": 1.116863
+  },
+  {
+   "symbole": "BTC-JPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.164802,
+   "n_cal": 3761,
+   "esp_glo": 0.158381,
+   "n_glo": 5651,
+   "winrate": 0.583437,
+   "pf": 1.4145,
+   "ecart_type": 1.103511
+  },
+  {
+   "symbole": "BTCUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.183851,
+   "n_cal": 3802,
+   "esp_glo": 0.174371,
+   "n_glo": 5848,
+   "winrate": 0.606532,
+   "pf": 1.4532,
+   "ecart_type": 1.120491
+  },
+  {
+   "symbole": "CAC40.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.031514,
+   "n_cal": 3532,
+   "esp_glo": -0.02297,
+   "n_glo": 5397,
+   "winrate": 0.40541,
+   "pf": 0.9542,
+   "ecart_type": 1.138855
+  },
+  {
+   "symbole": "CADCHF",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.202342,
+   "n_cal": 3452,
+   "esp_glo": -0.223568,
+   "n_glo": 5226,
+   "winrate": 0.327019,
+   "pf": 0.617,
+   "ecart_type": 1.062268
+  },
+  {
+   "symbole": "CADJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.053294,
+   "n_cal": 3501,
+   "esp_glo": -0.053205,
+   "n_glo": 5238,
+   "winrate": 0.445972,
+   "pf": 0.8892,
+   "ecart_type": 1.071177
+  },
+  {
+   "symbole": "CADSGD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.277701,
+   "n_cal": 3487,
+   "esp_glo": -0.313101,
+   "n_glo": 5217,
+   "winrate": 0.313399,
+   "pf": 0.5086,
+   "ecart_type": 1.045444
+  },
+  {
+   "symbole": "CHFJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.033306,
+   "n_cal": 3460,
+   "esp_glo": -0.030958,
+   "n_glo": 5183,
+   "winrate": 0.482539,
+   "pf": 0.9332,
+   "ecart_type": 1.066779
+  },
+  {
+   "symbole": "CHFSEK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.133381,
+   "n_cal": 3370,
+   "esp_glo": -0.146511,
+   "n_glo": 4980,
+   "winrate": 0.357229,
+   "pf": 0.7218,
+   "ecart_type": 1.056542
+  },
+  {
+   "symbole": "CHFSGD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.215073,
+   "n_cal": 3399,
+   "esp_glo": -0.21129,
+   "n_glo": 4992,
+   "winrate": 0.330929,
+   "pf": 0.6285,
+   "ecart_type": 1.05026
+  },
+  {
+   "symbole": "CHINA50.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.43013,
+   "n_cal": 3289,
+   "esp_glo": -0.446441,
+   "n_glo": 4949,
+   "winrate": 0.294605,
+   "pf": 0.4227,
+   "ecart_type": 1.134332
+  },
+  {
+   "symbole": "CN50",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.23828,
+   "n_cal": 3217,
+   "esp_glo": -0.251406,
+   "n_glo": 4841,
+   "winrate": 0.335468,
+   "pf": 0.606,
+   "ecart_type": 1.128044
+  },
+  {
+   "symbole": "COCOA.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.087376,
+   "n_cal": 1036,
+   "esp_glo": 0.017741,
+   "n_glo": 4326,
+   "winrate": 0.478502,
+   "pf": 1.0352,
+   "ecart_type": 1.180764
+  },
+  {
+   "symbole": "COFFEE.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.054655,
+   "n_cal": 858,
+   "esp_glo": 0.108749,
+   "n_glo": 4574,
+   "winrate": 0.481635,
+   "pf": 1.2517,
+   "ecart_type": 1.138849
+  },
+  {
+   "symbole": "COMP-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.210391,
+   "n_cal": 4246,
+   "esp_glo": -0.82312,
+   "n_glo": 7444,
+   "winrate": 0.270956,
+   "pf": 0.2456,
+   "ecart_type": 1.339886
+  },
+  {
+   "symbole": "COPPER.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.028405,
+   "n_cal": 3744,
+   "esp_glo": 0.003721,
+   "n_glo": 5706,
+   "winrate": 0.41728,
+   "pf": 1.0078,
+   "ecart_type": 1.120017
+  },
+  {
+   "symbole": "CRV-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.763719,
+   "n_cal": 4469,
+   "esp_glo": -0.78354,
+   "n_glo": 5969,
+   "winrate": 0.253644,
+   "pf": 0.2286,
+   "ecart_type": 1.170848
+  },
+  {
+   "symbole": "DAX40.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.015746,
+   "n_cal": 3341,
+   "esp_glo": 0.013863,
+   "n_glo": 5086,
+   "winrate": 0.472473,
+   "pf": 1.0299,
+   "ecart_type": 1.109118
+  },
+  {
+   "symbole": "DJ30.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.061457,
+   "n_cal": 3319,
+   "esp_glo": 0.06962,
+   "n_glo": 4878,
+   "winrate": 0.54428,
+   "pf": 1.159,
+   "ecart_type": 1.120767
+  },
+  {
+   "symbole": "DOGUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.226929,
+   "n_cal": 3869,
+   "esp_glo": -0.423968,
+   "n_glo": 6288,
+   "winrate": 0.338899,
+   "pf": 0.4554,
+   "ecart_type": 1.235103
+  },
+  {
+   "symbole": "DOTUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.168444,
+   "n_cal": 3794,
+   "esp_glo": -0.991059,
+   "n_glo": 7149,
+   "winrate": 0.251644,
+   "pf": 0.2084,
+   "ecart_type": 1.457015
+  },
+  {
+   "symbole": "ETH-JPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.041792,
+   "n_cal": 3616,
+   "esp_glo": 0.015669,
+   "n_glo": 5521,
+   "winrate": 0.435066,
+   "pf": 1.0327,
+   "ecart_type": 1.142539
+  },
+  {
+   "symbole": "ETHUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.133704,
+   "n_cal": 3565,
+   "esp_glo": 0.141909,
+   "n_glo": 5471,
+   "winrate": 0.517273,
+   "pf": 1.3489,
+   "ecart_type": 1.128262
+  },
+  {
+   "symbole": "EU50",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.044949,
+   "n_cal": 3891,
+   "esp_glo": -0.043088,
+   "n_glo": 5744,
+   "winrate": 0.402159,
+   "pf": 0.9133,
+   "ecart_type": 1.113031
+  },
+  {
+   "symbole": "EUCUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -7.72119,
+   "n_cal": 2402,
+   "esp_glo": -7.775408,
+   "n_glo": 3795,
+   "winrate": 0.0,
+   "pf": 0.0,
+   "ecart_type": 3.793117
+  },
+  {
+   "symbole": "EURAUD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.010615,
+   "n_cal": 3540,
+   "esp_glo": -0.017845,
+   "n_glo": 5366,
+   "winrate": 0.539881,
+   "pf": 0.9606,
+   "ecart_type": 1.064866
+  },
+  {
+   "symbole": "EURCAD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.101006,
+   "n_cal": 3408,
+   "esp_glo": -0.11988,
+   "n_glo": 5162,
+   "winrate": 0.403913,
+   "pf": 0.7625,
+   "ecart_type": 1.046771
+  },
+  {
+   "symbole": "EURCHF",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.111346,
+   "n_cal": 3497,
+   "esp_glo": -0.128032,
+   "n_glo": 5176,
+   "winrate": 0.382921,
+   "pf": 0.752,
+   "ecart_type": 1.052992
+  },
+  {
+   "symbole": "EURCZK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.736589,
+   "n_cal": 3732,
+   "esp_glo": -0.85903,
+   "n_glo": 5641,
+   "winrate": 0.19766,
+   "pf": 0.1746,
+   "ecart_type": 1.013482
+  },
+  {
+   "symbole": "EURGBP",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.174809,
+   "n_cal": 3363,
+   "esp_glo": -0.181578,
+   "n_glo": 5141,
+   "winrate": 0.348181,
+   "pf": 0.6691,
+   "ecart_type": 1.050734
+  },
+  {
+   "symbole": "EURHUF",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.324339,
+   "n_cal": 3684,
+   "esp_glo": -0.352104,
+   "n_glo": 5297,
+   "winrate": 0.309987,
+   "pf": 0.4833,
+   "ecart_type": 1.081496
+  },
+  {
+   "symbole": "EURJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.030571,
+   "n_cal": 3551,
+   "esp_glo": 0.011013,
+   "n_glo": 5186,
+   "winrate": 0.552449,
+   "pf": 1.0246,
+   "ecart_type": 1.079621
+  },
+  {
+   "symbole": "EURNOK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.185226,
+   "n_cal": 3548,
+   "esp_glo": -0.191544,
+   "n_glo": 5215,
+   "winrate": 0.333845,
+   "pf": 0.6606,
+   "ecart_type": 1.067701
+  },
+  {
+   "symbole": "EURNZD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.034004,
+   "n_cal": 3587,
+   "esp_glo": -0.060681,
+   "n_glo": 5353,
+   "winrate": 0.420512,
+   "pf": 0.875,
+   "ecart_type": 1.078004
+  },
+  {
+   "symbole": "EURPLN",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.463317,
+   "n_cal": 3566,
+   "esp_glo": -0.541562,
+   "n_glo": 5108,
+   "winrate": 0.261746,
+   "pf": 0.3394,
+   "ecart_type": 1.075105
+  },
+  {
+   "symbole": "EURSEK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.293921,
+   "n_cal": 3509,
+   "esp_glo": -0.320146,
+   "n_glo": 5180,
+   "winrate": 0.309266,
+   "pf": 0.5004,
+   "ecart_type": 1.044281
+  },
+  {
+   "symbole": "EURSGD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.277599,
+   "n_cal": 3365,
+   "esp_glo": -0.290911,
+   "n_glo": 5116,
+   "winrate": 0.299648,
+   "pf": 0.522,
+   "ecart_type": 1.025096
+  },
+  {
+   "symbole": "EURUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.049694,
+   "n_cal": 3476,
+   "esp_glo": -0.065287,
+   "n_glo": 5221,
+   "winrate": 0.430569,
+   "pf": 0.8672,
+   "ecart_type": 1.080473
+  },
+  {
+   "symbole": "EURZAR",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.095432,
+   "n_cal": 3304,
+   "esp_glo": -0.10403,
+   "n_glo": 4902,
+   "winrate": 0.396165,
+   "pf": 0.7901,
+   "ecart_type": 1.046828
+  },
+  {
+   "symbole": "EUSTX50.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.209447,
+   "n_cal": 3937,
+   "esp_glo": -0.190136,
+   "n_glo": 5867,
+   "winrate": 0.361854,
+   "pf": 0.6782,
+   "ecart_type": 1.115551
+  },
+  {
+   "symbole": "FRA40",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.131807,
+   "n_cal": 3592,
+   "esp_glo": 0.140401,
+   "n_glo": 5484,
+   "winrate": 0.595004,
+   "pf": 1.3435,
+   "ecart_type": 1.129774
+  },
+  {
+   "symbole": "FT100.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.069219,
+   "n_cal": 3789,
+   "esp_glo": -0.058984,
+   "n_glo": 5509,
+   "winrate": 0.38664,
+   "pf": 0.8839,
+   "ecart_type": 1.11523
+  },
+  {
+   "symbole": "GBCUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -7.358509,
+   "n_cal": 2267,
+   "esp_glo": -7.20371,
+   "n_glo": 3553,
+   "winrate": 0.0,
+   "pf": 0.0,
+   "ecart_type": 2.870037
+  },
+  {
+   "symbole": "GBPAUD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.045791,
+   "n_cal": 3437,
+   "esp_glo": -0.053314,
+   "n_glo": 5168,
+   "winrate": 0.473104,
+   "pf": 0.8879,
+   "ecart_type": 1.069338
+  },
+  {
+   "symbole": "GBPCAD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.117663,
+   "n_cal": 3322,
+   "esp_glo": -0.132277,
+   "n_glo": 5080,
+   "winrate": 0.367717,
+   "pf": 0.7455,
+   "ecart_type": 1.059804
+  },
+  {
+   "symbole": "GBPCHF",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.090851,
+   "n_cal": 3531,
+   "esp_glo": -0.097815,
+   "n_glo": 5207,
+   "winrate": 0.409065,
+   "pf": 0.8035,
+   "ecart_type": 1.055314
+  },
+  {
+   "symbole": "GBPJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.036491,
+   "n_cal": 3469,
+   "esp_glo": 0.02445,
+   "n_glo": 5063,
+   "winrate": 0.568833,
+   "pf": 1.0561,
+   "ecart_type": 1.069347
+  },
+  {
+   "symbole": "GBPMXN",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.224173,
+   "n_cal": 3523,
+   "esp_glo": -0.275785,
+   "n_glo": 5028,
+   "winrate": 0.332737,
+   "pf": 0.5711,
+   "ecart_type": 1.10573
+  },
+  {
+   "symbole": "GBPNOK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.197577,
+   "n_cal": 3332,
+   "esp_glo": -0.195815,
+   "n_glo": 4923,
+   "winrate": 0.331911,
+   "pf": 0.6452,
+   "ecart_type": 1.042189
+  },
+  {
+   "symbole": "GBPNZD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.085566,
+   "n_cal": 3411,
+   "esp_glo": -0.093147,
+   "n_glo": 5207,
+   "winrate": 0.397158,
+   "pf": 0.8133,
+   "ecart_type": 1.068677
+  },
+  {
+   "symbole": "GBPSEK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.252817,
+   "n_cal": 3324,
+   "esp_glo": -0.237176,
+   "n_glo": 4917,
+   "winrate": 0.318894,
+   "pf": 0.5859,
+   "ecart_type": 1.028513
+  },
+  {
+   "symbole": "GBPSGD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.259668,
+   "n_cal": 3395,
+   "esp_glo": -0.262637,
+   "n_glo": 5043,
+   "winrate": 0.317271,
+   "pf": 0.5552,
+   "ecart_type": 1.025788
+  },
+  {
+   "symbole": "GBPUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.01758,
+   "n_cal": 3339,
+   "esp_glo": -0.015595,
+   "n_glo": 5114,
+   "winrate": 0.516817,
+   "pf": 0.966,
+   "ecart_type": 1.075009
+  },
+  {
+   "symbole": "GER40",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.098973,
+   "n_cal": 3540,
+   "esp_glo": 0.106204,
+   "n_glo": 5283,
+   "winrate": 0.593224,
+   "pf": 1.257,
+   "ecart_type": 1.105326
+  },
+  {
+   "symbole": "HK50",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.135048,
+   "n_cal": 3687,
+   "esp_glo": 0.131057,
+   "n_glo": 5574,
+   "winrate": 0.564944,
+   "pf": 1.3082,
+   "ecart_type": 1.147987
+  },
+  {
+   "symbole": "HSI.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.072869,
+   "n_cal": 3617,
+   "esp_glo": 0.070029,
+   "n_glo": 5542,
+   "winrate": 0.454349,
+   "pf": 1.1535,
+   "ecart_type": 1.146448
+  },
+  {
+   "symbole": "IT40",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.122021,
+   "n_cal": 1408,
+   "esp_glo": 0.167796,
+   "n_glo": 3624,
+   "winrate": 0.529525,
+   "pf": 1.4029,
+   "ecart_type": 1.164081
+  },
+  {
+   "symbole": "JPN225",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.043253,
+   "n_cal": 3720,
+   "esp_glo": 0.079942,
+   "n_glo": 5555,
+   "winrate": 0.520432,
+   "pf": 1.1864,
+   "ecart_type": 1.114215
+  },
+  {
+   "symbole": "KSM-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.413121,
+   "n_cal": 4050,
+   "esp_glo": -1.485483,
+   "n_glo": 7739,
+   "winrate": 0.195633,
+   "pf": 0.1131,
+   "ecart_type": 1.662652
+  },
+  {
+   "symbole": "LNKUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.153308,
+   "n_cal": 3774,
+   "esp_glo": 0.067344,
+   "n_glo": 5751,
+   "winrate": 0.464093,
+   "pf": 1.1553,
+   "ecart_type": 1.110063
+  },
+  {
+   "symbole": "LRC-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -1.215002,
+   "n_cal": 5103,
+   "esp_glo": -3.474539,
+   "n_glo": 9168,
+   "winrate": 0.098058,
+   "pf": 0.0257,
+   "ecart_type": 5.131923
+  },
+  {
+   "symbole": "LTC-JPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.257214,
+   "n_cal": 4115,
+   "esp_glo": -0.423367,
+   "n_glo": 6556,
+   "winrate": 0.336181,
+   "pf": 0.4433,
+   "ecart_type": 1.174385
+  },
+  {
+   "symbole": "LTCUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.006777,
+   "n_cal": 4119,
+   "esp_glo": -0.098226,
+   "n_glo": 6282,
+   "winrate": 0.411016,
+   "pf": 0.812,
+   "ecart_type": 1.103419
+  },
+  {
+   "symbole": "MANA-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.03527,
+   "n_cal": 3823,
+   "esp_glo": -0.550226,
+   "n_glo": 6502,
+   "winrate": 0.326207,
+   "pf": 0.3777,
+   "ecart_type": 1.307118
+  },
+  {
+   "symbole": "MKR-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.642743,
+   "n_cal": 4367,
+   "esp_glo": -0.466715,
+   "n_glo": 6337,
+   "winrate": 0.328389,
+   "pf": 0.4224,
+   "ecart_type": 1.246405
+  },
+  {
+   "symbole": "MXNJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.028955,
+   "n_cal": 3682,
+   "esp_glo": -0.081464,
+   "n_glo": 5603,
+   "winrate": 0.388185,
+   "pf": 0.8361,
+   "ecart_type": 1.073044
+  },
+  {
+   "symbole": "NAS100.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.102976,
+   "n_cal": 3308,
+   "esp_glo": 0.112194,
+   "n_glo": 5111,
+   "winrate": 0.56486,
+   "pf": 1.2663,
+   "ecart_type": 1.126392
+  },
+  {
+   "symbole": "NATGAS.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.246046,
+   "n_cal": 3651,
+   "esp_glo": -0.267182,
+   "n_glo": 5561,
+   "winrate": 0.374933,
+   "pf": 0.6036,
+   "ecart_type": 1.199144
+  },
+  {
+   "symbole": "NETH25",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.096565,
+   "n_cal": 3612,
+   "esp_glo": 0.069823,
+   "n_glo": 5419,
+   "winrate": 0.476472,
+   "pf": 1.1558,
+   "ecart_type": 1.136463
+  },
+  {
+   "symbole": "NK225.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.117901,
+   "n_cal": 3869,
+   "esp_glo": -0.065192,
+   "n_glo": 5733,
+   "winrate": 0.401186,
+   "pf": 0.874,
+   "ecart_type": 1.124651
+  },
+  {
+   "symbole": "NOKJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.122133,
+   "n_cal": 3611,
+   "esp_glo": -0.134155,
+   "n_glo": 5251,
+   "winrate": 0.356884,
+   "pf": 0.7493,
+   "ecart_type": 1.081823
+  },
+  {
+   "symbole": "NOKSEK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.423125,
+   "n_cal": 3203,
+   "esp_glo": -0.440517,
+   "n_glo": 4731,
+   "winrate": 0.287254,
+   "pf": 0.4123,
+   "ecart_type": 1.084401
+  },
+  {
+   "symbole": "NZDCAD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.157897,
+   "n_cal": 3421,
+   "esp_glo": -0.174198,
+   "n_glo": 5269,
+   "winrate": 0.344847,
+   "pf": 0.6906,
+   "ecart_type": 1.082473
+  },
+  {
+   "symbole": "NZDCHF",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.161232,
+   "n_cal": 3535,
+   "esp_glo": -0.194843,
+   "n_glo": 5237,
+   "winrate": 0.338362,
+   "pf": 0.6606,
+   "ecart_type": 1.079045
+  },
+  {
+   "symbole": "NZDJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.045236,
+   "n_cal": 3522,
+   "esp_glo": -0.056371,
+   "n_glo": 5279,
+   "winrate": 0.416556,
+   "pf": 0.8832,
+   "ecart_type": 1.072134
+  },
+  {
+   "symbole": "NZDUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.018298,
+   "n_cal": 3522,
+   "esp_glo": -0.042885,
+   "n_glo": 5468,
+   "winrate": 0.409108,
+   "pf": 0.9112,
+   "ecart_type": 1.087243
+  },
+  {
+   "symbole": "S&P.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.023689,
+   "n_cal": 3417,
+   "esp_glo": 0.042459,
+   "n_glo": 5027,
+   "winrate": 0.494132,
+   "pf": 1.0929,
+   "ecart_type": 1.125102
+  },
+  {
+   "symbole": "SAND-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -2.450303,
+   "n_cal": 7567,
+   "esp_glo": -3.790333,
+   "n_glo": 11237,
+   "winrate": 0.019044,
+   "pf": 0.0042,
+   "ecart_type": 4.208815
+  },
+  {
+   "symbole": "SGDJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.105036,
+   "n_cal": 3301,
+   "esp_glo": -0.133639,
+   "n_glo": 4955,
+   "winrate": 0.360848,
+   "pf": 0.7461,
+   "ecart_type": 1.067282
+  },
+  {
+   "symbole": "SGFREE",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.289716,
+   "n_cal": 3751,
+   "esp_glo": -0.254916,
+   "n_glo": 5521,
+   "winrate": 0.342873,
+   "pf": 0.6024,
+   "ecart_type": 1.127458
+  },
+  {
+   "symbole": "SOL-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.180537,
+   "n_cal": 3574,
+   "esp_glo": 0.117448,
+   "n_glo": 5561,
+   "winrate": 0.488581,
+   "pf": 1.2782,
+   "ecart_type": 1.137496
+  },
+  {
+   "symbole": "SOYBEAN.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.196364,
+   "n_cal": 3915,
+   "esp_glo": -0.276593,
+   "n_glo": 5968,
+   "winrate": 0.340315,
+   "pf": 0.5759,
+   "ecart_type": 1.125194
+  },
+  {
+   "symbole": "SPA35",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.016318,
+   "n_cal": 1779,
+   "esp_glo": 0.006256,
+   "n_glo": 5559,
+   "winrate": 0.421299,
+   "pf": 1.0128,
+   "ecart_type": 1.143497
+  },
+  {
+   "symbole": "SPI200.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.069564,
+   "n_cal": 3720,
+   "esp_glo": -0.048298,
+   "n_glo": 5509,
+   "winrate": 0.391723,
+   "pf": 0.9021,
+   "ecart_type": 1.098957
+  },
+  {
+   "symbole": "SUSHI-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.584488,
+   "n_cal": 4084,
+   "esp_glo": -1.094335,
+   "n_glo": 6520,
+   "winrate": 0.210736,
+   "pf": 0.1536,
+   "ecart_type": 1.258837
+  },
+  {
+   "symbole": "SWI20",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.026609,
+   "n_cal": 3701,
+   "esp_glo": -0.014043,
+   "n_glo": 5588,
+   "winrate": 0.408912,
+   "pf": 0.9709,
+   "ecart_type": 1.113404
+  },
+  {
+   "symbole": "UK100",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.031769,
+   "n_cal": 3665,
+   "esp_glo": 0.037706,
+   "n_glo": 5389,
+   "winrate": 0.535535,
+   "pf": 1.0842,
+   "ecart_type": 1.108241
+  },
+  {
+   "symbole": "UKOIL",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.18703,
+   "n_cal": 3619,
+   "esp_glo": 0.179241,
+   "n_glo": 5541,
+   "winrate": 0.562534,
+   "pf": 1.4641,
+   "ecart_type": 1.125927
+  },
+  {
+   "symbole": "UNI-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.240875,
+   "n_cal": 3977,
+   "esp_glo": -0.58537,
+   "n_glo": 6721,
+   "winrate": 0.308585,
+   "pf": 0.3438,
+   "ecart_type": 1.225155
+  },
+  {
+   "symbole": "US2000",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.045329,
+   "n_cal": 3416,
+   "esp_glo": 0.064001,
+   "n_glo": 4996,
+   "winrate": 0.531825,
+   "pf": 1.1448,
+   "ecart_type": 1.117462
+  },
+  {
+   "symbole": "US30",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.108669,
+   "n_cal": 3310,
+   "esp_glo": 0.11745,
+   "n_glo": 4887,
+   "winrate": 0.587682,
+   "pf": 1.2803,
+   "ecart_type": 1.127875
+  },
+  {
+   "symbole": "US500",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.080961,
+   "n_cal": 3345,
+   "esp_glo": 0.086378,
+   "n_glo": 5019,
+   "winrate": 0.556685,
+   "pf": 1.199,
+   "ecart_type": 1.126181
+  },
+  {
+   "symbole": "USDBRL",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.004753,
+   "n_cal": 885,
+   "esp_glo": -0.009923,
+   "n_glo": 1413,
+   "winrate": 0.395612,
+   "pf": 0.9803,
+   "ecart_type": 1.152845
+  },
+  {
+   "symbole": "USDCAC",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -9.85547,
+   "n_cal": 1999,
+   "esp_glo": -9.754656,
+   "n_glo": 3422,
+   "winrate": 0.0,
+   "pf": 0.0,
+   "ecart_type": 4.165474
+  },
+  {
+   "symbole": "USDCAD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.085683,
+   "n_cal": 3420,
+   "esp_glo": -0.073049,
+   "n_glo": 5139,
+   "winrate": 0.458455,
+   "pf": 0.8507,
+   "ecart_type": 1.065948
+  },
+  {
+   "symbole": "USDCHC",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -8.08418,
+   "n_cal": 2066,
+   "esp_glo": -8.147379,
+   "n_glo": 3139,
+   "winrate": 0.0,
+   "pf": 0.0,
+   "ecart_type": 2.727853
+  },
+  {
+   "symbole": "USDCHF",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.093051,
+   "n_cal": 3502,
+   "esp_glo": -0.096649,
+   "n_glo": 5299,
+   "winrate": 0.415361,
+   "pf": 0.8084,
+   "ecart_type": 1.068048
+  },
+  {
+   "symbole": "USDCLP",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.093497,
+   "n_cal": 403,
+   "esp_glo": 0.063145,
+   "n_glo": 674,
+   "winrate": 0.406528,
+   "pf": 1.1247,
+   "ecart_type": 1.227517
+  },
+  {
+   "symbole": "USDCNH",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.079714,
+   "n_cal": 3521,
+   "esp_glo": -0.094251,
+   "n_glo": 5226,
+   "winrate": 0.447953,
+   "pf": 0.8115,
+   "ecart_type": 1.065366
+  },
+  {
+   "symbole": "USDCOP",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.05396,
+   "n_cal": 415,
+   "esp_glo": -0.0892,
+   "n_glo": 651,
+   "winrate": 0.407066,
+   "pf": 0.8477,
+   "ecart_type": 1.207682
+  },
+  {
+   "symbole": "USDCZK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.272781,
+   "n_cal": 3568,
+   "esp_glo": -0.327147,
+   "n_glo": 5423,
+   "winrate": 0.314586,
+   "pf": 0.5057,
+   "ecart_type": 1.076617
+  },
+  {
+   "symbole": "USDHKD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -1.925788,
+   "n_cal": 7124,
+   "esp_glo": -2.605791,
+   "n_glo": 12156,
+   "winrate": 0.030026,
+   "pf": 0.0095,
+   "ecart_type": 2.270835
+  },
+  {
+   "symbole": "USDHUF",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.163744,
+   "n_cal": 3574,
+   "esp_glo": -0.181088,
+   "n_glo": 5453,
+   "winrate": 0.359252,
+   "pf": 0.6817,
+   "ecart_type": 1.087794
+  },
+  {
+   "symbole": "USDIDR",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.576035,
+   "n_cal": 2889,
+   "esp_glo": -0.601351,
+   "n_glo": 4502,
+   "winrate": 0.257219,
+   "pf": 0.3101,
+   "ecart_type": 1.092964
+  },
+  {
+   "symbole": "USDINDEX.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.257675,
+   "n_cal": 3488,
+   "esp_glo": -0.284853,
+   "n_glo": 5359,
+   "winrate": 0.330099,
+   "pf": 0.5564,
+   "ecart_type": 1.095103
+  },
+  {
+   "symbole": "USDINR",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.612278,
+   "n_cal": 4614,
+   "esp_glo": -0.569822,
+   "n_glo": 6287,
+   "winrate": 0.269763,
+   "pf": 0.3342,
+   "ecart_type": 1.146272
+  },
+  {
+   "symbole": "USDJPC",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.086596,
+   "n_cal": 777,
+   "esp_glo": 0.05311,
+   "n_glo": 1240,
+   "winrate": 0.519355,
+   "pf": 1.1143,
+   "ecart_type": 1.148226
+  },
+  {
+   "symbole": "USDJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.0522,
+   "n_cal": 3496,
+   "esp_glo": 0.032463,
+   "n_glo": 5285,
+   "winrate": 0.543614,
+   "pf": 1.0728,
+   "ecart_type": 1.096315
+  },
+  {
+   "symbole": "USDKRW",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.254157,
+   "n_cal": 2793,
+   "esp_glo": -0.248922,
+   "n_glo": 4224,
+   "winrate": 0.33428,
+   "pf": 0.6019,
+   "ecart_type": 1.104308
+  },
+  {
+   "symbole": "USDMXN",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.104608,
+   "n_cal": 3530,
+   "esp_glo": -0.150586,
+   "n_glo": 5315,
+   "winrate": 0.36952,
+   "pf": 0.724,
+   "ecart_type": 1.082348
+  },
+  {
+   "symbole": "USDNOK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.09825,
+   "n_cal": 3614,
+   "esp_glo": -0.131211,
+   "n_glo": 5338,
+   "winrate": 0.365493,
+   "pf": 0.7526,
+   "ecart_type": 1.076558
+  },
+  {
+   "symbole": "USDPLN",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.6787,
+   "n_cal": 3714,
+   "esp_glo": -0.846272,
+   "n_glo": 5834,
+   "winrate": 0.210319,
+   "pf": 0.1859,
+   "ecart_type": 1.042532
+  },
+  {
+   "symbole": "USDRON",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.686835,
+   "n_cal": 4016,
+   "esp_glo": -0.716164,
+   "n_glo": 5965,
+   "winrate": 0.234199,
+   "pf": 0.238,
+   "ecart_type": 1.051427
+  },
+  {
+   "symbole": "USDSEK",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.081467,
+   "n_cal": 3392,
+   "esp_glo": -0.093052,
+   "n_glo": 5216,
+   "winrate": 0.383819,
+   "pf": 0.8198,
+   "ecart_type": 1.091049
+  },
+  {
+   "symbole": "USDSGC",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -11.300148,
+   "n_cal": 2124,
+   "esp_glo": -11.459823,
+   "n_glo": 3161,
+   "winrate": 0.0,
+   "pf": 0.0,
+   "ecart_type": 5.232233
+  },
+  {
+   "symbole": "USDSGD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.153869,
+   "n_cal": 3577,
+   "esp_glo": -0.179245,
+   "n_glo": 5380,
+   "winrate": 0.34684,
+   "pf": 0.6768,
+   "ecart_type": 1.062133
+  },
+  {
+   "symbole": "USDTHB",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.165912,
+   "n_cal": 3674,
+   "esp_glo": -0.189612,
+   "n_glo": 5496,
+   "winrate": 0.344432,
+   "pf": 0.6725,
+   "ecart_type": 1.091921
+  },
+  {
+   "symbole": "USDTWD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.467099,
+   "n_cal": 3041,
+   "esp_glo": -0.43112,
+   "n_glo": 4392,
+   "winrate": 0.296903,
+   "pf": 0.4284,
+   "ecart_type": 1.109115
+  },
+  {
+   "symbole": "USDZAR",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.011642,
+   "n_cal": 3696,
+   "esp_glo": -0.009271,
+   "n_glo": 5534,
+   "winrate": 0.522949,
+   "pf": 0.9797,
+   "ecart_type": 1.074852
+  },
+  {
+   "symbole": "USOIL",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.137852,
+   "n_cal": 3687,
+   "esp_glo": 0.149753,
+   "n_glo": 5520,
+   "winrate": 0.544022,
+   "pf": 1.3706,
+   "ecart_type": 1.131791
+  },
+  {
+   "symbole": "USTECH",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.155943,
+   "n_cal": 3217,
+   "esp_glo": 0.160425,
+   "n_glo": 5017,
+   "winrate": 0.607335,
+   "pf": 1.4025,
+   "ecart_type": 1.125576
+  },
+  {
+   "symbole": "VIX.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.738142,
+   "n_cal": 4555,
+   "esp_glo": -0.651449,
+   "n_glo": 6721,
+   "winrate": 0.30918,
+   "pf": 0.34,
+   "ecart_type": 1.425192
+  },
+  {
+   "symbole": "WTI.fs",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.147787,
+   "n_cal": 3741,
+   "esp_glo": 0.150429,
+   "n_glo": 5565,
+   "winrate": 0.545193,
+   "pf": 1.3772,
+   "ecart_type": 1.123943
+  },
+  {
+   "symbole": "XAGUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.065777,
+   "n_cal": 3635,
+   "esp_glo": 0.018896,
+   "n_glo": 5512,
+   "winrate": 0.452104,
+   "pf": 1.0407,
+   "ecart_type": 1.120261
+  },
+  {
+   "symbole": "XAUAUD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.014641,
+   "n_cal": 3539,
+   "esp_glo": 0.04081,
+   "n_glo": 5370,
+   "winrate": 0.554749,
+   "pf": 1.0952,
+   "ecart_type": 1.079418
+  },
+  {
+   "symbole": "XAUEUR",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.018052,
+   "n_cal": 3505,
+   "esp_glo": 0.032175,
+   "n_glo": 5451,
+   "winrate": 0.524491,
+   "pf": 1.0738,
+   "ecart_type": 1.080095
+  },
+  {
+   "symbole": "XAUGBP",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.006867,
+   "n_cal": 3612,
+   "esp_glo": 0.052048,
+   "n_glo": 5485,
+   "winrate": 0.526162,
+   "pf": 1.1205,
+   "ecart_type": 1.088425
+  },
+  {
+   "symbole": "XAUUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": 0.084541,
+   "n_cal": 3582,
+   "esp_glo": 0.11732,
+   "n_glo": 5501,
+   "winrate": 0.600436,
+   "pf": 1.2893,
+   "ecart_type": 1.10105
+  },
+  {
+   "symbole": "XLMUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.779398,
+   "n_cal": 4869,
+   "esp_glo": -0.64963,
+   "n_glo": 7052,
+   "winrate": 0.28928,
+   "pf": 0.3095,
+   "ecart_type": 1.238004
+  },
+  {
+   "symbole": "XPTUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.468304,
+   "n_cal": 3953,
+   "esp_glo": -0.336419,
+   "n_glo": 5766,
+   "winrate": 0.330038,
+   "pf": 0.4893,
+   "ecart_type": 1.073174
+  },
+  {
+   "symbole": "XRP-JPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.141695,
+   "n_cal": 3780,
+   "esp_glo": -0.068904,
+   "n_glo": 5794,
+   "winrate": 0.444425,
+   "pf": 0.8704,
+   "ecart_type": 1.162041
+  },
+  {
+   "symbole": "XRPUSD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.568156,
+   "n_cal": 4443,
+   "esp_glo": -0.440441,
+   "n_glo": 6506,
+   "winrate": 0.330925,
+   "pf": 0.4344,
+   "ecart_type": 1.202118
+  },
+  {
+   "symbole": "XTZ-USD",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.446354,
+   "n_cal": 4298,
+   "esp_glo": -0.93762,
+   "n_glo": 7478,
+   "winrate": 0.237497,
+   "pf": 0.1999,
+   "ecart_type": 1.29878
+  },
+  {
+   "symbole": "ZARJPY",
+   "empreinte_moteur": "16e79f53a610da42de78a48d9471d656c4a73a9d4f41d99c0e77f9dacaa485f8",
+   "esp_cal": -0.304263,
+   "n_cal": 2857,
+   "esp_glo": -0.409591,
+   "n_glo": 4576,
+   "winrate": 0.298295,
+   "pf": 0.4405,
+   "ecart_type": 1.100965
+  }
+ ],
+ "survivants": [
+  "AUS200",
+  "BCH-JPY",
+  "BCHUSD",
+  "BNB-USD",
+  "BRENT.fs",
+  "BTC-JPY",
+  "BTCUSD",
+  "COFFEE.fs",
+  "DJ30.fs",
+  "ETH-JPY",
+  "ETHUSD",
+  "EURJPY",
+  "FRA40",
+  "GBPJPY",
+  "GER40",
+  "HK50",
+  "HSI.fs",
+  "IT40",
+  "JPN225",
+  "LNKUSD",
+  "NAS100.fs",
+  "NETH25",
+  "S&P.fs",
+  "SOL-USD",
+  "SPA35",
+  "UK100",
+  "UKOIL",
+  "US2000",
+  "US30",
+  "US500",
+  "USDCLP",
+  "USDJPC",
+  "USDJPY",
+  "USOIL",
+  "USTECH",
+  "WTI.fs",
+  "XAUAUD",
+  "XAUUSD"
+ ],
+ "paires_redondantes": [
+  {
+   "a": "BCH-JPY",
+   "b": "BCHUSD",
+   "rho": 0.9718,
+   "barres": 36466
+  },
+  {
+   "a": "BRENT.fs",
+   "b": "UKOIL",
+   "rho": 0.9441,
+   "barres": 45066
+  },
+  {
+   "a": "BRENT.fs",
+   "b": "USOIL",
+   "rho": 0.8964,
+   "barres": 44511
+  },
+  {
+   "a": "BRENT.fs",
+   "b": "WTI.fs",
+   "rho": 0.8804,
+   "barres": 44299
+  },
+  {
+   "a": "BTC-JPY",
+   "b": "BTCUSD",
+   "rho": 0.9571,
+   "barres": 36458
+  },
+  {
+   "a": "BTC-JPY",
+   "b": "ETH-JPY",
+   "rho": 0.8364,
+   "barres": 36445
+  },
+  {
+   "a": "BTCUSD",
+   "b": "ETH-JPY",
+   "rho": 0.806,
+   "barres": 36472
+  },
+  {
+   "a": "BTCUSD",
+   "b": "ETHUSD",
+   "rho": 0.8115,
+   "barres": 74441
+  },
+  {
+   "a": "DJ30.fs",
+   "b": "S&P.fs",
+   "rho": 0.8764,
+   "barres": 37699
+  },
+  {
+   "a": "DJ30.fs",
+   "b": "US30",
+   "rho": 0.8544,
+   "barres": 36900
+  },
+  {
+   "a": "DJ30.fs",
+   "b": "US500",
+   "rho": 0.8084,
+   "barres": 36902
+  },
+  {
+   "a": "ETH-JPY",
+   "b": "ETHUSD",
+   "rho": 0.9604,
+   "barres": 36451
+  },
+  {
+   "a": "FRA40",
+   "b": "GER40",
+   "rho": 0.8003,
+   "barres": 16441
+  },
+  {
+   "a": "FRA40",
+   "b": "NETH25",
+   "rho": 0.8923,
+   "barres": 30270
+  },
+  {
+   "a": "HK50",
+   "b": "HSI.fs",
+   "rho": 0.9961,
+   "barres": 22520
+  },
+  {
+   "a": "NAS100.fs",
+   "b": "S&P.fs",
+   "rho": 0.8806,
+   "barres": 47679
+  },
+  {
+   "a": "NAS100.fs",
+   "b": "US500",
+   "rho": 0.8374,
+   "barres": 47816
+  },
+  {
+   "a": "NAS100.fs",
+   "b": "USTECH",
+   "rho": 0.9004,
+   "barres": 47816
+  },
+  {
+   "a": "S&P.fs",
+   "b": "US2000",
+   "rho": 0.8527,
+   "barres": 47056
+  },
+  {
+   "a": "S&P.fs",
+   "b": "US30",
+   "rho": 0.9427,
+   "barres": 47597
+  },
+  {
+   "a": "S&P.fs",
+   "b": "US500",
+   "rho": 0.9891,
+   "barres": 47593
+  },
+  {
+   "a": "S&P.fs",
+   "b": "USTECH",
+   "rho": 0.9191,
+   "barres": 47589
+  },
+  {
+   "a": "UKOIL",
+   "b": "USOIL",
+   "rho": 0.8696,
+   "barres": 44488
+  },
+  {
+   "a": "UKOIL",
+   "b": "WTI.fs",
+   "rho": 0.8634,
+   "barres": 44155
+  },
+  {
+   "a": "US2000",
+   "b": "US30",
+   "rho": 0.8213,
+   "barres": 47055
+  },
+  {
+   "a": "US2000",
+   "b": "US500",
+   "rho": 0.8489,
+   "barres": 47056
+  },
+  {
+   "a": "US30",
+   "b": "US500",
+   "rho": 0.9525,
+   "barres": 47927
+  },
+  {
+   "a": "US30",
+   "b": "USTECH",
+   "rho": 0.8273,
+   "barres": 47927
+  },
+  {
+   "a": "US500",
+   "b": "USTECH",
+   "rho": 0.929,
+   "barres": 47921
+  },
+  {
+   "a": "USDJPC",
+   "b": "USDJPY",
+   "rho": 0.9952,
+   "barres": 6451
+  },
+  {
+   "a": "USOIL",
+   "b": "WTI.fs",
+   "rho": 0.9062,
+   "barres": 47606
+  }
+ ]
+}

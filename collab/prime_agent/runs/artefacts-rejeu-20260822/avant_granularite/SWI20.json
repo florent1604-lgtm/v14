@@ -1,0 +1,82 @@
+{
+ "symbole": "SWI20",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99959,
+ "debut": "2019-05-28 18:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2024-03-22T19:10:00+00:00",
+ "spread_points": 400.0,
+ "spread_prix": 4.0,
+ "n_enter": 5588,
+ "barres_evaluees": 57341,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "SWI20",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100043,
+   "barres_reconstruites": 84,
+   "ratio_reconstruit": 0.0008396389552492429,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T19:45:00+00:00",
+   "age_secondes": 287985.383859,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99959
+  },
+  "htf": {
+   "symbole": "SWI20",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 10065,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 0.0001987083954297069,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2014-05-28 18:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 297885.41717,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9209
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5588,
+  "esperance_r": -0.014043,
+  "ecart_type_r": 1.113404,
+  "winrate": 0.408912,
+  "profit_factor": 0.9709,
+  "somme_r": -78.472,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3701,
+  "esperance_r": -0.026609,
+  "ecart_type_r": 1.107618,
+  "winrate": 0.404755,
+  "profit_factor": 0.9452,
+  "somme_r": -98.4786,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1887,
+  "esperance_r": 0.010602,
+  "ecart_type_r": 1.124554,
+  "winrate": 0.417064,
+  "profit_factor": 1.0223,
+  "somme_r": 20.0066,
+  "concluant": true
+ },
+ "secondes": 2911.0,
+ "ecrit_le": "2026-08-23T04:33:16.375575+00:00"
+}

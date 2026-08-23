@@ -1,0 +1,82 @@
+{
+ "symbole": "USTECH",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100047,
+ "debut": "2022-05-10 01:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-16T23:45:00+00:00",
+ "spread_points": 125.0,
+ "spread_prix": 1.25,
+ "n_enter": 5017,
+ "barres_evaluees": 52664,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "USTECH",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100051,
+   "barres_reconstruites": 4,
+   "ratio_reconstruit": 3.997961039869667e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 284572.332793,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100047
+  },
+  "htf": {
+   "symbole": "USTECH",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 14225,
+   "barres_reconstruites": 1,
+   "ratio_reconstruit": 7.0298769771529e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-05-10 01:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 290872.366187,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12378
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5017,
+  "esperance_r": 0.160425,
+  "ecart_type_r": 1.125576,
+  "winrate": 0.607335,
+  "profit_factor": 1.4025,
+  "somme_r": 804.8534,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3217,
+  "esperance_r": 0.155943,
+  "ecart_type_r": 1.122881,
+  "winrate": 0.607087,
+  "profit_factor": 1.3904,
+  "somme_r": 501.6693,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1800,
+  "esperance_r": 0.168436,
+  "ecart_type_r": 1.130647,
+  "winrate": 0.607778,
+  "profit_factor": 1.4241,
+  "somme_r": 303.1841,
+  "concluant": true
+ },
+ "secondes": 2548.1,
+ "ecrit_le": "2026-08-23T06:30:20.372042+00:00"
+}

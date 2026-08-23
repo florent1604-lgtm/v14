@@ -1,0 +1,82 @@
+{
+ "symbole": "AUS200",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100026,
+ "debut": "2021-12-08 10:45:00+00:00",
+ "fin": "2026-08-19 20:45:00+00:00",
+ "coupure": "2025-01-25T01:25:00+00:00",
+ "spread_points": 110.0,
+ "spread_prix": 1.1,
+ "n_enter": 5314,
+ "barres_evaluees": 59329,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "AUS200",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100048,
+   "barres_reconstruites": 22,
+   "ratio_reconstruit": 0.00021989445066368144,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T20:45:00+00:00",
+   "age_secondes": 251419.42443,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100026
+  },
+  "htf": {
+   "symbole": "AUS200",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 14131,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 0.00014153280022645247,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2016-12-08 10:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 264919.452012,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12413
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5314,
+  "esperance_r": 0.044095,
+  "ecart_type_r": 1.101111,
+  "winrate": 0.53105,
+  "profit_factor": 1.1,
+  "somme_r": 234.3191,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3646,
+  "esperance_r": 0.039279,
+  "ecart_type_r": 1.098253,
+  "winrate": 0.519199,
+  "profit_factor": 1.089,
+  "somme_r": 143.2122,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1668,
+  "esperance_r": 0.05462,
+  "ecart_type_r": 1.10759,
+  "winrate": 0.556954,
+  "profit_factor": 1.1239,
+  "somme_r": 91.1069,
+  "concluant": true
+ },
+ "secondes": 2912.9,
+ "ecrit_le": "2026-08-22T19:23:52.263583+00:00"
+}

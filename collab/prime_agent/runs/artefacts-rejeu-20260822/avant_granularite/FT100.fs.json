@@ -1,0 +1,82 @@
+{
+ "symbole": "FT100.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100539,
+ "debut": "2021-08-20 00:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2024-12-19T05:10:00+00:00",
+ "spread_points": 250.0,
+ "spread_prix": 2.5,
+ "n_enter": 5509,
+ "barres_evaluees": 56752,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "FT100.FS",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100547,
+   "barres_reconstruites": 8,
+   "ratio_reconstruit": 7.956478064984534e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T19:45:00+00:00",
+   "age_secondes": 268905.930678,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100539
+  },
+  "htf": {
+   "symbole": "FT100.FS",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 11548,
+   "barres_reconstruites": 5,
+   "ratio_reconstruit": 0.0004329754069968826,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2016-08-20 00:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 278805.962703,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9561
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5509,
+  "esperance_r": -0.058984,
+  "ecart_type_r": 1.11523,
+  "winrate": 0.38664,
+  "profit_factor": 0.8839,
+  "somme_r": -324.942,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3789,
+  "esperance_r": -0.069219,
+  "ecart_type_r": 1.113763,
+  "winrate": 0.380575,
+  "profit_factor": 0.8653,
+  "somme_r": -262.2713,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1720,
+  "esperance_r": -0.036436,
+  "ecart_type_r": 1.118449,
+  "winrate": 0.4,
+  "profit_factor": 0.9264,
+  "somme_r": -62.6707,
+  "concluant": true
+ },
+ "secondes": 2863.7,
+ "ecrit_le": "2026-08-22T23:14:29.625069+00:00"
+}

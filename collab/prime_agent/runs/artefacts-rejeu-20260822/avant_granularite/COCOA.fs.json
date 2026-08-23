@@ -1,0 +1,82 @@
+{
+ "symbole": "COCOA.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 68269,
+ "debut": "2008-07-09 17:00:00+00:00",
+ "fin": "2026-08-19 17:15:00+00:00",
+ "coupure": "2020-08-05T17:10:00+00:00",
+ "spread_points": 6.0,
+ "spread_prix": 6.0,
+ "n_enter": 4326,
+ "barres_evaluees": 37462,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "COCOA.FS",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 68280,
+   "barres_reconstruites": 11,
+   "ratio_reconstruit": 0.00016110134739308728,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T17:15:00+00:00",
+   "age_secondes": 270209.840281,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 68269
+  },
+  "htf": {
+   "symbole": "COCOA.FS",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 10734,
+   "barres_reconstruites": 8,
+   "ratio_reconstruit": 0.0007452953232718465,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2003-07-10 17:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 271109.86929,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 10726
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 4326,
+  "esperance_r": 0.017741,
+  "ecart_type_r": 1.180764,
+  "winrate": 0.478502,
+  "profit_factor": 1.0352,
+  "somme_r": 76.7489,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 1036,
+  "esperance_r": -0.087376,
+  "ecart_type_r": 1.140589,
+  "winrate": 0.425676,
+  "profit_factor": 0.8385,
+  "somme_r": -90.522,
+  "concluant": true
+ },
+ "verification": {
+  "n": 3290,
+  "esperance_r": 0.050842,
+  "ecart_type_r": 1.191385,
+  "winrate": 0.495137,
+  "profit_factor": 1.1034,
+  "somme_r": 167.2709,
+  "concluant": true
+ },
+ "secondes": 2021.6,
+ "ecrit_le": "2026-08-22T20:52:11.451810+00:00"
+}

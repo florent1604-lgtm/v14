@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +11,10 @@ import pandas as pd
 import pytest
 
 from titanium.backtest import Trade
+from titanium.data.archive_barres import (
+    ArchiveHorsUniversError,
+    ArchiveQualiteError,
+)
 from tools import rejeu_univers as ru
 
 
@@ -247,19 +252,22 @@ def test_artefact_refuse_une_barre_sans_fuseau():
 
 
 def test_rejouer_symbole_brut_retourne_les_trades_sans_changer_le_resume(monkeypatch):
-    index = pd.date_range("2026-01-01", periods=4, freq="30D", tz="UTC")
+    # 700 barres : sous PROFONDEUR_MIN_HTF le rejeu declare le symbole hors
+    # univers, ce que verifie test_htf_trop_court_sort_le_symbole_de_l_univers.
+    n = 700
+    index = pd.date_range("2026-01-01", periods=n, freq="30D", tz="UTC")
     barres = pd.DataFrame({
-        "open": [1.0] * 4,
-        "high": [1.1] * 4,
-        "low": [0.9] * 4,
-        "close": [1.0] * 4,
-        "spread": [10.0] * 4,
+        "open": [1.0] * n,
+        "high": [1.1] * n,
+        "low": [0.9] * n,
+        "close": [1.0] * n,
+        "spread": [10.0] * n,
     }, index=index)
     trade = _trade(
         entree=str(index[-1]), sortie=str(index[-1]), pnl_r=0.8, cost_r=0.2
     )
     resultat = SimpleNamespace(
-        trades=[trade], n_enter=1, barres_evaluees=4, erreurs=0
+        trades=[trade], n_enter=1, barres_evaluees=700, erreurs=0
     )
     monkeypatch.setattr(ru, "charger_barres", lambda *_a, **_k: barres.copy())
     monkeypatch.setattr(ru, "specifications", lambda: {"EURUSD": {"point": 0.00001}})
@@ -432,3 +440,78 @@ def test_validation_refuse_un_resume_incoherent_avec_les_trades():
 
     with pytest.raises(ValueError, match="resume/trades"):
         ru.valider_resultat_avant_publication(sortie, [])
+
+
+def test_htf_trop_court_sort_le_symbole_de_l_univers(monkeypatch):
+    """Une archive trop courte n'est pas une anomalie : c'est un hors-univers.
+
+    USDCOP porte 379 barres H4 journalieres etiquetees H4, la derniere au
+    05/03/2026. Une fois la borne de granularite appliquee il ne reste que
+    209 barres authentiques, soit moins que l'amorcage et la fenetre de
+    features. Le symbole ne peut produire qu'un artefact vide ; il doit sortir
+    de l'univers sans arreter le lot, comme USDUSC.
+    """
+    n = 100
+    index = pd.date_range("2026-01-01", periods=n, freq="4h", tz="UTC")
+    barres = pd.DataFrame({
+        "open": [1.0] * n, "high": [1.1] * n, "low": [0.9] * n,
+        "close": [1.0] * n, "spread": [10.0] * n,
+    }, index=index)
+    monkeypatch.setattr(ru, "charger_barres", lambda *_a, **_k: barres.copy())
+    monkeypatch.setattr(ru, "specifications", lambda: {})
+
+    with pytest.raises(ArchiveHorsUniversError, match="plancher"):
+        ru.rejouer_symbole_brut("USDCOP", "M15", "H4", None, 1)
+
+
+def test_hors_univers_est_une_erreur_de_qualite(monkeypatch):
+    """Il reste un `ArchiveQualiteError` : aucun appelant existant ne casse."""
+    assert issubclass(ArchiveHorsUniversError, ArchiveQualiteError)
+
+
+def test_symbole_hors_univers_est_consigne_et_n_arrete_pas_le_lot(
+        tmp_path: Path, monkeypatch, capsys):
+    """Le registre remplace la sentinelle : le lot continue."""
+    monkeypatch.setattr(ru, "HORS_UNIVERS", tmp_path / "_HORS_UNIVERS.json")
+    monkeypatch.setattr(ru, "ECHEC_SENTINEL", tmp_path / "_RUN_FAILED.json")
+    monkeypatch.setattr(ru, "DEST", tmp_path / "resumes")
+    monkeypatch.setattr(ru, "inventaire", lambda _tf: {"VIDE": {}, "PLEIN": {}})
+
+    vus = []
+
+    def faux_traitement(symbole, *_a, **_k):
+        vus.append(symbole)
+        if symbole == "VIDE":
+            raise ArchiveHorsUniversError("VIDE M15: aucune barre exploitable")
+        return {"global": {"n": 3, "esperance_r": 0.1, "winrate": 0.5},
+                "verification": {"n": 1, "esperance_r": 0.1},
+                "secondes": 1.0}
+
+    monkeypatch.setattr(ru, "traiter_symbole", faux_traitement)
+    monkeypatch.setattr(sys, "argv", ["rejeu_univers.py", "--ltf", "M15"])
+
+    assert ru.main() == 0
+    assert vus == ["PLEIN", "VIDE"]
+    assert not (tmp_path / "_RUN_FAILED.json").exists()
+    registre = json.loads((tmp_path / "_HORS_UNIVERS.json").read_text(encoding="utf-8"))
+    assert list(registre) == ["VIDE"]
+    assert registre["VIDE"]["type"] == "ArchiveHorsUniversError"
+    assert "HORS UNIVERS" in capsys.readouterr().out
+
+
+def test_une_vraie_anomalie_arrete_toujours_le_lot(tmp_path: Path, monkeypatch):
+    """Une barre corrompue reste fail-closed : la sentinelle est publiee."""
+    monkeypatch.setattr(ru, "HORS_UNIVERS", tmp_path / "_HORS_UNIVERS.json")
+    monkeypatch.setattr(ru, "ECHEC_SENTINEL", tmp_path / "_RUN_FAILED.json")
+    monkeypatch.setattr(ru, "DEST", tmp_path / "resumes")
+    monkeypatch.setattr(ru, "inventaire", lambda _tf: {"CASSE": {}})
+
+    def faux_traitement(*_a, **_k):
+        raise ArchiveQualiteError("CASSE H4: 1 OHLC invalides")
+
+    monkeypatch.setattr(ru, "traiter_symbole", faux_traitement)
+    monkeypatch.setattr(sys, "argv", ["rejeu_univers.py", "--ltf", "M15"])
+
+    assert ru.main() == 1
+    assert (tmp_path / "_RUN_FAILED.json").is_file()
+    assert not (tmp_path / "_HORS_UNIVERS.json").exists()

@@ -1,0 +1,82 @@
+{
+ "symbole": "ZARJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99991,
+ "debut": "2022-08-15 10:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-18T10:40:00+00:00",
+ "spread_points": 87.0,
+ "spread_prix": 0.008700000000000001,
+ "n_enter": 4576,
+ "barres_evaluees": 52977,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "ZARJPY",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 9,
+   "ratio_reconstruit": 9e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 281104.089899,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99991
+  },
+  "htf": {
+   "symbole": "ZARJPY",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 13483,
+   "barres_reconstruites": 1,
+   "ratio_reconstruit": 7.416747014759327e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-15 10:30:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 287404.113286,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12549
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 4576,
+  "esperance_r": -0.409591,
+  "ecart_type_r": 1.100965,
+  "winrate": 0.298295,
+  "profit_factor": 0.4405,
+  "somme_r": -1874.2881,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2857,
+  "esperance_r": -0.304263,
+  "ecart_type_r": 1.138755,
+  "winrate": 0.327266,
+  "profit_factor": 0.5521,
+  "somme_r": -869.2781,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1719,
+  "esperance_r": -0.584648,
+  "ecart_type_r": 1.011441,
+  "winrate": 0.250145,
+  "profit_factor": 0.287,
+  "somme_r": -1005.01,
+  "concluant": true
+ },
+ "secondes": 2533.6,
+ "ecrit_le": "2026-08-23T05:32:17.671561+00:00"
+}

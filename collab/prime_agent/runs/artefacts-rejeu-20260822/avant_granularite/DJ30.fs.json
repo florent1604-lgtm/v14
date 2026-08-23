@@ -1,0 +1,82 @@
+{
+ "symbole": "DJ30.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99993,
+ "debut": "2022-05-10 15:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-17T04:25:00+00:00",
+ "spread_points": 400.0,
+ "spread_prix": 4.0,
+ "n_enter": 4878,
+ "barres_evaluees": 54124,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "DJ30.FS",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100003,
+   "barres_reconstruites": 10,
+   "ratio_reconstruit": 9.99970000899973e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 252423.695214,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99993
+  },
+  "htf": {
+   "symbole": "DJ30.FS",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 11881,
+   "barres_reconstruites": 5,
+   "ratio_reconstruit": 0.00042083999663328003,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 1,
+   "depuis_utc": "2017-05-10 15:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 258723.724734,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9544
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 4878,
+  "esperance_r": 0.06962,
+  "ecart_type_r": 1.120767,
+  "winrate": 0.54428,
+  "profit_factor": 1.159,
+  "somme_r": 339.6078,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3319,
+  "esperance_r": 0.061457,
+  "ecart_type_r": 1.118675,
+  "winrate": 0.5348,
+  "profit_factor": 1.1396,
+  "somme_r": 203.9766,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1559,
+  "esperance_r": 0.086999,
+  "ecart_type_r": 1.125371,
+  "winrate": 0.564464,
+  "profit_factor": 1.2009,
+  "somme_r": 135.6312,
+  "concluant": true
+ },
+ "secondes": 2662.5,
+ "ecrit_le": "2026-08-22T21:36:26.163608+00:00"
+}

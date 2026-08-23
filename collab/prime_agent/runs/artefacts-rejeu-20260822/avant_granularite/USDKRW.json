@@ -1,0 +1,82 @@
+{
+ "symbole": "USDKRW",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 78173,
+ "debut": "2022-09-05 00:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2025-04-25T05:10:00+00:00",
+ "spread_points": 53.0,
+ "spread_prix": 0.53,
+ "n_enter": 4224,
+ "barres_evaluees": 45326,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "USDKRW",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 78177,
+   "barres_reconstruites": 4,
+   "ratio_reconstruit": 5.1165943947708405e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T19:45:00+00:00",
+   "age_secondes": 295054.444915,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 78173
+  },
+  "htf": {
+   "symbole": "USDKRW",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 5766,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-09-05 00:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 304954.473166,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 5766
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 4224,
+  "esperance_r": -0.248922,
+  "ecart_type_r": 1.104308,
+  "winrate": 0.33428,
+  "profit_factor": 0.6019,
+  "somme_r": -1051.4469,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2793,
+  "esperance_r": -0.254157,
+  "ecart_type_r": 1.112096,
+  "winrate": 0.339062,
+  "profit_factor": 0.5995,
+  "somme_r": -709.8613,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1431,
+  "esperance_r": -0.238704,
+  "ecart_type_r": 1.089259,
+  "winrate": 0.324948,
+  "profit_factor": 0.6069,
+  "somme_r": -341.5856,
+  "concluant": true
+ },
+ "secondes": 2183.3,
+ "ecrit_le": "2026-08-23T06:18:57.734184+00:00"
+}

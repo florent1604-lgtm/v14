@@ -1,0 +1,82 @@
+{
+ "symbole": "SAND-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99993,
+ "debut": "2023-10-10 12:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-05T19:20:00+00:00",
+ "spread_points": 8.0,
+ "spread_prix": 0.008,
+ "n_enter": 11237,
+ "barres_evaluees": 81695,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "SAND-USD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 11,
+   "ratio_reconstruit": 0.00010999230053896227,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 272100.659799,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99993
+  },
+  "htf": {
+   "symbole": "SAND-USD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 9123,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2018-10-10 12:30:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 278400.710392,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9123
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 11237,
+  "esperance_r": -3.790333,
+  "ecart_type_r": 4.208815,
+  "winrate": 0.019044,
+  "profit_factor": 0.0042,
+  "somme_r": -42591.9708,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 7567,
+  "esperance_r": -2.450303,
+  "ecart_type_r": 0.939799,
+  "winrate": 0.028281,
+  "profit_factor": 0.0095,
+  "somme_r": -18541.4429,
+  "concluant": true
+ },
+ "verification": {
+  "n": 3670,
+  "esperance_r": -6.553277,
+  "ecart_type_r": 6.409936,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -24050.5279,
+  "concluant": true
+ },
+ "secondes": 5082.6,
+ "ecrit_le": "2026-08-23T03:44:43.071296+00:00"
+}

@@ -1,0 +1,82 @@
+{
+ "symbole": "EURSGD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99995,
+ "debut": "2022-08-14 21:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-18T06:25:00+00:00",
+ "spread_points": 24.0,
+ "spread_prix": 0.00024000000000000003,
+ "n_enter": 5116,
+ "barres_evaluees": 55801,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "EURSGD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 5,
+   "ratio_reconstruit": 5e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 258807.352841,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99995
+  },
+  "htf": {
+   "symbole": "EURSGD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 13488,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-14 21:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 265107.381263,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12555
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5116,
+  "esperance_r": -0.290911,
+  "ecart_type_r": 1.025096,
+  "winrate": 0.299648,
+  "profit_factor": 0.522,
+  "somme_r": -1488.3003,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3365,
+  "esperance_r": -0.277599,
+  "ecart_type_r": 1.033661,
+  "winrate": 0.299554,
+  "profit_factor": 0.5399,
+  "somme_r": -934.1192,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1751,
+  "esperance_r": -0.316494,
+  "ecart_type_r": 1.008231,
+  "winrate": 0.299829,
+  "profit_factor": 0.4885,
+  "somme_r": -554.1811,
+  "concluant": true
+ },
+ "secondes": 2820.4,
+ "ecrit_le": "2026-08-22T23:25:27.714462+00:00"
+}

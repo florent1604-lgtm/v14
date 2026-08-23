@@ -1,0 +1,82 @@
+{
+ "symbole": "GBCUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 25804,
+ "debut": "2025-03-13 21:15:00+00:00",
+ "fin": "2026-03-27 20:45:00+00:00",
+ "coupure": "2025-11-21T12:55:00+00:00",
+ "spread_points": 12.0,
+ "spread_prix": 0.00012000000000000002,
+ "n_enter": 3553,
+ "barres_evaluees": 18268,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "GBCUSD",
+   "timeframe": "M15",
+   "borne_utile": 2,
+   "barres_avant_exclusion": 25806,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 7.750135627373479e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-03-27T20:45:00+00:00",
+   "age_secondes": 12796102.123366,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 25804
+  },
+  "htf": {
+   "symbole": "GBCUSD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 1615,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2020-03-13 21:15:00+00:00",
+   "derniere_barre_utc": "2026-03-27T17:00:00+00:00",
+   "age_secondes": 12809602.141429,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 1615
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 3553,
+  "esperance_r": -7.20371,
+  "ecart_type_r": 2.870037,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -25594.7819,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 2267,
+  "esperance_r": -7.358509,
+  "ecart_type_r": 3.065136,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -16681.7388,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1286,
+  "esperance_r": -6.930827,
+  "ecart_type_r": 2.466733,
+  "winrate": 0.0,
+  "profit_factor": 0.0,
+  "somme_r": -8913.0431,
+  "concluant": true
+ },
+ "secondes": 1215.9,
+ "ecrit_le": "2026-08-22T23:33:37.992296+00:00"
+}

@@ -1,0 +1,82 @@
+{
+ "symbole": "EURCHF",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99999,
+ "debut": "2022-08-12 20:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T13:50:00+00:00",
+ "spread_points": 10.0,
+ "spread_prix": 0.0001,
+ "n_enter": 5176,
+ "barres_evaluees": 55475,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "EURCHF",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 1,
+   "ratio_reconstruit": 1e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 255536.7672,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99999
+  },
+  "htf": {
+   "symbole": "EURCHF",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 46375,
+   "barres_reconstruites": 6,
+   "ratio_reconstruit": 0.0001293800539083558,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-12 20:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 261836.806719,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 14034
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5176,
+  "esperance_r": -0.128032,
+  "ecart_type_r": 1.052992,
+  "winrate": 0.382921,
+  "profit_factor": 0.752,
+  "somme_r": -662.6924,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3497,
+  "esperance_r": -0.111346,
+  "ecart_type_r": 1.057832,
+  "winrate": 0.399771,
+  "profit_factor": 0.7811,
+  "somme_r": -389.3776,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1679,
+  "esperance_r": -0.162784,
+  "ecart_type_r": 1.042296,
+  "winrate": 0.347826,
+  "profit_factor": 0.6941,
+  "somme_r": -273.3148,
+  "concluant": true
+ },
+ "secondes": 2773.5,
+ "ecrit_le": "2026-08-22T22:30:10.185277+00:00"
+}

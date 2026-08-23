@@ -1,0 +1,82 @@
+{
+ "symbole": "USDTHB",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99961,
+ "debut": "2022-08-11 10:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T02:45:00+00:00",
+ "spread_points": 97.0,
+ "spread_prix": 0.0097,
+ "n_enter": 5496,
+ "barres_evaluees": 57256,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "USDTHB",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 39,
+   "ratio_reconstruit": 0.00039,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 286438.564802,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99961
+  },
+  "htf": {
+   "symbole": "USDTHB",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 14444,
+   "barres_reconstruites": 5,
+   "ratio_reconstruit": 0.0003461644973691498,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-11 10:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 292738.597724,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12548
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5496,
+  "esperance_r": -0.189612,
+  "ecart_type_r": 1.091921,
+  "winrate": 0.344432,
+  "profit_factor": 0.6725,
+  "somme_r": -1042.1094,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3674,
+  "esperance_r": -0.165912,
+  "ecart_type_r": 1.096682,
+  "winrate": 0.349483,
+  "profit_factor": 0.7069,
+  "somme_r": -609.5619,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1822,
+  "esperance_r": -0.237403,
+  "ecart_type_r": 1.080975,
+  "winrate": 0.334248,
+  "profit_factor": 0.6077,
+  "somme_r": -432.5475,
+  "concluant": true
+ },
+ "secondes": 2661.1,
+ "ecrit_le": "2026-08-23T07:03:19.661314+00:00"
+}

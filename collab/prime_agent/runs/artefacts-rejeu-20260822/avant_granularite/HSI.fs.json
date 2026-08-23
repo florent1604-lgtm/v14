@@ -1,0 +1,82 @@
+{
+ "symbole": "HSI.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99658,
+ "debut": "2020-02-25 07:30:00+00:00",
+ "fin": "2026-08-19 18:45:00+00:00",
+ "coupure": "2024-06-21T15:00:00+00:00",
+ "spread_points": 10.0,
+ "spread_prix": 10.0,
+ "n_enter": 5542,
+ "barres_evaluees": 50828,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "HSI.FS",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100039,
+   "barres_reconstruites": 381,
+   "ratio_reconstruit": 0.0038085146792750826,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T18:45:00+00:00",
+   "age_secondes": 278447.476065,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99658
+  },
+  "htf": {
+   "symbole": "HSI.FS",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 13001,
+   "barres_reconstruites": 20,
+   "ratio_reconstruit": 0.0015383432043688946,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2015-02-25 07:30:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 284747.506707,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 10930
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5542,
+  "esperance_r": 0.070029,
+  "ecart_type_r": 1.146448,
+  "winrate": 0.454349,
+  "profit_factor": 1.1535,
+  "somme_r": 388.1008,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3617,
+  "esperance_r": 0.072869,
+  "ecart_type_r": 1.144193,
+  "winrate": 0.454244,
+  "profit_factor": 1.161,
+  "somme_r": 263.5672,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1925,
+  "esperance_r": 0.064693,
+  "ecart_type_r": 1.150952,
+  "winrate": 0.454545,
+  "profit_factor": 1.1398,
+  "somme_r": 124.5336,
+  "concluant": true
+ },
+ "secondes": 2650.2,
+ "ecrit_le": "2026-08-23T00:49:57.668416+00:00"
+}

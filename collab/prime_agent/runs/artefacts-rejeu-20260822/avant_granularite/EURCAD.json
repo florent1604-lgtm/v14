@@ -1,0 +1,82 @@
+{
+ "symbole": "EURCAD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100060,
+ "debut": "2022-08-12 03:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T08:20:00+00:00",
+ "spread_points": 15.0,
+ "spread_prix": 0.00015000000000000001,
+ "n_enter": 5162,
+ "barres_evaluees": 55445,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "EURCAD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100064,
+   "barres_reconstruites": 4,
+   "ratio_reconstruit": 3.997441637352095e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 255087.1932,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100060
+  },
+  "htf": {
+   "symbole": "EURCAD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 33715,
+   "barres_reconstruites": 1,
+   "ratio_reconstruit": 2.966038855109002e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-12 03:30:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 261387.230996,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 14035
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5162,
+  "esperance_r": -0.11988,
+  "ecart_type_r": 1.046771,
+  "winrate": 0.403913,
+  "profit_factor": 0.7625,
+  "somme_r": -618.8224,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3408,
+  "esperance_r": -0.101006,
+  "ecart_type_r": 1.055195,
+  "winrate": 0.412852,
+  "profit_factor": 0.7964,
+  "somme_r": -344.2288,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1754,
+  "esperance_r": -0.156553,
+  "ecart_type_r": 1.029515,
+  "winrate": 0.386545,
+  "profit_factor": 0.6999,
+  "somme_r": -274.5936,
+  "concluant": true
+ },
+ "secondes": 2800.9,
+ "ecrit_le": "2026-08-22T22:23:08.092761+00:00"
+}

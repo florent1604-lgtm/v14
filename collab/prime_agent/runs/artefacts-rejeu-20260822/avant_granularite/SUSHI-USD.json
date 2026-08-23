@@ -1,0 +1,82 @@
+{
+ "symbole": "SUSHI-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100049,
+ "debut": "2023-10-10 06:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-05T17:10:00+00:00",
+ "spread_points": 7.0,
+ "spread_prix": 0.007,
+ "n_enter": 6520,
+ "barres_evaluees": 64402,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "SUSHI-USD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100055,
+   "barres_reconstruites": 3,
+   "ratio_reconstruit": 2.9983509070011494e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 277100.827861,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100049
+  },
+  "htf": {
+   "symbole": "SUSHI-USD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 9070,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2018-10-10 06:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 283400.858238,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9070
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 6520,
+  "esperance_r": -1.094335,
+  "ecart_type_r": 1.258837,
+  "winrate": 0.210736,
+  "profit_factor": 0.1536,
+  "somme_r": -7135.0635,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4084,
+  "esperance_r": -0.584488,
+  "ecart_type_r": 1.190168,
+  "winrate": 0.307542,
+  "profit_factor": 0.3339,
+  "somme_r": -2387.048,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2436,
+  "esperance_r": -1.949103,
+  "ecart_type_r": 0.836899,
+  "winrate": 0.04844,
+  "profit_factor": 0.0202,
+  "somme_r": -4748.0155,
+  "concluant": true
+ },
+ "secondes": 3408.1,
+ "ecrit_le": "2026-08-23T04:40:08.825303+00:00"
+}

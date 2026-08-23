@@ -1,0 +1,82 @@
+{
+ "symbole": "LTC-JPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100002,
+ "debut": "2023-10-11 13:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T03:35:00+00:00",
+ "spread_points": 400.0,
+ "spread_prix": 40.0,
+ "n_enter": 6556,
+ "barres_evaluees": 54549,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "LTC-JPY",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 1.9998600097993142e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 266097.658392,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100002
+  },
+  "htf": {
+   "symbole": "LTC-JPY",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 9129,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2018-10-11 13:15:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 272397.691592,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9129
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 6556,
+  "esperance_r": -0.423367,
+  "ecart_type_r": 1.174385,
+  "winrate": 0.336181,
+  "profit_factor": 0.4433,
+  "somme_r": -2775.5968,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4115,
+  "esperance_r": -0.257214,
+  "ecart_type_r": 1.148676,
+  "winrate": 0.376185,
+  "profit_factor": 0.5991,
+  "somme_r": -1058.4337,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2441,
+  "esperance_r": -0.703467,
+  "ecart_type_r": 1.164216,
+  "winrate": 0.268742,
+  "profit_factor": 0.2677,
+  "somme_r": -1717.1631,
+  "concluant": true
+ },
+ "secondes": 3044.3,
+ "ecrit_le": "2026-08-23T01:30:41.825915+00:00"
+}

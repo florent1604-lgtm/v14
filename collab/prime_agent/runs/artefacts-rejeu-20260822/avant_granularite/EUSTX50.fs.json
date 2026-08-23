@@ -1,0 +1,82 @@
+{
+ "symbole": "EUSTX50.fs",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100037,
+ "debut": "2021-10-06 17:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2025-01-04T02:50:00+00:00",
+ "spread_points": 300.0,
+ "spread_prix": 3.0,
+ "n_enter": 5867,
+ "barres_evaluees": 55691,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "EUSTX50.FS",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100045,
+   "barres_reconstruites": 8,
+   "ratio_reconstruit": 7.996401619271328e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T19:45:00+00:00",
+   "age_secondes": 269111.088908,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100037
+  },
+  "htf": {
+   "symbole": "EUSTX50.FS",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 13640,
+   "barres_reconstruites": 4,
+   "ratio_reconstruit": 0.0002932551319648094,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2016-10-06 17:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 279011.120079,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12045
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5867,
+  "esperance_r": -0.190136,
+  "ecart_type_r": 1.115551,
+  "winrate": 0.361854,
+  "profit_factor": 0.6782,
+  "somme_r": -1115.5277,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3937,
+  "esperance_r": -0.209447,
+  "ecart_type_r": 1.115878,
+  "winrate": 0.363475,
+  "profit_factor": 0.6535,
+  "somme_r": -824.591,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1930,
+  "esperance_r": -0.150744,
+  "ecart_type_r": 1.114137,
+  "winrate": 0.358549,
+  "profit_factor": 0.7322,
+  "somme_r": -290.9367,
+  "concluant": true
+ },
+ "secondes": 2914.0,
+ "ecrit_le": "2026-08-22T23:18:45.004135+00:00"
+}

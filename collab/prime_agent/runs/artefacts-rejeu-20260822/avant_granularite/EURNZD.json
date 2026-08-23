@@ -1,0 +1,82 @@
+{
+ "symbole": "EURNZD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99988,
+ "debut": "2022-08-12 11:15:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T10:55:00+00:00",
+ "spread_points": 21.0,
+ "spread_prix": 0.00021,
+ "n_enter": 5353,
+ "barres_evaluees": 56984,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "EURNZD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 12,
+   "ratio_reconstruit": 0.00012,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 255219.381899,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99988
+  },
+  "htf": {
+   "symbole": "EURNZD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 33648,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 5.943889681407513e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 1,
+   "depuis_utc": "2017-08-12 11:15:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 261519.419422,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 14035
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5353,
+  "esperance_r": -0.060681,
+  "ecart_type_r": 1.078004,
+  "winrate": 0.420512,
+  "profit_factor": 0.875,
+  "somme_r": -324.8264,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3587,
+  "esperance_r": -0.034004,
+  "ecart_type_r": 1.087733,
+  "winrate": 0.437692,
+  "profit_factor": 0.9286,
+  "somme_r": -121.9723,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1766,
+  "esperance_r": -0.114866,
+  "ecart_type_r": 1.056199,
+  "winrate": 0.385617,
+  "profit_factor": 0.7723,
+  "somme_r": -202.8541,
+  "concluant": true
+ },
+ "secondes": 2885.3,
+ "ecrit_le": "2026-08-22T22:26:44.649781+00:00"
+}

@@ -1,0 +1,82 @@
+{
+ "symbole": "AAVE-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100002,
+ "debut": "2023-10-10 18:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-05T21:25:00+00:00",
+ "spread_points": 40.0,
+ "spread_prix": 0.4,
+ "n_enter": 5805,
+ "barres_evaluees": 53221,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "AAVE-USD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 1.9998600097993142e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 241261.100757,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100002
+  },
+  "htf": {
+   "symbole": "AAVE-USD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 9133,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2018-10-10 18:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 247561.120052,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9133
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5805,
+  "esperance_r": -0.025759,
+  "ecart_type_r": 1.143335,
+  "winrate": 0.434625,
+  "profit_factor": 0.9484,
+  "somme_r": -149.5288,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3772,
+  "esperance_r": 0.016732,
+  "ecart_type_r": 1.138467,
+  "winrate": 0.451485,
+  "profit_factor": 1.0354,
+  "somme_r": 63.114,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2033,
+  "esperance_r": -0.104596,
+  "ecart_type_r": 1.148433,
+  "winrate": 0.403345,
+  "profit_factor": 0.8096,
+  "somme_r": -212.6428,
+  "concluant": true
+ },
+ "secondes": 2957.1,
+ "ecrit_le": "2026-08-22T18:35:18.069409+00:00"
+}

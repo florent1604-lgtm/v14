@@ -1,0 +1,82 @@
+{
+ "symbole": "AVAX-USD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100000,
+ "debut": "2023-10-11 03:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T00:10:00+00:00",
+ "spread_points": 50.0,
+ "spread_prix": 0.05,
+ "n_enter": 6099,
+ "barres_evaluees": 53952,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "AVAX-USD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 4,
+   "ratio_reconstruit": 3.9997200195986284e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 244280.571962,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100000
+  },
+  "htf": {
+   "symbole": "AVAX-USD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 9135,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2018-10-11 03:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 250580.596179,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 9135
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 6099,
+  "esperance_r": -0.143339,
+  "ecart_type_r": 1.215015,
+  "winrate": 0.418265,
+  "profit_factor": 0.7604,
+  "somme_r": -874.2239,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3692,
+  "esperance_r": 0.147366,
+  "ecart_type_r": 1.12625,
+  "winrate": 0.490791,
+  "profit_factor": 1.3673,
+  "somme_r": 544.076,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2407,
+  "esperance_r": -0.58924,
+  "ecart_type_r": 1.211239,
+  "winrate": 0.307021,
+  "profit_factor": 0.3457,
+  "somme_r": -1418.2999,
+  "concluant": true
+ },
+ "secondes": 2915.0,
+ "ecrit_le": "2026-08-22T19:24:55.452149+00:00"
+}

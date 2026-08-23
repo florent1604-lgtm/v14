@@ -1,0 +1,82 @@
+{
+ "symbole": "USDINR",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99913,
+ "debut": "2021-03-25 12:00:00+00:00",
+ "fin": "2026-08-19 19:45:00+00:00",
+ "coupure": "2024-10-31T01:10:00+00:00",
+ "spread_points": 20.0,
+ "spread_prix": 0.02,
+ "n_enter": 6287,
+ "barres_evaluees": 60005,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "USDINR",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 87,
+   "ratio_reconstruit": 0.00087,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T19:45:00+00:00",
+   "age_secondes": 289330.703773,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99913
+  },
+  "htf": {
+   "symbole": "USDINR",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 12071,
+   "barres_reconstruites": 18,
+   "ratio_reconstruit": 0.0014911772015574517,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2016-03-25 12:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T17:00:00+00:00",
+   "age_secondes": 299230.730872,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12053
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 6287,
+  "esperance_r": -0.569822,
+  "ecart_type_r": 1.146272,
+  "winrate": 0.269763,
+  "profit_factor": 0.3342,
+  "somme_r": -3582.4695,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4614,
+  "esperance_r": -0.612278,
+  "ecart_type_r": 1.141913,
+  "winrate": 0.264629,
+  "profit_factor": 0.3071,
+  "somme_r": -2825.0515,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1673,
+  "esperance_r": -0.45273,
+  "ecart_type_r": 1.150458,
+  "winrate": 0.283921,
+  "profit_factor": 0.419,
+  "somme_r": -757.418,
+  "concluant": true
+ },
+ "secondes": 3122.0,
+ "ecrit_le": "2026-08-23T04:59:12.680085+00:00"
+}

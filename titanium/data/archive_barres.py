@@ -35,6 +35,8 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent.parent
 DOSSIER = RACINE / "results" / "barres"
 METADONNEES = DOSSIER / "_metadonnees.json"
+#: Borne de granularite reelle, publiee par ``tools/borne_granularite.py``.
+BORNES_GRANULARITE = RACINE / "results" / "bornes_granularite.json"
 
 #: Schema d'archive accepte. La v1 datait les barres d'hiver une heure trop tot
 #: (decalage serveur constant) et ne marquait pas les barres fabriquees : la
@@ -82,6 +84,20 @@ class ArchiveQualiteError(ValueError):
     """L'archive ne satisfait pas un invariant ou une porte de qualite."""
 
 
+class ArchiveHorsUniversError(ArchiveQualiteError):
+    """Le symbole n'a pas d'archive exploitable : il est hors univers.
+
+    A distinguer d'une archive CORROMPUE. Une barre invalide au milieu d'une
+    serie est une anomalie : elle doit arreter le traitement, parce qu'elle
+    signale que quelque chose s'est casse. Une archive vide, ou reduite a rien
+    par les bornes, ne signale aucune casse : le courtier n'a simplement pas
+    l'historique. Confondre les deux a coute deux arrets de backfill le
+    22/08/2026 — DJ30.fs a 19h03, puis USDUSC evite de justesse.
+
+    L'appelant qui traite un univers entier doit passer au symbole suivant.
+    """
+
+
 def chemin(symbole: str, timeframe: str) -> Path:
     return DOSSIER / timeframe.upper() / f"{symbole.upper()}.parquet"
 
@@ -102,6 +118,53 @@ def _metadonnees() -> dict:
     return charge.get("timeframes", {})
 
 
+@lru_cache(maxsize=1)
+def _bornes_granularite() -> dict:
+    """Bornes de granularite reelle, par timeframe puis par symbole."""
+    if not BORNES_GRANULARITE.is_file():
+        return {}
+    charge = json.loads(BORNES_GRANULARITE.read_text(encoding="utf-8"))
+    par_tf: dict[str, dict] = {}
+    for symbole, timeframes in (charge.get("symboles") or {}).items():
+        for timeframe, mesure in (timeframes or {}).items():
+            par_tf.setdefault(timeframe.upper(), {})[symbole.upper()] = mesure
+    return par_tf
+
+
+def granularite(symbole: str, timeframe: str) -> dict:
+    """Mesure de granularite reelle du couple, telle que publiee."""
+    return (_bornes_granularite().get(timeframe.upper(), {})
+            .get(symbole.upper(), {}))
+
+
+def _barres_grossieres_temps(secondes):
+    """Masque des barres grossieres, a partir d'horodatages en secondes."""
+    import numpy as np
+
+    secondes = np.asarray(secondes, dtype="int64")
+    if secondes.size < 3:
+        return np.zeros(secondes.size, dtype=bool)
+    ecarts = np.diff(secondes)
+    jour = (ecarts % 86400 == 0) & (ecarts >= 86400)
+    masque = np.zeros(secondes.size, dtype=bool)
+    masque[1:-1] = jour[:-1] & jour[1:]
+    return masque
+
+
+def _barres_grossieres(index):
+    """Masque des barres dont les DEUX ecarts voisins sont des multiples de 24 h.
+
+    Meme critere que ``tools/borne_granularite.py``, et pour la meme raison :
+    un jour ferie isole produit UN grand ecart, une serie journaliere en
+    produit une chaine. Exiger les deux ecarts est ce qui les distingue.
+
+    Applique ici sur la fenetre RENDUE : la borne decide, cette mesure verifie.
+    """
+    return _barres_grossieres_temps(
+        index.tz_convert("UTC").tz_localize(None)
+        .astype("datetime64[s]").astype("int64"))
+
+
 def resume(symbole: str, timeframe: str) -> dict:
     """Profondeur, barres fabriquees et borne utile, tels que publies."""
     return _metadonnees().get(timeframe.upper(), {}).get(symbole.upper(), {})
@@ -114,6 +177,7 @@ def inventaire(timeframe: str) -> dict:
 
 def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None,
                    *, depuis_borne_utile: bool = True,
+                   granularite_stricte: bool = True,
                    exclure_reconstruites: bool = True,
                    colonnes_get_rates: bool = True,
                    fraicheur_max_s: float | None = None,
@@ -194,9 +258,32 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
     borne = 0
     if depuis_borne_utile:
         borne = int(resume(symbole, timeframe).get("index_premiere_utile", 0))
-        if borne:
-            df = df.iloc[borne:]
 
+    # BORNE DE GRANULARITE — le courtier sert la serie JOURNALIERE sous
+    # l'etiquette demandee quand son historique intraday ne remonte pas si
+    # loin. Le fichier declare H4 sur toutes ses lignes ; 69 symboles sur 149
+    # portent en realite du journalier sur leur portion ancienne, 4 en portent
+    # jusque dans le M15, et USDCOP en porte jusqu'au 05/03/2026 — soit sur la
+    # TOTALITE de son rejeu, verification comprise.
+    #
+    # Un ATR calcule sur un melange de barres 4 h et 24 h additionne deux
+    # echelles de volatilite : le resultat n'est pas bruite, il est faux. La
+    # borne demarre apres la DERNIERE barre grossiere, parce que les deux
+    # granularites s'entrelacent sur la zone de transition.
+    borne_gran = 0
+    if granularite_stricte:
+        borne_gran = int(granularite(symbole, timeframe)
+                         .get("index_premiere_fine", 0))
+    debut = max(borne, borne_gran)
+    if debut:
+        df = df.iloc[debut:]
+
+    # Horodatages de la SOURCE sur la portee retenue, captures avant que les
+    # barres fabriquees ne soient jetees. La granularite se mesure sur eux :
+    # retirer une barre reconstruite creuse un trou de 24 h qui imite une
+    # serie journaliere sans en etre une. Mesurer apres coup ferait refuser
+    # DOGUSD pour un trou, pas pour une granularite.
+    temps_source = df["time_utc"].to_numpy(copy=True)
     barres_avant_exclusion = int(len(df))
     barres_reconstruites = (
         int(df["reconstruit"].fillna(False).astype(bool).sum())
@@ -224,7 +311,7 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
             f"{symbole_normalise} {timeframe_normalise}: colonnes requises "
             f"absentes: {', '.join(manquantes)}")
     if df.empty:
-        raise ArchiveQualiteError(
+        raise ArchiveHorsUniversError(
             f"{symbole_normalise} {timeframe_normalise}: aucune barre exploitable")
 
     # Mesure sur l'archive ENTIERE, pour la tracabilite. Elle ne decide de
@@ -315,6 +402,27 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
             f"{symbole_normalise} {timeframe_normalise}: {nombre_invalides} "
             f"OHLC invalides (exemples time_utc: {', '.join(exemples)})")
 
+    # Le refus de granularite porte, lui aussi, sur la fenetre RENDUE. La
+    # borne a normalement tout ecarte ; cette mesure est ce qui le prouve,
+    # bulletin par bulletin, au lieu de faire confiance a un fichier de bornes
+    # qui peut dater d'avant la derniere collecte.
+    grossieres_rendues = 0
+    if granularite_stricte and len(df):
+        import numpy as np
+
+        premier = int(df["time_utc"].iloc[0]) if "time_utc" in df.columns else None
+        dernier = int(df["time_utc"].iloc[-1]) if "time_utc" in df.columns else None
+        if premier is not None:
+            fenetre = temps_source[(temps_source >= premier)
+                                   & (temps_source <= dernier)]
+            grossieres_rendues = int(_barres_grossieres_temps(fenetre).sum())
+            del np
+    if grossieres_rendues:
+        raise ArchiveQualiteError(
+            f"{symbole_normalise} {timeframe_normalise}: {grossieres_rendues} "
+            "barres a granularite journaliere dans la fenetre rendue ; "
+            "relancer tools/borne_granularite.py")
+
     if colonnes_get_rates:
         df = df[[c for c in COLONNES if c in df.columns]]
     else:
@@ -323,6 +431,11 @@ def charger_barres(symbole: str, timeframe: str = "H4", count: int | None = None
         "symbole": symbole_normalise,
         "timeframe": timeframe_normalise,
         "borne_utile": borne,
+        "borne_granularite": borne_gran,
+        "granularite_stricte": bool(granularite_stricte),
+        "barres_grossieres_archive": int(
+            granularite(symbole, timeframe).get("barres_grossieres", 0)),
+        "barres_grossieres_rendues": grossieres_rendues,
         "barres_avant_exclusion": barres_avant_exclusion,
         "barres_reconstruites": barres_reconstruites,
         "ratio_reconstruit": float(ratio_reconstruit),

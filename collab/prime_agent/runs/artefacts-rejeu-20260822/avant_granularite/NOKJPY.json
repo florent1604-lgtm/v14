@@ -1,0 +1,82 @@
+{
+ "symbole": "NOKJPY",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 99995,
+ "debut": "2022-08-12 16:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-17T12:40:00+00:00",
+ "spread_points": 483.0,
+ "spread_prix": 0.00483,
+ "n_enter": 5251,
+ "barres_evaluees": 55189,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "NOKJPY",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100000,
+   "barres_reconstruites": 5,
+   "ratio_reconstruit": 5e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 265853.661867,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 99995
+  },
+  "htf": {
+   "symbole": "NOKJPY",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 13489,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 0.00014826895989324636,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-12 16:30:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 272153.685042,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12556
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5251,
+  "esperance_r": -0.134155,
+  "ecart_type_r": 1.081823,
+  "winrate": 0.356884,
+  "profit_factor": 0.7493,
+  "somme_r": -704.4469,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3611,
+  "esperance_r": -0.122133,
+  "ecart_type_r": 1.084863,
+  "winrate": 0.368319,
+  "profit_factor": 0.7699,
+  "somme_r": -441.0225,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1640,
+  "esperance_r": -0.160625,
+  "ecart_type_r": 1.074954,
+  "winrate": 0.331707,
+  "profit_factor": 0.7053,
+  "somme_r": -263.4244,
+  "concluant": true
+ },
+ "secondes": 2126.6,
+ "ecrit_le": "2026-08-23T01:11:20.211096+00:00"
+}

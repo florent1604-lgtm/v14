@@ -1,0 +1,82 @@
+{
+ "symbole": "XRPUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100002,
+ "debut": "2023-10-12 00:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T07:25:00+00:00",
+ "spread_points": 320.0,
+ "spread_prix": 0.0032,
+ "n_enter": 6506,
+ "barres_evaluees": 52566,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "XRPUSD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 2,
+   "ratio_reconstruit": 1.9998600097993142e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 291177.88512,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100002
+  },
+  "htf": {
+   "symbole": "XRPUSD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 18650,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2018-10-12 00:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 297477.906148,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 17200
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 6506,
+  "esperance_r": -0.440441,
+  "ecart_type_r": 1.202118,
+  "winrate": 0.330925,
+  "profit_factor": 0.4344,
+  "somme_r": -2865.5102,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 4443,
+  "esperance_r": -0.568156,
+  "ecart_type_r": 1.221836,
+  "winrate": 0.3088,
+  "profit_factor": 0.3529,
+  "somme_r": -2524.3161,
+  "concluant": true
+ },
+ "verification": {
+  "n": 2063,
+  "esperance_r": -0.165387,
+  "ecart_type_r": 1.10995,
+  "winrate": 0.378575,
+  "profit_factor": 0.7073,
+  "somme_r": -341.1941,
+  "concluant": true
+ },
+ "secondes": 1927.3,
+ "ecrit_le": "2026-08-23T08:10:05.180540+00:00"
+}

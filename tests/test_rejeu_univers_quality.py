@@ -14,13 +14,16 @@ def test_rejeu_propage_les_portes_et_rapporte_la_qualite(monkeypatch):
 
     def faux_charger(symbole, timeframe, count=None, **kwargs):
         appels.append((symbole, timeframe, count, kwargs))
-        index = pd.date_range("2026-08-20", periods=4, freq="15min", tz="UTC")
+        # 700 barres et non 4 : le rejeu refuse desormais un HTF trop court
+        # pour l'amorcage et la fenetre de features (PROFONDEUR_MIN_HTF).
+        n = 700
+        index = pd.date_range("2026-08-20", periods=n, freq="15min", tz="UTC")
         df = pd.DataFrame({
-            "open": [1.0] * 4,
-            "high": [1.1] * 4,
-            "low": [0.9] * 4,
-            "close": [1.0] * 4,
-            "spread": [10.0] * 4,
+            "open": [1.0] * n,
+            "high": [1.1] * n,
+            "low": [0.9] * n,
+            "close": [1.0] * n,
+            "spread": [10.0] * n,
         }, index=index)
         df.attrs["archive_quality"] = {
             "timeframe": timeframe,
@@ -30,7 +33,7 @@ def test_rejeu_propage_les_portes_et_rapporte_la_qualite(monkeypatch):
         return df
 
     def faux_rejouer(*args, **kwargs):
-        return SimpleNamespace(trades=[], n_enter=0, barres_evaluees=4, erreurs=0)
+        return SimpleNamespace(trades=[], n_enter=0, barres_evaluees=700, erreurs=0)
 
     monkeypatch.setattr(ru, "charger_barres", faux_charger)
     monkeypatch.setattr(ru, "specifications", lambda: {})

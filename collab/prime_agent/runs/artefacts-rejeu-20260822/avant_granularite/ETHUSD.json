@@ -1,0 +1,82 @@
+{
+ "symbole": "ETHUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100004,
+ "debut": "2023-10-11 23:30:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-09-06T07:00:00+00:00",
+ "spread_points": 2000.0,
+ "spread_prix": 2.0,
+ "n_enter": 5471,
+ "barres_evaluees": 52134,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "ETHUSD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 253185.646457,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100004
+  },
+  "htf": {
+   "symbole": "ETHUSD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 19287,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2018-10-11 23:30:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 259485.669117,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 17201
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5471,
+  "esperance_r": 0.141909,
+  "ecart_type_r": 1.128262,
+  "winrate": 0.517273,
+  "profit_factor": 1.3489,
+  "somme_r": 776.3819,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3565,
+  "esperance_r": 0.133704,
+  "ecart_type_r": 1.119426,
+  "winrate": 0.522581,
+  "profit_factor": 1.3288,
+  "somme_r": 476.656,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1906,
+  "esperance_r": 0.157254,
+  "ecart_type_r": 1.144745,
+  "winrate": 0.507345,
+  "profit_factor": 1.3865,
+  "somme_r": 299.7259,
+  "concluant": true
+ },
+ "secondes": 2078.5,
+ "ecrit_le": "2026-08-22T21:39:24.029282+00:00"
+}

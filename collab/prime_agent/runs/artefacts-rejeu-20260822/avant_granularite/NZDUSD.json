@@ -1,0 +1,82 @@
+{
+ "symbole": "NZDUSD",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100002,
+ "debut": "2022-08-14 22:00:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-04-18T06:30:00+00:00",
+ "spread_points": 11.0,
+ "spread_prix": 0.00011,
+ "n_enter": 5468,
+ "barres_evaluees": 59048,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "NZDUSD",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100007,
+   "barres_reconstruites": 5,
+   "ratio_reconstruit": 4.999650024498285e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 272123.754127,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100002
+  },
+  "htf": {
+   "symbole": "NZDUSD",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 44960,
+   "barres_reconstruites": 12,
+   "ratio_reconstruit": 0.00026690391459074735,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-08-14 22:00:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 278423.826915,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 14030
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 5468,
+  "esperance_r": -0.042885,
+  "ecart_type_r": 1.087243,
+  "winrate": 0.409108,
+  "profit_factor": 0.9112,
+  "somme_r": -234.4979,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3522,
+  "esperance_r": -0.018298,
+  "ecart_type_r": 1.080814,
+  "winrate": 0.42703,
+  "profit_factor": 0.9606,
+  "somme_r": -64.4456,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1946,
+  "esperance_r": -0.087386,
+  "ecart_type_r": 1.097663,
+  "winrate": 0.37667,
+  "profit_factor": 0.8306,
+  "somme_r": -170.0523,
+  "concluant": true
+ },
+ "secondes": 3195.7,
+ "ecrit_le": "2026-08-23T03:13:39.365655+00:00"
+}

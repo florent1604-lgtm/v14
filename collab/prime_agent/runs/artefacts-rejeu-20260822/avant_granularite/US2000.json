@@ -1,0 +1,82 @@
+{
+ "symbole": "US2000",
+ "ltf": "M15",
+ "htf": "H4",
+ "barres_ltf": 100051,
+ "debut": "2022-05-09 19:45:00+00:00",
+ "fin": "2026-08-19 22:45:00+00:00",
+ "coupure": "2025-03-16T21:45:00+00:00",
+ "spread_points": 40.0,
+ "spread_prix": 0.4,
+ "n_enter": 4996,
+ "barres_evaluees": 51279,
+ "erreurs": 0,
+ "qualite_archive": {
+  "ltf": {
+   "symbole": "US2000",
+   "timeframe": "M15",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 100051,
+   "barres_reconstruites": 0,
+   "ratio_reconstruit": 0.0,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": null,
+   "derniere_barre_utc": "2026-08-19T22:45:00+00:00",
+   "age_secondes": 275599.323466,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 100051
+  },
+  "htf": {
+   "symbole": "US2000",
+   "timeframe": "H4",
+   "borne_utile": 0,
+   "barres_avant_exclusion": 13592,
+   "barres_reconstruites": 1,
+   "ratio_reconstruit": 7.357268981753973e-05,
+   "ohlc_invalides": 0,
+   "ohlc_invalides_archive": 0,
+   "depuis_utc": "2017-05-09 19:45:00+00:00",
+   "derniere_barre_utc": "2026-08-19T21:00:00+00:00",
+   "age_secondes": 281899.349012,
+   "avance_secondes": 0.0,
+   "tolerance_future_s": 0.0,
+   "barres_retournees": 12361
+  },
+  "seuils": {
+   "fraicheur_max_s": null,
+   "ratio_reconstruit_max": null,
+   "tolerance_future_s": 0.0
+  }
+ },
+ "global": {
+  "n": 4996,
+  "esperance_r": 0.064001,
+  "ecart_type_r": 1.117462,
+  "winrate": 0.531825,
+  "profit_factor": 1.1448,
+  "somme_r": 319.7479,
+  "concluant": true
+ },
+ "calibration": {
+  "n": 3416,
+  "esperance_r": 0.045329,
+  "ecart_type_r": 1.114539,
+  "winrate": 0.517272,
+  "profit_factor": 1.1005,
+  "somme_r": 154.8452,
+  "concluant": true
+ },
+ "verification": {
+  "n": 1580,
+  "esperance_r": 0.104369,
+  "ecart_type_r": 1.123049,
+  "winrate": 0.563291,
+  "profit_factor": 1.247,
+  "somme_r": 164.9027,
+  "concluant": true
+ },
+ "secondes": 2589.4,
+ "ecrit_le": "2026-08-23T04:01:28.648247+00:00"
+}

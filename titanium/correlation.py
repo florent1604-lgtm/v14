@@ -227,6 +227,46 @@ def calculer(symboles, *, seuil: float = SEUIL_CORRELATION,
     return g
 
 
+def charger_cache(*, ttl: float | None = None) -> Grappes | None:
+    """Arbre deja calcule sur disque, ou ``None``. Ne calcule jamais.
+
+    ``ttl=None`` rend le cache QUEL QUE SOIT son age. C'est volontaire, et
+    c'est la reparation d'une panne mesuree : le 22/08/2026 la boucle a
+    redemarre un samedi, avec moins de 20 actifs ouverts. Le garde-fou qui
+    interdit de RECALCULER un arbre sur un echantillon trop maigre interdisait
+    aussi d'en LIRE un deja calcule ; l'arbre n'a donc jamais ete charge, et la
+    porte de risque correle a refuse 278 entrees d'affilee, soit toutes.
+
+    Un arbre de la veille reste une photographie utilisable : les familles de
+    correlation se deplacent en semaines, pas en heures. L'absence d'arbre,
+    elle, ferme la porte a 100 %. L'appelant recoit l'age et doit le tracer.
+    """
+    try:
+        if not CACHE.exists():
+            return None
+        d = json.loads(CACHE.read_text(encoding="utf-8"))
+        calcule_le = float(d.get("calcule_le", 0))
+        if ttl is not None and time.time() - calcule_le >= ttl:
+            return None
+        par_actif = d.get("par_actif", {})
+        if not par_actif:
+            return None
+        return Grappes(par_actif=par_actif, membres=d.get("membres", {}),
+                       calcule_le=calcule_le, methode=d.get("methode", ""))
+    except Exception:  # noqa: BLE001 — un cache illisible n'est pas un arbre
+        return None
+
+
+def age_grappes(grappes: Grappes | None) -> float:
+    """Age de l'arbre en secondes; ``inf`` s'il n'y en a pas."""
+    if grappes is None:
+        return float("inf")
+    try:
+        return max(0.0, time.time() - float(grappes.calcule_le))
+    except (TypeError, ValueError):
+        return float("inf")
+
+
 def charger(symboles, *, ttl: float = TTL_GRAPPES_S) -> Grappes:
     """Grappes en vigueur, recalculées seulement si périmées."""
     try:

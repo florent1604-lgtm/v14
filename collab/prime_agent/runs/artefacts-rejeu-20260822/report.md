@@ -229,3 +229,89 @@ reconnus par le nouveau : **meme epoque, aucun recalcul, aucune perte**. Seul
 ETHUSD est reparti, environ trente secondes apres son demarrage.
 
 Huit lots tournent de nouveau. Aucune sentinelle presente.
+
+
+---
+
+# Point 1 execute — porte de granularite reelle (23/08, 11h45)
+
+Commit `ea5abba`. Suite complete : **2137 passed, 2 skipped**. Ruff propre.
+
+## Ce que la porte corrige, mesure sur les trades bruts et non sur les fichiers
+
+La question n etait pas « combien de symboles portent des barres journalieres »
+mais « combien de TRADES ont ete decides en les regardant ». Reponse, sur les
+artefacts scelles de l epoque `16e79f53` :
+
+```
+symbole      trades atteints / total   segments touches
+COFFEE.fs         193 / 4574           calibration
+COCOA.fs          244 / 4326           calibration
+IT40              163 / 3624           calibration
+SPA35             188 / 5559           calibration
+USDCLP            203 /  674           calibration
+USDCOP            651 /  651           CALIBRATION ET VERIFICATION
+```
+
+USDCOP porte du journalier etiquete H4 **jusqu au 05/03/2026**. La totalite de
+son rejeu, verification comprise, est decidee sur une serie a deux echelles de
+volatilite. Le defaut n est donc pas cantonne a l histoire ancienne — c est la
+correction que j apporte a la lecture de Claude, qui le croyait inerte.
+
+## Trois decisions d ingenierie
+
+**1. La borne decide, la mesure verifie.** `charger_barres` demarre apres la
+derniere barre grossiere, borne publiee par `tools/borne_granularite.py`, puis
+recompte les barres grossieres **dans la fenetre rendue** et refuse s il en
+reste. Une borne perimee par une collecte plus fraiche fait donc echouer au
+lieu de passer inapercue. Meme forme que le refus OHLC de Claude.
+
+**2. La granularite se mesure sur la source, avant exclusion des barres
+fabriquees.** Retirer une barre reconstruite creuse un trou de 24 h qui imite
+une serie journaliere sans en etre une. Sans cette precaution, DOGUSD etait
+refuse pour un trou, pas pour une granularite — faux positif attrape en
+mesurant les 148 symboles avant de committer.
+
+**3. `ArchiveHorsUniversError` separe enfin les deux refus qui ont arrete deux
+backfills le 22/08.** Une archive VIDE ne signale aucune casse : le lot la
+consigne dans `_HORS_UNIVERS.json` et passe au suivant. Une barre CORROMPUE
+reste fail-closed avec sentinelle. USDUSC et USDCOP sortent ainsi de l univers
+sans casser un run de quinze heures. La rustine d hier soir sur le lot 4
+devient inutile.
+
+**Et le trou de scellement est ferme** : `_metadonnees.json` et
+`bornes_granularite.json` entrent dans `fichiers_entree` du snapshot. Ces deux
+fichiers decident de la fenetre lue autant que le code ; jusqu ici un artefact
+pouvait diverger apres un simple recalcul de borne, invisible a
+`artefact_brut_valide`.
+
+## Portee mesuree avant de relancer
+
+```
+87 symboles   fenetre inchangee
+60 symboles   HTF demarre plus tard
+ 4 symboles   M15 demarre plus tard  (COCOA.fs COFFEE.fs IT40 SPA35)
+ 2 symboles   hors univers           (USDUSC vide, USDCOP 209 barres H4)
+```
+
+Une troncature HTF est neutre tant qu il reste 400 barres avant la premiere
+barre evaluee — demontre hier. Apres la porte, le prefixe minimal est de
+**796 barres sur 130 symboles**. Il tombe sous le seuil sur sept seulement :
+COCOA.fs 100, COFFEE.fs 86, IT40 85, SPA35 93, GER40 375, USDCLP 0, USDCOP 0.
+
+**Prediction verifiable : seuls ces sept-la doivent changer de chiffres.** Les
+141 autres sont attendus identiques, et les resumes precedents sont figes dans
+`avant_granularite/` pour le prouver symbole par symbole, comme Claude l a fait
+avec `avant_borne_htf/`.
+
+Trois de ces sept sont dans les 38 survivants : **IT40 (3e), COFFEE.fs (16e),
+GER40 (17e)**. Leur classement n est pas acquis.
+
+## Etat
+
+```
+empreinte moteur   16e79f53a610da42 -> 051f50adf179177e
+artefacts          les 148 sont perimes, l analyse refuse deja de les classer
+backfill v4        8 lots relances a 11h45, fin estimee ~02h00 le 24/08
+univers cible      147 symboles (149 - USDUSC - USDCOP)
+```

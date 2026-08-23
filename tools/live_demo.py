@@ -29,6 +29,7 @@ l'accumulation.
 from __future__ import annotations
 
 import argparse
+import json as _json
 import math
 import signal
 import sys
@@ -242,9 +243,34 @@ def _compter_tunnel(stats: dict, etape: str, motif: str, nombre: int = 1) -> Non
     seau[cle] = int(seau.get(cle, 0) or 0) + increment
 
 
+#: Journal des refus post-ENTER. La boucle armee tourne dans une console
+#: `cmd /k` sans fichier de sortie : le 23/08/2026, 435 entrees refusees en
+#: 28 h et pas une seule ligne de motif lisible apres coup. La cause a du etre
+#: remontee par l'horodatage du cache de l'arbre de correlation.
+REFUS_LIVE = RACINE / "results" / "refus_live.ndjson"
+
+
+def _refus(stats: dict, code: str, symbole: str = "", detail: str = "",
+           **contexte) -> None:
+    """Compte le refus ET l'ecrit sur disque. Ne leve jamais."""
+    _compter_tunnel(stats, "post_enter_refusal", code)
+    try:
+        ligne = {"at": datetime.now(timezone.utc).isoformat(),
+                 "code": str(code), "symbole": str(symbole),
+                 "detail": str(detail)[:300]}
+        for cle, valeur in contexte.items():
+            ligne[cle] = valeur
+        REFUS_LIVE.parent.mkdir(parents=True, exist_ok=True)
+        with REFUS_LIVE.open("a", encoding="utf-8") as flux:
+            flux.write(_json.dumps(ligne, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 — journaliser ne doit jamais bloquer
+        pass
+
+
 def _compter_refus_execution(stats: dict, resultat) -> None:
     """Ventile un refus d'ordre sans perdre le compteur historique EXECUTION."""
-    _compter_tunnel(stats, "post_enter_refusal", "EXECUTION")
+    _refus(stats, "EXECUTION", getattr(resultat, "symbol", "") or "",
+           getattr(resultat, "reason", "") or "INCONNU")
     _compter_tunnel(
         stats,
         "execution_refusal",
@@ -387,18 +413,48 @@ def _tradables_connus(courants) -> list:
 
 
 def rafraichir_grappes(catalogue) -> None:
-    """(Re)calcule l'arbre de correlation. A appeler HORS d'un envoi d'ordre."""
+    """(Re)calcule l'arbre de correlation. A appeler HORS d'un envoi d'ordre.
+
+    Deux besoins distincts, longtemps confondus dans un seul garde-fou :
+
+    * **calculer** un arbre demande un echantillon large — sous 20 actifs les
+      familles ne veulent rien dire, et on attend que la rotation en ait
+      montre assez ;
+    * **lire** un arbre deja calcule ne demande rien du tout.
+
+    Le seuil de 20 gardait les deux. Consequence mesuree le 22/08/2026 : la
+    boucle redemarre un samedi, seule la crypto est ouverte, 17 actifs
+    portables — l'arbre n'est jamais charge, meme avec un cache frais sur
+    disque, et la porte de risque correle refuse 435 entrees d'affilee.
+    Le seuil ne garde donc plus que le recalcul.
+    """
     global _GRAPPES, _GRAPPES_A
     try:
         import time as _t
 
-        from titanium.correlation import TTL_GRAPPES_S, charger
+        from titanium.correlation import TTL_GRAPPES_S, age_grappes, charger, charger_cache
         if _GRAPPES is not None and _t.time() - _GRAPPES_A < TTL_GRAPPES_S:
             return
-        # Sous 20 actifs, les familles ne veulent rien dire : on attend que
-        # la rotation en ait montré assez.
+
         if len(catalogue) < 20:
+            # Pas de quoi recalculer. Un arbre deja sur disque reste une
+            # photographie utilisable : les familles se deplacent en semaines,
+            # pas en heures. Son age est trace a chaque adoption.
+            if _GRAPPES is not None:
+                return
+            g = charger_cache()
+            if g is None:
+                print(f"  grappes : {len(catalogue)} actifs ouverts, trop peu "
+                      "pour calculer, et aucun arbre sur disque", flush=True)
+                return
+            _GRAPPES = g
+            _GRAPPES_A = _t.time()
+            print(f"  grappes de correlation : {len(g.membres)} familles "
+                  f"({g.methode}) — CACHE de "
+                  f"{age_grappes(g) / 3600:.1f} h, recalcul impossible sous "
+                  f"20 actifs ({len(catalogue)} ouverts)", flush=True)
             return
+
         g = charger(catalogue)
         if g.par_actif:
             _GRAPPES = g
@@ -1241,7 +1297,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         # Garde-fou indépendant de l'idempotence : ne jamais empiler le même
         # risque corrélé sur un actif déjà en position.
         if par_symbole.get(sym, 0) >= MAX_PAR_SYMBOLE:
-            _compter_tunnel(stats, "post_enter_refusal", "MAX_PAR_SYMBOLE")
+            _refus(stats, "MAX_PAR_SYMBOLE", sym,
+                   f"deja {par_symbole[sym]} position(s) sur cet actif")
             print(f"    {sym:8} ENTER ignoré — déjà {par_symbole[sym]} position(s) "
                   f"sur cet actif", flush=True)
             continue
@@ -1251,13 +1308,15 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             from titanium.edge import asset_class_of as _classe
 
             if _classe(sym) == "fx":
-                _compter_tunnel(stats, "post_enter_refusal", "FX_SHORT_SUSPENDU")
+                _refus(stats, "FX_SHORT_SUSPENDU", sym,
+                       "shorts FX suspendus (recalibrage 17/08/2026)")
                 print(f"    {sym:8} ENTER ignoré — shorts FX suspendus "
                       f"(recalibrage 17/08/2026)", flush=True)
                 continue
 
         if out.risk_verdict == "DENY":
-            _compter_tunnel(stats, "post_enter_refusal", "RISKGATE_DENY")
+            _refus(stats, "RISKGATE_DENY", sym, out.reason,
+                   piliers=c.get("support"), side=int(getattr(out, "side", 0) or 0))
             print(f"    {sym:8} ENTER mais RiskGate refuse : {out.reason}", flush=True)
             continue
 
@@ -1268,7 +1327,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         # réserver : la strate S≥3 n'est plus censurée par les S=2.
         if (MAX_POSITIONS > 0 and ouvertes >= MAX_POSITIONS - RESERVE_S3
                 and c["support"] < 3):
-            _compter_tunnel(stats, "post_enter_refusal", "RESERVE_S3")
+            _refus(stats, "RESERVE_S3", sym,
+                   f"creneaux reserves a S>=3 (setup {c['support']}/4)",
+                   ouvertes=ouvertes)
             print(f"    {sym:8} ENTER différé — créneaux restants réservés à la "
                   f"strate S>=3 (setup {c['support']}/4)", flush=True)
             continue
@@ -1294,7 +1355,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             # ── Le setup est-il encore valable MAINTENANT ?
             derive = _derive_depuis_decision(sym, feats, out)
             if derive is not None and derive > DERIVE_MAX_R:
-                _compter_tunnel(stats, "post_enter_refusal", "DERIVE")
+                _refus(stats, "DERIVE", sym,
+                       f"prix derive de {derive:.2f} R depuis la decision")
                 print(f"    {sym:8} ENTER périmé — le prix a dérivé de "
                       f"{derive:.2f} R depuis la décision, setup abandonné",
                       flush=True)
@@ -1308,7 +1370,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
 
             cout_actuel = cout_relatif_stop(spec, out.stop_distance or 0.0)
             if cout_actuel > MAX_COUT_SPREAD_PCT:
-                _compter_tunnel(stats, "post_enter_refusal", "COUT_SPREAD")
+                _refus(stats, "COUT_SPREAD", sym,
+                       f"spread {cout_actuel:.0%} du stop reel "
+                       f"(plafond {MAX_COUT_SPREAD_PCT:.0%})")
                 print(f"    {sym:8} ENTER refusé — spread {cout_actuel:.0%} "
                       f"du stop réel (plafond {MAX_COUT_SPREAD_PCT:.0%})",
                       flush=True)
@@ -1332,7 +1396,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             continue
 
         if not budget.tradable:
-            _compter_tunnel(stats, "post_enter_refusal", "BUDGET")
+            _refus(stats, "BUDGET", sym, budget.reason)
             print(f"    {sym:8} ENTER mais {budget.reason}", flush=True)
             continue
 
@@ -1341,7 +1405,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         # celle-ci, apres sizing, avec le risque effectivement tradable.
         ok_grappe, motif_grappe = _revalider_grappe_apres_sizing(sym, budget)
         if not ok_grappe:
-            _compter_tunnel(stats, "post_enter_refusal", "GRAPPE")
+            _refus(stats, "GRAPPE", sym, motif_grappe,
+                   risque_pct=getattr(budget, "effective_pct", None))
             print(f"    {sym:8} ENTER refuse — risque effectif : "
                   f"{motif_grappe}", flush=True)
             continue
@@ -1358,7 +1423,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             continue
 
         if limites_en_attente >= MAX_LIMITES_EN_ATTENTE:
-            _compter_tunnel(stats, "post_enter_refusal", "LIMIT_PENDING_CAP")
+            _refus(stats, "LIMIT_PENDING_CAP", "",
+                   f"{MAX_LIMITES_EN_ATTENTE} limites deja en attente")
             print(f"    limite en attente déjà présente "
                   f"({MAX_LIMITES_EN_ATTENTE}) — aucun risque passif supplémentaire",
                   flush=True)

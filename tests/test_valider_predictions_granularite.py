@@ -156,3 +156,16 @@ def test_ecart_infinitesimal_n_est_pas_un_ecart(univers):
     _manifeste(brut, "AUDUSD", MOTEUR_A)
     rapport = _valider(module, reference, rejeu, brut, attendus=())
     assert rapport["verdict"] == "CONFORME"
+
+
+def test_la_fenetre_ne_rejoue_pas_les_mesures_de_resultat(univers):
+    module, reference, rejeu, brut = univers
+    _resume(reference, "IT40", n=100, debut="2012-08-06")
+    _resume(rejeu, "IT40", n=90, debut="2018-04-08")
+    _manifeste(brut, "IT40", MOTEUR_A)
+    rapport = _valider(module, reference, rejeu, brut, attendus=("IT40",))
+    detail = rapport["details"][0]
+    assert [e["champ"] for e in detail["fenetre"]] == ["debut", "barres_ltf"] \
+        or [e["champ"] for e in detail["fenetre"]] == ["debut"]
+    assert not any("." in e["champ"] for e in detail["fenetre"])
+    assert any(e["champ"] == "global.n" for e in detail["ecarts"])

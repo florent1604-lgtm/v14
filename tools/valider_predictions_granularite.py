@@ -82,13 +82,21 @@ def _ecart(avant, apres) -> bool:
 
 
 def comparer(reference: dict, courant: dict,
-             champs: tuple[str, ...] = CHAMPS_RACINE) -> list[dict]:
-    """Ecarts entre deux resumes, champ par champ."""
+             champs: tuple[str, ...] = CHAMPS_RACINE,
+             *, segments: bool = True) -> list[dict]:
+    """Ecarts entre deux resumes, champ par champ.
+
+    ``segments=False`` limite la comparaison aux champs demandes : la liste des
+    ecarts de FENETRE ne doit pas rejouer les mesures de RESULTAT, sans quoi un
+    lecteur croit voir deux constats la ou il n'y en a qu'un.
+    """
     ecarts: list[dict] = []
     for champ in champs:
         avant, apres = reference.get(champ), courant.get(champ)
         if _ecart(avant, apres):
             ecarts.append({"champ": champ, "avant": avant, "apres": apres})
+    if not segments:
+        return ecarts
     for segment in SEGMENTS:
         bloc_avant = reference.get(segment) or {}
         bloc_apres = courant.get(segment) or {}
@@ -134,7 +142,8 @@ def valider(*, reference: Path = REFERENCE, rejeu: Path = REJEU,
             entree["statut"] = "sans_reference"
         else:
             entree["ecarts"] = comparer(ref, cur)
-            entree["fenetre"] = comparer(ref, cur, champs=CHAMPS_FENETRE)
+            entree["fenetre"] = comparer(ref, cur, champs=CHAMPS_FENETRE,
+                                         segments=False)
             entree["statut"] = "change" if entree["ecarts"] else "identique"
         details.append(entree)
 

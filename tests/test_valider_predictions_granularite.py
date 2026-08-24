@@ -169,3 +169,14 @@ def test_la_fenetre_ne_rejoue_pas_les_mesures_de_resultat(univers):
         or [e["champ"] for e in detail["fenetre"]] == ["debut"]
     assert not any("." in e["champ"] for e in detail["fenetre"])
     assert any(e["champ"] == "global.n" for e in detail["ecarts"])
+
+
+def test_un_fichier_de_service_n_est_pas_un_symbole(univers):
+    module, reference, rejeu, brut = univers
+    _resume(reference, "AUDUSD")
+    _resume(rejeu, "AUDUSD")
+    _manifeste(brut, "AUDUSD", MOTEUR_A)
+    _resume(reference, "_analyse_rejeu")
+    rapport = _valider(module, reference, rejeu, brut, attendus=())
+    assert rapport["verdict"] == "CONFORME"
+    assert [d["symbole"] for d in rapport["details"]] == ["AUDUSD"]

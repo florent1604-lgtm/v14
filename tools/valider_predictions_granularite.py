@@ -122,8 +122,13 @@ def valider(*, reference: Path = REFERENCE, rejeu: Path = REJEU,
                 else epoque_rejeu.empreinte_courante())
     hors = registre_hors_univers(hors_univers)
 
-    symboles = sorted({p.stem for p in reference.glob("*.json")}
-                      | {p.stem for p in rejeu.glob("*.json")})
+    # Les dossiers de rejeu portent aussi des fichiers de service prefixes par
+    # "_" (registres, analyses figees). Les compter comme des symboles fait
+    # apparaitre un faux "en attente" qui interdit a jamais un verdict complet.
+    symboles = sorted(
+        nom for nom in ({p.stem for p in reference.glob("*.json")}
+                        | {p.stem for p in rejeu.glob("*.json")})
+        if not nom.startswith("_"))
     details: list[dict] = []
     for symbole in symboles:
         ref = _json(reference / f"{symbole}.json")

@@ -127,3 +127,73 @@ Le heartbeat de la boucle demo du 23/08 13h17Z montre **93 ENTER, 0 envoye,
 93 `RISKGATE_DENY`** sur 137 tours. A instruire apres la cloture : plafond
 d exposition atteint, ou refus systematique ? Ce n est pas un correctif a faire
 pendant un backfill.
+
+
+---
+
+# Cloture executee — 24/08, 01h25 UTC
+
+`raison_arret = termine`. Les huit lots sont sortis seuls, la veille a tenu
+139 tours sans incident, et les trois etapes ont rendu 0.
+
+## 1. Verdict sur la prediction : CONFORME
+
+```
+142 identiques | 5 changes, tous prevus | 1 hors univers | 0 INATTENDU
+COCOA.fs  COFFEE.fs  IT40  SPA35  USDCLP        USDCOP hors univers
+```
+
+**Zero symbole hors des sept n a bouge d un chiffre.** La porte de granularite
+fait exactement ce qui etait annonce, ni plus ni moins.
+
+Une nuance mesuree, en faveur du moteur : **GER40 n a pas bouge**. La
+prediction annoncait un changement des que le prefixe HTF tombait sous
+400 barres, et GER40 en avait 375. Le seuil de 400 etait conservateur :
+`titanium/backtest.py` saute une barre tant que `j < AMORCAGE` avec
+`AMORCAGE = 250`, et decoupe ensuite `htf.iloc[max(0, j - fenetre + 1):j + 1]`
+-- une fenetre de 400 au PLUS, pas au moins. Le vrai plancher est 250, GER40
+est au-dessus, ses chiffres devaient donc rester identiques. La prediction
+etait trop large d un symbole, dans le sens prudent.
+
+## 2. Deux verrous a lever, tous deux benins
+
+- `_analyse_rejeu.json`, fichier de service fige avec la reference, etait
+  compte comme un symbole en attente et interdisait a jamais un verdict
+  complet. Les noms prefixes par `_` sont desormais ignores (1 test).
+- L artefact **perime de USDCOP** reste sur le disque : l analyse l ecarte
+  proprement (`1 artefact d une AUTRE generation ecarte`) et l audit le
+  signale. A purger, sans urgence.
+
+## 3. Ce que l univers dit, apres la porte
+
+```
+147 symboles a l epoque 051f50ad | mediane -0,1040R | positifs 44/147
+positifs en calibration ET en global : 38   (le critere publie par l analyse)
+positifs en calibration ET en VERIFICATION, n_ver >= 60 : 29
+```
+
+Tete du classement hors echantillon (segment de verification, jamais utilise
+pour selectionner) :
+
+```
+COFFEE.fs +0,1917 (1639)   USTECH +0,1684 (1800)   BTCUSD +0,1568 (2046)
+XAUUSD    +0,1785 (1919)   UKOIL  +0,1646 (1922)   FRA40  +0,1567 (1892)
+USOIL     +0,1737 (1833)   ETHUSD +0,1573 (1906)   WTI.fs +0,1558 (1824)
+```
+
+IT40, le symbole le plus touche par la porte, garde +0,1500 en verification
+mais perd 42 % de ses clotures (2216 -> 1282) : son avantage etait en partie
+lu sur des barres journalieres etiquetees M15. C est precisement ce que la
+porte devait reveler.
+
+38 actifs se reduisent a **21 paris independants** (correlations H1 sur les
+rendements) : la plus grosse grappe est celle des indices US (7 actifs,
+garder USTECH), puis le petrole (4, garder UKOIL) et le crypto majeur
+(4, garder BTCUSD).
+
+## 4. Reste ouvert
+
+1. Reindexer GitNexus (differe pendant le run pour ne pas voler de CPU).
+2. Purger le resume perime de USDCOP.
+3. Arbitrage de la porte de cout (`docs/RAPPORT_COUT_DECISIONNEL_20260822.md`).
+4. Instruire `RISKGATE_DENY` / `MAX_PAR_SYMBOLE` sur la boucle demo.

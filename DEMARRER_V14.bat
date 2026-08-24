@@ -45,7 +45,10 @@ if not exist "%PY%" (
     exit /b 1
 )
 
-tasklist /FI "IMAGENAME eq terminal64.exe" 2>nul | find /I "terminal64.exe" >nul
+REM  find.exe est appele par son chemin complet : un `find` Unix present dans
+REM  le PATH (Git) prendrait la main et ferait echouer ce controle a tort.
+REM  Le lanceur restait alors bloque sur le pause ci-dessous sans rien demarrer.
+tasklist /FI "IMAGENAME eq terminal64.exe" 2>nul | "%SystemRoot%\System32\find.exe" /I "terminal64.exe" >nul
 if errorlevel 1 (
     echo  [ECHEC] MetaTrader 5 n'est pas lance.
     echo          Ouvre le terminal, connecte-toi, puis relance ce script.

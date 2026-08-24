@@ -7,7 +7,6 @@ l'actif), puis laisse l'ordre expirer plutôt que de poursuivre le prix.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -16,6 +15,11 @@ from titanium.data.mt5_vendor import (
     decalage_serveur,
     ensure_symbol,
     mt5_session,
+)
+from titanium.execution.limit_pricing import (
+    LimitPlan,
+    arrondi_passif,
+    plan_limite_entree,
 )
 from titanium.execution.mt5_executor import (
     ExecutionPolicy,
@@ -26,15 +30,12 @@ from titanium.execution.mt5_executor import (
     compute_lot,
 )
 
-
-@dataclass(frozen=True)
-class LimitPlan:
-    price: float
-    spread: float
-    spread_r: float
-    passive_extra: float
-    saving_vs_market: float
-    ttl_seconds: int
+#: Le prix passif est calcule dans ``titanium.execution.limit_pricing``, qui
+#: n'importe pas MetaTrader5. C'est la SEULE definition du prix d'entree de la
+#: boucle : le simulateur d'execution appelle la meme fonction au lieu de la
+#: recopier. Une copie avait deja diverge en trois points le 24/08/2026.
+__all__ = ["LimitPlan", "LimitOrderResult", "plan_limit_entry",
+           "place_limit_order", "reset_limit_idempotency"]
 
 
 @dataclass
@@ -53,55 +54,28 @@ def reset_limit_idempotency() -> None:
     _pending_keys.clear()
 
 
+def tick_du_symbole(spec: SymbolSpec) -> float:
+    """Pas de cotation retenu : ``tick_size``, a defaut ``point``."""
+    return float(spec.tick_size or spec.point or 0.0)
+
+
 def _passive_round(value: float, spec: SymbolSpec, side: int) -> float:
-    tick = float(spec.tick_size or spec.point or 0.0)
-    if tick <= 0:
-        raise ValueError("TICK_INVALIDE")
-    units = value / tick
-    quantized = math.floor(units + 1e-10) if side > 0 else math.ceil(units - 1e-10)
-    return round(quantized * tick, spec.digits)
+    return arrondi_passif(value, tick=tick_du_symbole(spec),
+                          digits=spec.digits, side=side)
 
 
 def plan_limit_entry(spec: SymbolSpec, *, bid: float, ask: float, side: int,
                      stop_distance: float) -> LimitPlan:
-    """Construit un prix passif équilibrant économie et probabilité de fill.
+    """Prix passif de la boucle, pour un symbole du courtier.
 
-    - spread <= 5 % de R : achat au bid / vente à l'ask ;
-    - spread plus coûteux : exige jusqu'à 5 % de R d'amélioration en plus ;
-    - plus le spread pèse dans R, plus la durée de validité est courte.
+    La formule ne vit plus ici : elle est dans
+    ``titanium.execution.limit_pricing.plan_limite_entree``, appelee aussi par
+    la politique ``v14_live`` du simulateur. Cette fonction ne fait que lui
+    donner le pas de cotation et le nombre de decimales du symbole.
     """
-    if side not in (-1, 1):
-        raise ValueError("SIDE_INVALIDE")
-    valeurs = (float(bid), float(ask), float(stop_distance))
-    if not all(math.isfinite(v) and v > 0 for v in valeurs) or ask < bid:
-        raise ValueError("PRIX_INVALIDE")
-
-    spread = ask - bid
-    spread_r = spread / stop_distance
-    seuil_confort = 0.05 * stop_distance
-    extra = min(seuil_confort, max(0.0, spread - seuil_confort))
-    brut = bid - extra if side > 0 else ask + extra
-    price = _passive_round(brut, spec, side)
-    # Une limite passive ne doit jamais traverser le carnet au moment du plan.
-    price = min(price, bid) if side > 0 else max(price, ask)
-
-    if spread_r > 0.15:
-        ttl = 120
-    elif spread_r > 0.08:
-        ttl = 300
-    else:
-        ttl = 600
-
-    reference_marche = ask if side > 0 else bid
-    saving = (reference_marche - price) * side
-    return LimitPlan(
-        price=round(price, spec.digits),
-        spread=spread,
-        spread_r=spread_r,
-        passive_extra=extra,
-        saving_vs_market=max(0.0, saving),
-        ttl_seconds=ttl,
-    )
+    return plan_limite_entree(bid=bid, ask=ask, side=side,
+                              stop_distance=stop_distance,
+                              tick=tick_du_symbole(spec), digits=spec.digits)
 
 
 #: L'expiration part dans le fuseau du SERVEUR : calculee en UTC, elle paraît

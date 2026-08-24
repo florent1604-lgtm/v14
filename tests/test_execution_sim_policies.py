@@ -10,12 +10,12 @@ from titanium.execution_sim.policies import POLICY_REGISTRY, PolicyContext, get_
 NOW = datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc)
 
 
-def context(**changes) -> PolicyContext:
-    snapshot = MarketSnapshot(
+def snapshot(bid=1.1000, ask=1.1002) -> MarketSnapshot:
+    return MarketSnapshot(
         timestamp=NOW,
         symbol="EURUSD",
-        bid=1.1000,
-        ask=1.1002,
+        bid=bid,
+        ask=ask,
         open=1.1001,
         high=1.1010,
         low=1.0990,
@@ -24,7 +24,11 @@ def context(**changes) -> PolicyContext:
         volatility_bps=8.0,
         event_id="v1",
     )
-    values = {"snapshot": snapshot, "tick_size": 0.0001, "historical_volumes": (100, 200, 300)}
+
+
+def context(**changes) -> PolicyContext:
+    values = {"snapshot": snapshot(), "tick_size": 0.0001,
+              "historical_volumes": (100, 200, 300)}
     values.update(changes)
     return PolicyContext(**values)
 
@@ -36,7 +40,14 @@ def intent(qty=12.0, **changes):
 
 
 def test_all_fifteen_policies_are_selectable():
+    """Quinze politiques de recherche, plus celle du bot lui-meme.
+
+    `v14_live` a ete ajoutee le 24/08/2026 : classer quinze politiques dont
+    aucune n'est celle qui tourne revient a designer un gagnant contre des
+    adversaires imaginaires.
+    """
     assert set(POLICY_REGISTRY) == {
+        "v14_live",
         "market",
         "limit_passive",
         "post_only",
@@ -246,3 +257,100 @@ def test_multi_leg_emergency_hedges_residual_with_market_order():
     assert emergency.side is Side.SELL
     assert emergency.quantity == pytest.approx(3.0)
     assert emergency.order_type is OrderType.MARKET
+
+
+def _spec(digits=5, tick=1e-5):
+    from titanium.data.mt5_vendor import SymbolSpec
+
+    return SymbolSpec(name="EURUSD", digits=digits, point=tick, volume_min=0.01,
+                      volume_max=100.0, volume_step=0.01,
+                      trade_contract_size=100000.0, spread=10,
+                      tick_value=1.0, tick_size=tick)
+
+
+CAS_PARITE = [
+    # (bid, ask, side, stop, tick, digits) — spreads etroits, larges, ticks
+    # non decimaux, prix a trois chiffres : la copie precedente echouait des
+    # que le tick n'etait pas une puissance de dix.
+    (1.10000, 1.10020, 1, 0.0040, 1e-5, 5),
+    (1.10000, 1.10020, -1, 0.0040, 1e-5, 5),
+    (1.10000, 1.10500, 1, 0.0040, 1e-5, 5),
+    (1.10000, 1.10500, -1, 0.0040, 1e-5, 5),
+    (99.98, 100.23, 1, 3.0, 0.25, 2),
+    (99.98, 100.23, -1, 3.0, 0.25, 2),
+    (18234.5, 18236.0, 1, 40.0, 0.5, 1),
+    (18234.5, 18236.0, -1, 40.0, 0.5, 1),
+    (1.10000, 1.10000, 1, 0.0040, 1e-5, 5),
+    (1.10000, 1.10020, 1, 0.0001, 1e-5, 5),
+]
+
+
+@pytest.mark.parametrize("bid,ask,side,stop,tick,digits", CAS_PARITE)
+def test_v14_live_est_EXACTEMENT_le_prix_de_la_boucle(bid, ask, side, stop, tick, digits):
+    """Egalite EXACTE, pas une tolerance, et dans les deux sens.
+
+    Une tolerance de 1e-5 sur un tick de 0.25 laisse passer un ordre place a
+    un prix impossible : c'est ce que la revue Hermes H1 (P0-3) a trouve.
+    """
+    from titanium.execution.limit_orders import plan_limit_entry
+
+    ctx = context(snapshot=snapshot(bid=bid, ask=ask), tick_size=tick)
+    attendu = plan_limit_entry(_spec(digits=digits, tick=tick), bid=bid, ask=ask,
+                               side=side, stop_distance=stop)
+    ordres = get_policy("v14_live").plan(
+        intent(qty=1.0, side=Side(side),
+               metadata={"stop_distance": stop, "digits": digits}), ctx)
+    assert len(ordres) == 1
+    assert ordres[0].limit_price == attendu.price
+    assert ordres[0].metadata["ttl_seconds"] == attendu.ttl_seconds
+    assert ordres[0].expires_at == ctx.snapshot.timestamp + timedelta(
+        seconds=attendu.ttl_seconds)
+
+
+def test_v14_live_arrondit_au_tick_non_decimal():
+    """Un prix qui n'est pas un multiple du tick serait refuse par le courtier."""
+    ctx = context(snapshot=snapshot(bid=99.98, ask=100.23), tick_size=0.25)
+    ordre = get_policy("v14_live").plan(
+        intent(qty=1.0, metadata={"stop_distance": 3.0, "digits": 2}), ctx)[0]
+    assert ordre.limit_price == pytest.approx(round(ordre.limit_price / 0.25) * 0.25)
+    assert ordre.limit_price <= 99.98
+
+
+@pytest.mark.parametrize("tick,decimales", [(0.25, 2), (0.125, 3), (1e-5, 5)])
+def test_v14_live_deduit_les_decimales_du_tick_sans_metadonnee(tick, decimales):
+    from decimal import Decimal
+
+    ctx = context(snapshot=snapshot(bid=99.98, ask=100.23), tick_size=tick)
+    ordre = get_policy("v14_live").plan(
+        intent(qty=1.0, metadata={"stop_distance": 3.0}), ctx)[0]
+    assert ordre.limit_price == round(ordre.limit_price, decimales)
+    assert Decimal(str(ordre.limit_price)) % Decimal(str(tick)) == 0
+
+
+@pytest.mark.parametrize("bid,ask,stop,tick", [
+    (1.1000, 1.1002, 0.0, 1e-5),       # la boucle live refuse un stop nul
+    (1.1000, 1.1002, -0.004, 1e-5),
+    (1.1000, 1.1002, float("nan"), 1e-5),
+    (1.1000, 1.1002, float("inf"), 1e-5),
+    (float("nan"), 1.1002, 0.004, 1e-5),
+    (1.1005, 1.1002, 0.004, 1e-5),     # carnet inverse
+    (0.0, 1.1002, 0.004, 1e-5),
+    (1.1000, 1.1002, 0.004, 0.0),      # tick inconnu
+])
+def test_v14_live_echoue_ferme_et_ne_pose_aucun_ordre(bid, ask, stop, tick):
+    """Pas d'ordre de repli : un repli ferait passer un refus pour un fill."""
+    ctx = context(snapshot=snapshot(bid=bid, ask=ask), tick_size=tick)
+    assert get_policy("v14_live").plan(
+        intent(qty=1.0, metadata={"stop_distance": stop, "digits": 5}), ctx) == []
+
+
+def test_v14_live_ne_traverse_jamais_le_carnet():
+    for side, borne in ((1, "bid"), (-1, "ask")):
+        ctx = context()
+        ordre = get_policy("v14_live").plan(
+            intent(qty=1.0, side=Side(side),
+                   metadata={"stop_distance": 0.0040, "digits": 5}), ctx)[0]
+        if side > 0:
+            assert ordre.limit_price <= getattr(ctx.snapshot, borne)
+        else:
+            assert ordre.limit_price >= getattr(ctx.snapshot, borne)

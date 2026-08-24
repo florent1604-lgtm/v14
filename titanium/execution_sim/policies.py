@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
 from itertools import count
 from typing import Any
 
+from titanium.execution.limit_pricing import plan_limite_entree
 from titanium.execution_sim.models import ExecutionIntent, MarketSnapshot, Order, OrderType, Side
 
 
@@ -571,6 +573,72 @@ class MakerThenHedgeTakerPolicy(ExecutionPolicy):
         )
 
 
+class V14LivePolicy(ExecutionPolicy):
+    """La politique REELLEMENT utilisee par la boucle V14, mise dans l'arene.
+
+    Elle n'imite pas ``titanium.execution.limit_orders`` : elle appelle la
+    MEME fonction de prix, ``limit_pricing.plan_limite_entree``. La version du
+    24/08/2026 recopiait la formule et divergeait deja sur trois points (stop
+    nul accepte, aucun arrondi au tick, finitude des prix non verifiee) --
+    revue Hermes H1, P0-3. Classer une politique « celle du bot » qui n'est pas
+    celle du bot ne mesure rien, et une copie derive toujours.
+
+    Sans elle, la matrice classe quinze politiques dont AUCUNE n'est celle du
+    bot : le gagnant serait un gagnant contre des adversaires imaginaires.
+
+    Entrees necessaires, par ``intent.metadata`` :
+
+    * ``stop_distance`` -- distance de stop connue A LA DECISION, jamais une
+      information posterieure ; sans elle la boucle live refuse l'ordre ;
+    * ``digits`` -- decimales du symbole ; a defaut, deduites du pas de tick.
+
+    ECHEC FERME : si le prix passif ne peut pas etre calcule (stop nul, prix
+    non fini, carnet inverse, tick absent), la politique ne rend AUCUN ordre,
+    exactement comme la boucle live qui n'envoie rien. Elle ne rend jamais un
+    ordre de repli : un repli silencieux ferait passer un refus pour une
+    execution.
+    """
+
+    name = "v14_live"
+
+    @staticmethod
+    def _digits(intent, context) -> int:
+        declare = intent.metadata.get("digits")
+        if declare is not None:
+            return int(declare)
+        tick = float(context.tick_size or 0.0)
+        if tick <= 0:
+            raise ValueError("TICK_INVALIDE")
+        decimal_tick = Decimal(str(tick)).normalize()
+        if not decimal_tick.is_finite():
+            raise ValueError("TICK_INVALIDE")
+        # Le nombre de decimales n'est pas l'ordre de grandeur du tick :
+        # 0.25 exige deux decimales et 0.125 en exige trois. La precedente
+        # formule log10 rendait respectivement 1 et 1, puis arrondissait hors
+        # grille courtier lorsque ``digits`` manquait aux metadonnees.
+        return max(0, min(12, -int(decimal_tick.as_tuple().exponent)))
+
+    def plan(self, intent, context):
+        snapshot = context.snapshot
+        try:
+            plan = plan_limite_entree(
+                bid=snapshot.bid, ask=snapshot.ask, side=int(intent.side),
+                stop_distance=float(intent.metadata.get("stop_distance") or 0.0),
+                tick=float(context.tick_size or 0.0),
+                digits=self._digits(intent, context))
+        except (ValueError, TypeError):
+            return []
+        order = self._order(intent, context, OrderType.LIMIT, price=plan.price)
+        order.expires_at = snapshot.timestamp + timedelta(seconds=plan.ttl_seconds)
+        order.metadata.update({
+            "ttl_seconds": plan.ttl_seconds,
+            "spread_r": plan.spread_r,
+            "passive_extra": plan.passive_extra,
+            "saving_vs_market": plan.saving_vs_market,
+        })
+        return [order]
+
+
 POLICY_REGISTRY = {
     cls.name: cls
     for cls in (
@@ -589,6 +657,7 @@ POLICY_REGISTRY = {
         MarketMakingPolicy,
         MultiLegSimultaneousPolicy,
         MakerThenHedgeTakerPolicy,
+        V14LivePolicy,
     )
 }
 

@@ -182,30 +182,48 @@ def _post_new_fills(portfolio: Portfolio, order: Order, posted: set[str]) -> Non
             posted.add(fill.fill_id)
 
 
-def _run_case(
-    policy_name: str, scenario: Scenario, config: dict[str, Any], initial_cash: float
-) -> dict[str, Any]:
-    started = time.perf_counter()
-    snapshots = _snapshots(scenario)
-    quantity = 1.0 if scenario.size == "small" else 8.0
-    side = Side.BUY if scenario.trend != "down" else Side.SELL
-    intent = ExecutionIntent(f"alpha:{scenario.scenario_id}", "SYNTH", side, quantity)
-    profile = historical_volume_profile(
-        scenario,
-        sessions=int(config["execution"]["vwap"].get("profile_lookback_sessions", 5)),
-    )
+def executer_sur_snapshots(
+    policy_name: str,
+    snapshots: list[MarketSnapshot],
+    intent: ExecutionIntent,
+    *,
+    config: dict[str, Any],
+    seed: int,
+    latency_ms: int,
+    tick_size: float,
+    historical_volumes: tuple[float, ...] = (),
+    fee_multiplier: float = 1.0,
+    initial_cash: float = 100_000.0,
+    seconds_per_snapshot: float = 1.0,
+) -> list[Order]:
+    """Sequence une politique sur une suite de snapshots, quelle qu'en soit la source.
+
+    Extrait de ``_run_case`` sans changement de comportement : la matrice
+    synthetique et l'audit sur donnees reelles doivent executer EXACTEMENT le
+    meme enchainement, sinon leurs classements ne se comparent pas et une
+    difference de resultat ne dit plus si elle vient du marche ou du code.
+
+    ``seconds_per_snapshot`` dit combien de temps separe deux snapshots : 1 s
+    dans la matrice synthetique, 300 s sur des barres M5. Sans lui, tout
+    ordonnancement intra-barre serait lu comme un ordonnancement inter-barres.
+
+    Rend les ordres executes ; l'appelant en tire les metriques qu'il veut.
+    """
+    quantity = float(intent.quantity)
+    side = intent.side
+    symbol = intent.symbol
     context = PolicyContext(
         snapshot=snapshots[0],
-        tick_size=0.01,
-        historical_volumes=profile.volumes,
+        tick_size=tick_size,
+        historical_volumes=historical_volumes,
     )
     policy = get_policy(policy_name, _policy_config(policy_name, config))
     if policy_name == "multi_leg_simultaneous":
         other = ExecutionIntent(
-            f"alpha:{scenario.scenario_id}:hedge", "SYNTH_HEDGE", Side(-int(side)), quantity
+            f"{intent.intent_id}:hedge", f"{symbol}_HEDGE", Side(-int(side)), quantity
         )
         intent = ExecutionIntent(
-            intent.intent_id, intent.symbol, intent.side, intent.quantity, legs=(intent, other)
+            intent.intent_id, symbol, side, quantity, legs=(intent, other)
         )
     iceberg_state = None
     if policy_name == "iceberg":
@@ -230,9 +248,8 @@ def _run_case(
         max_hedge_delay_ms=float(risk_cfg["max_hedge_delay_ms"]),
         kill_switch=bool(risk_cfg["kill_switch"]),
     )
-    fee_multiplier = 2.0 if scenario.fees == "adverse" else 1.0
     matcher = MatchingSimulator(
-        seed=scenario.seed,
+        seed=seed,
         maker_bps=float(config["execution"]["fees"]["maker_bps"]) * fee_multiplier,
         taker_bps=float(config["execution"]["fees"]["taker_bps"]) * fee_multiplier,
         queue_model=str(config["execution"]["passive"]["queue_model"]),
@@ -242,12 +259,6 @@ def _run_case(
     executed: list[Order] = []
     filled_target = 0.0
     previous_open: Order | None = None
-    latency_cfg = config["execution"]["latency"]
-    base_latency_ms = sum(
-        int(latency_cfg[key])
-        for key in ("market_data_ms", "decision_ms", "submit_ms", "acknowledge_ms")
-    )
-    scenario_latency_ms = base_latency_ms + (2_000 if scenario.latency == "stressed" else 0)
     for planned in orders:
         if policy_name == "adaptive":
             remaining = max(0.0, quantity - filled_target)
@@ -265,10 +276,15 @@ def _run_case(
             continue
         oms.submit(checked, checked.created_at)
         executed.append(checked)
-        checked.metadata["simulated_latency_ms"] = scenario_latency_ms
+        checked.metadata["simulated_latency_ms"] = latency_ms
+        # Un snapshot ne vaut une seconde que dans la matrice synthetique. Sur
+        # des barres M5 il en vaut trois cents : mapper un decalage en
+        # millisecondes sur un INDICE sans le dire ferait qu'une tranche TWAP
+        # a t+12 s se poserait une heure plus tard.
         start_index = min(
             len(snapshots) - 1,
-            (checked.scheduled_offset_ms + scenario_latency_ms) // 1000,
+            int((checked.scheduled_offset_ms + latency_ms)
+                / 1000.0 / max(seconds_per_snapshot, 1e-9)),
         )
         for snapshot in snapshots[start_index:]:
             matcher.match(checked, snapshot, oms)
@@ -302,11 +318,11 @@ def _run_case(
         and executed
         and not executed[0].is_terminal
         and policy.should_replace(
-            executed[0], PolicyContext(snapshots[-1], 0.01), last_replace_at=snapshots[0].timestamp
-        )
+            executed[0], PolicyContext(snapshots[-1], tick_size),
+            last_replace_at=snapshots[0].timestamp)
     ):
         original = executed[0]
-        replacement = policy.plan(intent, PolicyContext(snapshots[-1], 0.01))[0]
+        replacement = policy.plan(intent, PolicyContext(snapshots[-1], tick_size))[0]
         replacement.client_order_id += ":replacement"
         replacement.limit_price = snapshots[-1].bid if side is Side.BUY else snapshots[-1].ask
         replacement = oms.replace(original.client_order_id, replacement, snapshots[-1].timestamp)
@@ -322,8 +338,8 @@ def _run_case(
             order.metadata["orphan_leg_loss"] = residual * snapshots[-1].spread
         emergency = policy.emergency_order(
             residual_signed=residual_signed,
-            symbol="SYNTH",
-            context=PolicyContext(snapshots[-1], 0.01),
+            symbol=symbol,
+            context=PolicyContext(snapshots[-1], tick_size),
         )
         if emergency is not None:
             emergency.metadata["residual_exposure"] = residual
@@ -332,6 +348,39 @@ def _run_case(
             matcher.match(emergency, snapshots[-1], oms)
             _post_new_fills(portfolio, emergency, posted)
 
+    return executed
+
+
+def _run_case(
+    policy_name: str, scenario: Scenario, config: dict[str, Any], initial_cash: float
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    snapshots = _snapshots(scenario)
+    quantity = 1.0 if scenario.size == "small" else 8.0
+    side = Side.BUY if scenario.trend != "down" else Side.SELL
+    intent = ExecutionIntent(f"alpha:{scenario.scenario_id}", "SYNTH", side, quantity)
+    profile = historical_volume_profile(
+        scenario,
+        sessions=int(config["execution"]["vwap"].get("profile_lookback_sessions", 5)),
+    )
+    latency_cfg = config["execution"]["latency"]
+    base_latency_ms = sum(
+        int(latency_cfg[key])
+        for key in ("market_data_ms", "decision_ms", "submit_ms", "acknowledge_ms")
+    )
+    scenario_latency_ms = base_latency_ms + (2_000 if scenario.latency == "stressed" else 0)
+    executed = executer_sur_snapshots(
+        policy_name,
+        snapshots,
+        intent,
+        config=config,
+        seed=scenario.seed,
+        latency_ms=scenario_latency_ms,
+        tick_size=0.01,
+        historical_volumes=profile.volumes,
+        fee_multiplier=2.0 if scenario.fees == "adverse" else 1.0,
+        initial_cash=initial_cash,
+    )
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     metrics = execution_metrics(
         policy=policy_name,

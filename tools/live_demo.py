@@ -156,6 +156,27 @@ RESERVE_S3 = 2
 #: mesurés en observation (le verdict continue d'être journalisé).
 FX_SHORTS_SUSPENDUS = True
 
+#: Suspension du FX ENTIER, décidée par Florent le 24/08/2026 pour vérifier en
+#: direct le gain mesuré hors échantillon.
+#:
+#: Le rejeu de l'univers (797 706 trades, 147 symboles, porte de coût 0,125
+#: active) donne, sur le segment de vérification jamais utilisé pour choisir :
+#:
+#:     avec le FX      274 860 trades filtrés → +0,0948 R par trade
+#:     sans le FX      dont 52 040 hors FX    → +0,1588 R par trade
+#:
+#: Le FX ne gagne que dans une seule cellule — seuil de coût 0,06, 5,6 % de ses
+#: trades, +79 R au total sur 3 887 — c'est-à-dire rien de distinguable de zéro.
+#: Aucun réglage de coût ne fabrique un avantage là où il n'y en a pas.
+#: Même conclusion que le NO-GO FX de Codex, atteinte par un chemin indépendant.
+#:
+#: ⚠️ C'est une SUSPENSION de vérification, pas une loi. Le refus est journalisé
+#: sous le code `FX_SUSPENDU`, donc le flux FX écarté reste comptable : on saura
+#: combien d'occasions ont été laissées, et `tools/suivi_bascule.py` dira si le
+#: R réalisé monte vraiment. Pour rouvrir : remettre False ici, redémarrer la
+#: boucle. Aucune autre ligne à toucher.
+FX_SUSPENDU = True
+
 #: Hiérarchie de balayage écrite par tools/classement_backtest.py.
 SELECTION_PATH = Path(__file__).resolve().parent.parent / "results" / "selection_actifs.json"
 _TOUR = 0
@@ -1302,6 +1323,21 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             print(f"    {sym:8} ENTER ignoré — déjà {par_symbole[sym]} position(s) "
                   f"sur cet actif", flush=True)
             continue
+
+        # ── Suspension du FX entier (voir FX_SUSPENDU). Placée AVANT la
+        #    suspension des shorts : quand tout le FX est écarté, le motif
+        #    rendu doit être le vrai, sinon le journal raconte une décision qui
+        #    n'a pas eu lieu.
+        if FX_SUSPENDU:
+            from titanium.edge import asset_class_of as _classe
+
+            if _classe(sym) == "fx":
+                _refus(stats, "FX_SUSPENDU", sym,
+                       "FX suspendu pour verification (24/08/2026)",
+                       side=int(getattr(out, "side", 0) or 0))
+                print(f"    {sym:8} ENTER ignoré — FX suspendu pour "
+                      f"vérification (24/08/2026)", flush=True)
+                continue
 
         # ── Suspension des shorts FX (voir FX_SHORTS_SUSPENDUS).
         if FX_SHORTS_SUSPENDUS and int(getattr(out, "side", 0) or 0) < 0:

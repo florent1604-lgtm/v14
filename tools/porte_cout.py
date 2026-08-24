@@ -44,7 +44,7 @@ GRILLE = (0.06, 0.08, 0.10, 0.12, 0.15, 0.20, 0.25, 0.30, 0.40, 0.60)
 EFFECTIF_MIN = 60
 
 COLONNES = ("symbol", "asset_class", "split", "cost_r", "gross_r", "net_r",
-            "r_unit")
+            "r_unit", "family", "context")
 
 
 def extraire(brut: Path = BRUT, cache: Path = CACHE) -> pd.DataFrame:

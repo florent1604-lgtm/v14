@@ -115,3 +115,49 @@ resultats machine : results/porte_cout.json
 Le cache `results/porte_cout_trades.parquet` conserve les seules colonnes
 utiles des 2,36 Go d'artefacts bruts : réexaminer un seuil coûte désormais
 trente secondes, ce qui est la condition pour que quelqu'un le refasse.
+
+
+---
+
+# Addendum — 24/08 : la mesure qui manquait au refus CONTRE_TENDANCE
+
+Question posee par Florent en meme temps que l'arbitrage de coût.
+
+`titanium/risk/riskgate.py:191` refuse tout trade dont le sens s'oppose a la
+tendance HTF (`trend = signe(close - EMA200)`), regle anti-fade heritee du
+correctif V12 du 26/07. Dans la fenetre observee, **910 refus sur 910 portent
+ce seul motif**, et le heartbeat du 23/08 montre 93 ENTER pour 0 ordre envoye.
+
+`titanium/features/builder.py` nomme cette meme opposition `family = reversal`.
+Les deux composants lisent le meme `trend` et se contredisent : la porte de
+confluence emet, le RiskGate veto.
+
+Mesure sur le rejeu, qui **n'a pas d'anti-fade**, segment de verification,
+porte de cout 0,125 active, FX exclu (`sondes/_probe_familles.py`) :
+
+| famille | n | net R | R total |
+|---|---:|---:|---:|
+| continuation | 29 944 | +0,1819 | +5 447 |
+| **reversal** | 23 782 | **+0,1250** | **+2 973** |
+
+La famille refusee en direct est **positive hors echantillon**, moins que la
+continuation mais loin d'etre nulle. Sans FX ni porte de cout, elle est en
+revanche negative partout sauf metaux et energie : c'est le coût, pas le sens,
+qui la rendait perdante.
+
+Reserve : `trend = 0` est possible quand l'EMA200 HTF n'est pas definie, et ces
+cas tombent en `reversal` sans etre vetoes en direct. Apres l'amorcage de 250
+barres, le cas est rare — mais les artefacts ne portent pas `trend`, donc je ne
+peux pas le chiffrer sans un rejeu supplementaire.
+
+Trois issues possibles, aucune n'est mienne :
+
+1. **lever l'anti-fade** — le rejeu dit que la famille gagne ;
+2. **cesser d'emettre du reversal** dans la porte de confluence — telemetrie
+   honnete, mais le debit reste au niveau actuel, donc l'accumulation des
+   20 clotures par contexte reste hors d'atteinte ;
+3. **autoriser le reversal par classe** — positif en metaux et energie meme
+   sans porte de cout, negatif ailleurs.
+
+Journal : taches `95cb60be` (FX) et `d0bdf463` (anti-fade), toutes deux en
+backlog, proprietaire `team`.

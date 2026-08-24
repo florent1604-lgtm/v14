@@ -105,8 +105,32 @@ MAX_POSITIONS = 0        # 0 = illimité (le budget de risque borne l'exposition
 # Une seule limite passive peut réserver du risque à la fois. Tant que le
 # risque des ordres non exécutés n'est pas valorisé par le moteur global, ce
 # verrou empêche plusieurs limites de se déclencher ensemble et de dépasser
-# silencieusement MAX_RISQUE_CUMULE_PCT.
+# silencieusement MAX_RISQUE_CUMULE_PCT. Ne s'applique qu'en MODE_ENTREE
+# "LIMITE" : au marché, aucun ordre ne reste en attente.
 MAX_LIMITES_EN_ATTENTE = 1
+
+#: Mode d'entrée : "MARCHE" prend le risque, "LIMITE" économise le spread.
+#:
+#: Repassé à "MARCHE" le 24/08/2026, à la demande explicite de Florent
+#: (« je ne veux pas d'économie mais du risque »), sur une mesure sans
+#: ambiguïté du régime passif installé le 12/08 par 5c5884e :
+#:
+#:   `results/limit_lifecycle.ndjson`, 12/08 → 24/08
+#:     689 limites placées · 374 exécutées (54 %) · **315 expirées**
+#:     économie réalisée moyenne +0.084 R par ordre rempli
+#:     net_pnl_r cumulé **−19.7 R** sur 357 clôtures
+#:   `results/refus_live.ndjson` : **194** refus LIMIT_PENDING_CAP
+#:
+#: Soit ~509 signaux déjà validés par toutes les portes, abandonnés pour
+#: gagner 0.084 R sur ceux qui restaient. L'attrition ne se compense pas :
+#: un signal non joué rapporte exactement zéro, et le verrou d'une seule
+#: limite en attente coupait le reste du balayage du tour par un `break`.
+#:
+#: Ce drapeau ne relâche AUCUN garde-fou de risque : RiskGate, budget de
+#: risque cumulé, MAX_PAR_SYMBOLE et l'arbre de corrélation restent devant
+#: l'ordre. Il ne change que la FAÇON d'entrer une fois la décision prise.
+#: Remettre "LIMITE" restaure exactement le régime passif.
+MODE_ENTREE = "MARCHE"
 
 #: Risque cumulé maximal sur l'ensemble des positions ouvertes, en % de
 #: l'équité.
@@ -953,6 +977,21 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
         return False, f"ERROR_{type(exc).__name__.upper()}"
 
 
+def _envoi_entree(mode: str | None = None):
+    """Rend la fonction d'envoi d'ordre correspondant au mode d'entrée.
+
+    Une seule ligne décide entre le marché et la limite passive. Elle vit ici,
+    hors de ``tour``, pour être vérifiable sans MT5 ni balayage : le choix du
+    type d'ordre est une décision de risque, elle ne doit pas dépendre d'un
+    chemin de 400 lignes pour être prouvée.
+    """
+    from titanium.execution.limit_orders import place_limit_order
+    from titanium.execution.mt5_executor import place_market_order
+
+    return (place_limit_order if (mode or MODE_ENTREE) == "LIMITE"
+            else place_market_order)
+
+
 def tour(*, armer: bool, stats: dict, tracer: bool = True,
          tracer_defaut: str = "EURUSD") -> None:
     from titanium.data.mt5_vendor import (
@@ -961,7 +1000,6 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         get_rates,
         get_rates_cache,
     )
-    from titanium.execution.limit_orders import place_limit_order
     from titanium.execution.mt5_executor import ExecutionPolicy
     from titanium.execution.pending_context import (
         append_limit_event,
@@ -1470,7 +1508,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             stats["simules"] += 1
             continue
 
-        if limites_en_attente >= MAX_LIMITES_EN_ATTENTE:
+        if MODE_ENTREE == "LIMITE" and limites_en_attente >= MAX_LIMITES_EN_ATTENTE:
             _refus(stats, "LIMIT_PENDING_CAP", "",
                    f"{MAX_LIMITES_EN_ATTENTE} limites deja en attente")
             print(f"    limite en attente déjà présente "
@@ -1478,13 +1516,33 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                   flush=True)
             break
 
-        res = place_limit_order(
+        # Une seule décision d'entrée, deux façons de la poser. Le mur
+        # d'armement, le lot et le SL/TP sont identiques des deux côtés :
+        # seul le type d'ordre change.
+        res = _envoi_entree()(
             sym, out.side, budget.risk_money, out.stop_distance or 0.0,
             policy=politique,
             tp_distance=(out.stop_distance or 0.0) * cfg.rr_ratio,
             idempotency_key=cle_barre(sym, feats),
         )
-        if res.sent:
+
+        if res.sent and MODE_ENTREE != "LIMITE":
+            stats["envoyes"] += 1
+            ouvertes += 1
+            par_symbole[sym] = par_symbole.get(sym, 0) + 1
+            # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
+            # montrera plus la position et l'information serait perdue.
+            _attacher_contexte(res.ticket, sym, feats, out, res,
+                               risque_devise=budget.risk_money,
+                               spread_r=budget.cout_spread)
+            unite_b = getattr(budgets.get(sym), "timeframe", LTF)
+            marque = "" if unite_b == LTF else f" [{unite_b}]"
+            ctxk = _contexte_exact(sym, feats, out.side)
+            print(f"    {sym:8} ORDRE ENVOYÉ {sens}{marque} #{res.ticket} "
+                  f"@ {res.price} — {detail} · SL {res.sl} TP {res.tp}",
+                  flush=True)
+            print(f"             contexte : {ctxk}", flush=True)
+        elif res.sent:
             stats["envoyes"] += 1
             stats["limites_placees"] = int(stats.get("limites_placees", 0) or 0) + 1
             ouvertes += 1

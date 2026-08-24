@@ -99,6 +99,6 @@ hors classement : adaptive, iceberg, twap, cancel_replace, pegged, pov, vwap, v1
 
 ## Etat
 
-Corrections v3 validées par Codex : suite complète et Ruff verts, rapport
-intégral recalculé et sorties scellées. En attente du dernier accusé Claude et
-Hermes sur le hub avant commit.
+Corrections v3 validées et livrées dans `d3d5a71` : suite complète et Ruff
+verts, rapport intégral recalculé et sorties scellées. Claude et Hermes ont été
+notifiés sur le hub (offsets 597 et 598). Aucune promotion live.

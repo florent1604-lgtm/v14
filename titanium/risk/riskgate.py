@@ -39,6 +39,29 @@ ALLOW = "ALLOW"
 REDUCE = "REDUCE"
 DENY = "DENY"
 
+#: Politiques de l'anti-fade (controle 4 de l'entonnoir).
+ANTI_FADE_REFUSE = "refuser"
+ANTI_FADE_AUTORISE = "autoriser"
+
+#: Politique en vigueur. **LEVEE TEMPORAIRE decidee par Florent le 24/08/2026.**
+#:
+#: L'anti-fade herite de V12 (26/07) refusait tout trade oppose a la tendance
+#: HTF. Mesure sur le rejeu de l'univers -- qui n'a pas d'anti-fade -- la
+#: famille ainsi refusee rapporte +0,1250 R hors echantillon sur 23 782 trades
+#: (porte de cout active, hors FX), contre +0,1819 pour la continuation :
+#: moins bonne, mais positive. En direct, le veto portait 910 refus sur 910 et
+#: ramenait le debit a zero, ce qui interdisait d'atteindre les 20 clotures par
+#: contexte exigees pour toute promotion.
+#:
+#: La levee sert donc a CALIBRER en temps reel sur le compte DEMO : les trades
+#: contre-tendance sont pris et journalises sous leur cle de contexte, qui
+#: porte deja la famille (`SYM|long|reversal|3p`). L'ancienne comptabilite
+#: d'edge les separe donc sans changement.
+#:
+#: POUR REVENIR EN ARRIERE : remettre ANTI_FADE_REFUSE ici, redemarrer la
+#: boucle. Aucune autre ligne n'est a toucher.
+ANTI_FADE = ANTI_FADE_AUTORISE
+
 # Confiance neutre quand aucune mesure n'est disponible pour ce contexte.
 NEUTRAL_CONFIDENCE = 0.5
 # Facteur appliqué quand l'émotion voudrait bloquer : on réduit, on n'interdit pas.
@@ -97,6 +120,10 @@ class Decision:
     sl: float | None = None
     tp: float | None = None
     stop_distance: float | None = None
+    #: Trade oppose a la tendance HTF, laisse passer par la levee de l'anti-fade.
+    #: Toujours False quand la politique est ANTI_FADE_REFUSE : dans ce cas le
+    #: trade n'existe pas.
+    contre_tendance: bool = False
     checks: list[dict] = field(default_factory=list)
 
     def _add(self, name: str, passed: bool, detail: str = "") -> None:
@@ -121,10 +148,17 @@ class RiskGate:
     """
 
     def __init__(self, *, sl_atr_k: float = 1.5, rr_ratio: float = 2.0,
-                 max_exposure_pct: float = 100.0) -> None:
+                 max_exposure_pct: float = 100.0,
+                 anti_fade: str | None = None) -> None:
         self.sl_atr_k = sl_atr_k
         self.rr_ratio = rr_ratio
         self.max_exposure_pct = max_exposure_pct
+        # None = suivre la politique du module. Passer la valeur explicitement
+        # permet de tester les deux comportements sans toucher a un global.
+        politique = ANTI_FADE if anti_fade is None else anti_fade
+        if politique not in (ANTI_FADE_REFUSE, ANTI_FADE_AUTORISE):
+            raise ValueError(f"politique anti-fade inconnue: {politique!r}")
+        self.anti_fade = politique
 
     def evaluate(self, inp: RiskInput) -> Decision:
         """Consolide tous les contrôles et rend une Decision.
@@ -185,11 +219,16 @@ class RiskGate:
         price, atr = float(inp.price), float(inp.atr)
         d._add("market_data", True, f"tf={inp.timeframe or '?'} atr={atr:.6g}")
 
-        # ── 4. Anti-fade : ne jamais fader une tendance nette (correctif V12 du 26/07).
+        # ── 4. Anti-fade : ne jamais fader une tendance nette (correctif V12 du
+        #      26/07), SAUF pendant la levee de calibration du 24/08/2026.
         trend = int(inp.trend or 0)
-        if trend != 0 and side == -trend:
+        contre_tendance = trend != 0 and side == -trend
+        if contre_tendance and self.anti_fade == ANTI_FADE_REFUSE:
             return d._deny("trend_align", "CONTRE_TENDANCE", f"side={side} vs trend={trend}")
-        d._add("trend_align", True)
+        d.contre_tendance = contre_tendance
+        d._add("trend_align", True,
+               f"contre-tendance autorisee (calibration) side={side} vs trend={trend}"
+               if contre_tendance else "")
 
         # ── 5. Plafond d'exposition — véto AVANT tout calcul de taille (V12 le
         #      plaçait après, ce qui produisait un dimensionnement jeté).

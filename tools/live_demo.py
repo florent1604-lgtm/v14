@@ -1320,6 +1320,18 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             print(f"    {sym:8} ENTER mais RiskGate refuse : {out.reason}", flush=True)
             continue
 
+        # ── Levee de l'anti-fade du 24/08/2026 : compter ce qui passe grace a
+        #    elle. Sans ce compteur, la calibration ne saurait pas dire quelle
+        #    part du flux vient de la levee, et on jugerait la levee sur une
+        #    performance globale ou elle est noyee. La famille reste par
+        #    ailleurs inscrite dans la cle de contexte (`...|reversal|...`).
+        _tendance = int((feats or {}).get("trend") or 0)
+        _sens = int(getattr(out, "side", 0) or 0)
+        if _tendance != 0 and _sens == -_tendance:
+            _compter_tunnel(stats, "anti_fade", "CONTRE_TENDANCE_AUTORISE")
+            print(f"    {sym:8} contre-tendance autorisé (calibration 24/08) — "
+                  f"side={_sens} vs trend={_tendance}", flush=True)
+
         # ── Réserve S≥3. Les derniers créneaux appartiennent à la strate qui
         #    nourrit la promotion : rare (~10 % des ENTER), elle serait sinon
         #    censurée par les S=2, plus nombreux et plus rapides à remplir.

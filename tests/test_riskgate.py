@@ -163,10 +163,39 @@ def test_fondamentaux_priment_sur_circuit_breaker():
     assert d.reason == "FONDAMENTAUX_BLOCK"
 
 
-def test_anti_fade_bloque_le_contre_tendance():
-    d = RiskGate().evaluate(inp(side=-1, trend=1))
+def test_anti_fade_bloque_le_contre_tendance_quand_il_est_arme():
+    """La regle V12 doit rester intacte : la levee est une politique, pas une
+    suppression. Un seul mot dans `riskgate.ANTI_FADE` la rearme."""
+    from titanium.risk.riskgate import ANTI_FADE_REFUSE
+
+    d = RiskGate(anti_fade=ANTI_FADE_REFUSE).evaluate(inp(side=-1, trend=1))
     assert d.verdict == DENY
     assert d.reason == "CONTRE_TENDANCE"
+    assert d.contre_tendance is False   # le trade n'existe pas
+
+
+def test_levee_de_calibration_laisse_passer_et_marque_le_trade():
+    """Levee du 24/08/2026 : le trade passe, mais il est nomme pour que la
+    calibration puisse le separer des trades de continuation."""
+    from titanium.risk.riskgate import ANTI_FADE_AUTORISE
+
+    d = RiskGate(anti_fade=ANTI_FADE_AUTORISE).evaluate(inp(side=-1, trend=1))
+    assert d.verdict == ALLOW
+    assert d.contre_tendance is True
+    trace = [c for c in d.checks if c["gate"] == "trend_align"]
+    assert trace and "contre-tendance autorisee" in trace[0]["detail"]
+
+
+def test_un_trade_aligne_n_est_jamais_marque_contre_tendance():
+    d = RiskGate().evaluate(inp(side=1, trend=1))
+    assert d.verdict == ALLOW and d.contre_tendance is False
+
+
+def test_politique_anti_fade_inconnue_refusee():
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        RiskGate(anti_fade="au_pif")
 
 
 def test_anti_fade_inactif_sans_tendance_nette():

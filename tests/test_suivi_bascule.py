@@ -99,3 +99,12 @@ def test_une_ligne_illisible_est_ignoree_pas_fatale(module, tmp_path):
     ]), encoding="utf-8")
     trades = module.charger(journal)
     assert len(trades) == 1 and trades[0]["famille"] == "continuation"
+
+
+def test_le_plancher_est_le_seul_declencheur_de_publication(module):
+    trades = [_trade(module, jour=24, heure=8, r=+1.0) for _ in range(19)]
+    rapport = module.comparer(trades, BASCULE, effectif_min=20)
+    assert module.plancher_atteint(rapport) is False
+    trades.append(_trade(module, jour=24, heure=9, r=+1.0))
+    rapport = module.comparer(trades, BASCULE, effectif_min=20)
+    assert module.plancher_atteint(rapport) is True

@@ -29,6 +29,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,7 +42,7 @@ SORTIE = RACINE / "results" / "suivi_bascule.json"
 
 #: Suspension du FX decidee le 24/08/2026, appliquee au redemarrage de la
 #: boucle. C'est l'instant a partir duquel le journal change de regime.
-BASCULE_FX = "2026-08-24T06:20:00+00:00"
+BASCULE_FX = "2026-08-24T06:22:09+00:00"
 
 #: Sous cet effectif apres la bascule, aucun verdict n'est rendu.
 EFFECTIF_MIN = 20
@@ -211,6 +212,41 @@ def resumer(rapport: dict) -> str:
     return "\n".join(lignes)
 
 
+def plancher_atteint(rapport: dict) -> bool:
+    """Vrai des que le verdict global cesse d'etre differe faute d'effectif."""
+    return rapport["global"]["apres"]["n"] >= rapport["effectif_min"]
+
+
+def veiller(journal: Path, bascule: datetime, *, effectif_min: int,
+            intervalle: float, sortie: Path, sortie_md: Path,
+            max_h: float) -> dict:
+    """Attend le plancher d'effectif, puis publie -- sans juger avant.
+
+    Une bascule se regarde toutes les cinq minutes quand on est impatient, et
+    c'est ainsi qu'on finit par lire du bruit comme un resultat. Cette veille
+    ne rend son rapport qu'au plancher, ou a l'expiration du delai.
+    """
+    debut = time.time()
+    while True:
+        rapport = comparer(charger(journal), bascule,
+                           effectif_min=effectif_min)
+        apres = rapport["global"]["apres"]["n"]
+        expire = (time.time() - debut) >= max_h * 3600
+        horodatage = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        print(f"[{horodatage}] trades clos depuis la bascule : "
+              f"{apres}/{effectif_min}"
+              f"{' — delai expire' if expire else ''}", flush=True)
+        if plancher_atteint(rapport) or expire:
+            rapport["arret"] = "plancher" if plancher_atteint(rapport) else "delai"
+            sortie.parent.mkdir(parents=True, exist_ok=True)
+            sortie.write_text(json.dumps(rapport, ensure_ascii=False, indent=1),
+                              encoding="utf-8")
+            sortie_md.parent.mkdir(parents=True, exist_ok=True)
+            sortie_md.write_text(resumer(rapport), encoding="utf-8")
+            return rapport
+        time.sleep(intervalle)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--journal", type=Path, default=JOURNAL)
@@ -218,6 +254,13 @@ def main() -> int:
     ap.add_argument("--effectif-min", type=int, default=EFFECTIF_MIN)
     ap.add_argument("--sortie", type=Path, default=SORTIE)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--veiller", action="store_true",
+                    help="attendre le plancher d'effectif, puis publier")
+    ap.add_argument("--intervalle", type=float, default=600.0)
+    ap.add_argument("--max-h", type=float, default=72.0)
+    ap.add_argument("--sortie-md", type=Path,
+                    default=RACINE / "collab" / "prime_agent" / "runs"
+                    / "bascule-fx-20260824" / "suivi.md")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -225,6 +268,13 @@ def main() -> int:
     if bascule is None:
         print(f"instant de bascule illisible : {args.bascule!r}")
         return 2
+    if args.veiller:
+        rapport = veiller(args.journal, bascule,
+                          effectif_min=args.effectif_min,
+                          intervalle=args.intervalle, sortie=args.sortie,
+                          sortie_md=args.sortie_md, max_h=args.max_h)
+        print(resumer(rapport))
+        return 0
     rapport = comparer(charger(args.journal), bascule,
                        effectif_min=args.effectif_min)
     args.sortie.parent.mkdir(parents=True, exist_ok=True)

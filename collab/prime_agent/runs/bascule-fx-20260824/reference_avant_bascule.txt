@@ -1,0 +1,16 @@
+suivi de bascule â€” 2026-08-24T06:22:09+00:00
+  plancher : 20 trades clos apres la bascule avant tout verdict
+
+  GLOBAL          avant  347 @  -0.0747   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+  temoin hors FX  avant  227 @  -0.0051   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+
+  agricole        avant    5 @  +0.2085   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+  crypto          avant   28 @  +0.2945   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+  energie         avant   44 @  +0.1631   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+  fx              avant  120 @  -0.2063   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+  indices         avant  117 @  -0.1564   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+  metaux          avant   33 @  +0.0203   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+
+  continuation    avant  347 @  -0.0747   apres    0 @  +0.0000   delta  +0.0000   INDECIS
+
+Verdict differe : pas encore assez de trades clos apres la bascule. Une moyenne sur quelques trades decrit le hasard, pas la decision.

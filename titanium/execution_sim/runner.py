@@ -182,6 +182,161 @@ def _post_new_fills(portfolio: Portfolio, order: Order, posted: set[str]) -> Non
             posted.add(fill.fill_id)
 
 
+def _executer_politique_evenementielle(
+    policy_name: str,
+    policy: Any,
+    orders: list[Order],
+    snapshots: list[MarketSnapshot],
+    intent: ExecutionIntent,
+    *,
+    tick_size: float,
+    latency_ms: int,
+    oms: OrderManager,
+    portfolio: Portfolio,
+    risk: RiskEngine,
+    matcher: MatchingSimulator,
+) -> list[Order]:
+    """Execute les politiques reactives dans l'ordre causal des evenements.
+
+    Les ordres deja actifs sont servis avant qu'une politique observe le
+    snapshot courant. Un remplacement ou une tranche POV cree apres cette
+    observation ne peut donc etre servi qu'a partir d'un snapshot ulterieur.
+    Cette separation interdit d'utiliser le volume ou le deplacement d'un
+    evenement pour decider puis se remplir retroactivement sur ce meme
+    evenement.
+    """
+    base_time = snapshots[0].timestamp
+    posted: set[str] = set()
+    executed: list[Order] = []
+    pending: list[tuple[datetime, Order, str]] = []
+    current_dynamic: Order | None = None
+    last_dynamic_at = base_time
+    pov_state = policy.new_state(intent) if policy_name == "pov" else None
+
+    def schedule(order: Order, due_at: datetime, replaces: str = "") -> None:
+        pending.append((due_at, order, replaces))
+
+    def submit(order: Order, timestamp: datetime, replaces: str = "") -> Order | None:
+        nonlocal current_dynamic
+        if replaces:
+            original = oms.orders.get(replaces)
+            if original is None or original.status is OrderStatus.FILLED:
+                return None
+            if not original.is_terminal:
+                oms.ack_cancel(replaces, True, timestamp)
+            remaining = original.remaining_quantity
+            if remaining <= 1e-12:
+                return None
+            order.quantity = remaining
+            order.replaces = replaces
+        try:
+            checked = risk.validate(order, portfolio, oms)
+        except RiskRejected:
+            return None
+        oms.submit(checked, timestamp)
+        checked.metadata["simulated_latency_ms"] = latency_ms
+        executed.append(checked)
+        if policy_name in {"cancel_replace", "pegged"}:
+            current_dynamic = checked
+        return checked
+
+    if policy_name in {"cancel_replace", "pegged", "vwap"}:
+        for order in orders:
+            due_at = base_time + timedelta(
+                milliseconds=order.scheduled_offset_ms + max(0, latency_ms)
+            )
+            schedule(order, due_at)
+
+    for snapshot in snapshots:
+        # Active les soumissions dont l'horloge est atteinte. L'arrondi se fait
+        # au prochain snapshot disponible, jamais au snapshot precedent.
+        still_pending: list[tuple[datetime, Order, str]] = []
+        for due_at, planned, replaces in pending:
+            if due_at <= snapshot.timestamp:
+                # Le changement d'etat a lieu a l'instant programme, meme si
+                # le prochain prix observable arrive plus tard. Le fill reste
+                # naturellement borne au snapshot courant.
+                submitted = submit(planned, due_at, replaces)
+                if submitted is not None and policy_name in {"cancel_replace", "pegged"}:
+                    last_dynamic_at = due_at
+            else:
+                still_pending.append((due_at, planned, replaces))
+        pending = still_pending
+
+        # Un ordre ne peut consommer que les evenements posterieurs a sa
+        # soumission. Les ordres crees plus bas ne sont donc pas dans cette
+        # liste avant le prochain tour.
+        for order in list(oms.open_orders):
+            matcher.match(order, snapshot, oms)
+            _post_new_fills(portfolio, order, posted)
+
+        context = PolicyContext(snapshot=snapshot, tick_size=tick_size)
+        if (
+            policy_name == "cancel_replace"
+            and current_dynamic is not None
+            and not current_dynamic.is_terminal
+            and current_dynamic.status is not OrderStatus.CANCEL_PENDING
+            and policy.should_replace(
+                current_dynamic, context, last_replace_at=last_dynamic_at
+            )
+        ):
+            remaining_intent = ExecutionIntent(
+                intent.intent_id,
+                intent.symbol,
+                intent.side,
+                current_dynamic.remaining_quantity,
+                limit_price=intent.limit_price,
+                reduce_only=intent.reduce_only,
+                metadata=intent.metadata,
+            )
+            replacement = policy.plan(remaining_intent, context)[0]
+            replacement.client_order_id += ":replacement"
+            oms.request_cancel(current_dynamic.client_order_id, snapshot.timestamp)
+            delay_ms = (
+                int(replacement.metadata.get("cancel_delay_ms", 0))
+                + int(replacement.metadata.get("replace_delay_ms", 0))
+                + max(0, latency_ms)
+            )
+            schedule(
+                replacement,
+                snapshot.timestamp + timedelta(milliseconds=delay_ms),
+                current_dynamic.client_order_id,
+            )
+        elif (
+            policy_name == "pegged"
+            and current_dynamic is not None
+            and not current_dynamic.is_terminal
+            and current_dynamic.status is not OrderStatus.CANCEL_PENDING
+        ):
+            replacement = policy.reprice(
+                current_dynamic, context, last_reprice_at=last_dynamic_at
+            )
+            if replacement is not None:
+                oms.request_cancel(current_dynamic.client_order_id, snapshot.timestamp)
+                schedule(
+                    replacement,
+                    snapshot.timestamp + timedelta(milliseconds=max(0, latency_ms)),
+                    current_dynamic.client_order_id,
+                )
+        elif policy_name == "pov" and pov_state is not None:
+            order = policy.on_volume(
+                pov_state,
+                event_id=snapshot.event_id,
+                observed_volume=snapshot.volume,
+                context=context,
+            )
+            if order is not None:
+                # Le volume du snapshot a servi a DECIDER la tranche : celle-ci
+                # devient active apres la latence et ne peut pas se servir sur
+                # le meme volume historique.
+                schedule(
+                    order,
+                    snapshot.timestamp + timedelta(milliseconds=max(0, latency_ms)),
+                )
+
+    return executed
+
+
 def executer_sur_snapshots(
     policy_name: str,
     snapshots: list[MarketSnapshot],
@@ -209,6 +364,8 @@ def executer_sur_snapshots(
 
     Rend les ordres executes ; l'appelant en tire les metriques qu'il veut.
     """
+    if not snapshots:
+        return []
     quantity = float(intent.quantity)
     side = intent.side
     symbol = intent.symbol
@@ -230,6 +387,11 @@ def executer_sur_snapshots(
         iceberg_state = policy.new_state(intent)
         first_child = policy.next_child(iceberg_state, context)
         orders = [first_child] if first_child else []
+    elif policy_name == "pov":
+        # POV est pilote evenement par evenement dans le runner. Appeler
+        # ``plan`` ici consommerait le premier volume une fois dans un etat
+        # jetable, puis une seconde fois dans l'etat reel de la simulation.
+        orders = []
     else:
         orders = policy.plan(intent, context)
     oms = OrderManager()
@@ -255,6 +417,20 @@ def executer_sur_snapshots(
         queue_model=str(config["execution"]["passive"]["queue_model"]),
         post_only_cross_behavior=str(config["execution"]["post_only"]["cross_behavior"]),
     )
+    if policy_name in {"cancel_replace", "pegged", "vwap", "pov"}:
+        return _executer_politique_evenementielle(
+            policy_name,
+            policy,
+            orders,
+            snapshots,
+            intent,
+            tick_size=tick_size,
+            latency_ms=latency_ms,
+            oms=oms,
+            portfolio=portfolio,
+            risk=risk,
+            matcher=matcher,
+        )
     posted: set[str] = set()
     executed: list[Order] = []
     filled_target = 0.0
@@ -312,23 +488,6 @@ def executer_sur_snapshots(
             executed.append(hedge)
             matcher.match(hedge, snapshots[-1], oms)
             _post_new_fills(portfolio, hedge, posted)
-
-    if (
-        policy_name == "cancel_replace"
-        and executed
-        and not executed[0].is_terminal
-        and policy.should_replace(
-            executed[0], PolicyContext(snapshots[-1], tick_size),
-            last_replace_at=snapshots[0].timestamp)
-    ):
-        original = executed[0]
-        replacement = policy.plan(intent, PolicyContext(snapshots[-1], tick_size))[0]
-        replacement.client_order_id += ":replacement"
-        replacement.limit_price = snapshots[-1].bid if side is Side.BUY else snapshots[-1].ask
-        replacement = oms.replace(original.client_order_id, replacement, snapshots[-1].timestamp)
-        executed.append(replacement)
-        matcher.match(replacement, snapshots[-1], oms)
-        _post_new_fills(portfolio, replacement, posted)
 
     if policy_name == "multi_leg_simultaneous":
         residual_signed = sum(int(order.side) * order.filled_quantity for order in executed)

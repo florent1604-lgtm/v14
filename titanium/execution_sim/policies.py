@@ -307,10 +307,15 @@ class VwapPolicy(ExecutionPolicy):
     name = "vwap"
 
     def plan(self, intent, context):
+        if not context.historical_volumes:
+            # Sans profil anterieur, une repartition VWAP serait fabriquee a
+            # partir de poids uniformes et porterait a tort le label
+            # ``past_only``. L'absence de donnees doit echouer ferme.
+            return []
         slices = max(1, int(self.config.get("slices", len(context.historical_volumes) or 1)))
         past = tuple(max(0.0, v) for v in context.historical_volumes[-slices:])
         if len(past) < slices:
-            past = (1.0,) * (slices - len(past)) + past
+            return []
         total = sum(past) or float(slices)
         weights = [value / total for value in past]
         max_participation = float(self.config.get("max_participation", 1.0))

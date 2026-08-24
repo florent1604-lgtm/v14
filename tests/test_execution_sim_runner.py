@@ -1,18 +1,65 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from titanium.execution_sim.config import load_config
 from titanium.execution_sim.metrics import aggregate_rankings, pareto_front
+from titanium.execution_sim.models import ExecutionIntent, MarketSnapshot, OrderStatus, Side
 from titanium.execution_sim.runner import (
     MatrixSpec,
     engine_fingerprint,
+    executer_sur_snapshots,
     generate_scenarios,
     historical_volume_profile,
     reproducible_run_id,
     run_matrix,
     write_reports,
 )
+
+NOW = datetime(2026, 8, 24, 8, 0, tzinfo=timezone.utc)
+
+
+def _market_snapshot(
+    index: int,
+    *,
+    bid: float = 100.0,
+    ask: float = 101.0,
+    low: float = 100.0,
+    high: float = 101.0,
+    volume: float = 10.0,
+) -> MarketSnapshot:
+    return MarketSnapshot(
+        timestamp=NOW + timedelta(seconds=index),
+        symbol="X",
+        bid=bid,
+        ask=ask,
+        open=(bid + ask) / 2,
+        high=high,
+        low=low,
+        close=(bid + ask) / 2,
+        volume=volume,
+        event_id=f"e{index}",
+    )
+
+
+def _execute(
+    policy: str,
+    snapshots: list[MarketSnapshot],
+    *,
+    quantity: float = 2.0,
+    historical_volumes: tuple[float, ...] = (),
+):
+    return executer_sur_snapshots(
+        policy,
+        snapshots,
+        ExecutionIntent("alpha", "X", Side.BUY, quantity),
+        config=load_config(),
+        seed=7,
+        latency_ms=0,
+        tick_size=1.0,
+        historical_volumes=historical_volumes,
+    )
 
 
 def test_default_configuration_is_explicitly_dry_run():
@@ -51,6 +98,63 @@ def test_vwap_profile_is_strictly_prior_to_scenario_start():
     profile = historical_volume_profile(scenario, sessions=5)
     assert profile.last_index < scenario.start_index
     assert len(profile.volumes) == 5
+
+
+def test_cancel_replace_reagit_au_premier_snapshot_sans_fill_retroactif():
+    snapshots = [
+        _market_snapshot(0),
+        _market_snapshot(1, bid=103.0, ask=104.0, low=103.0, high=104.0),
+        _market_snapshot(2, bid=103.0, ask=104.0, low=102.0, high=104.0),
+    ]
+    orders = _execute("cancel_replace", snapshots)
+    assert len(orders) == 2
+    original, replacement = orders
+    assert original.status is OrderStatus.CANCELLED
+    assert original.events[-1].timestamp == snapshots[1].timestamp + timedelta(milliseconds=20)
+    assert replacement.replaces == original.client_order_id
+    assert replacement.fills[0].timestamp == snapshots[2].timestamp
+
+
+def test_pegged_reprice_et_service_seulement_au_snapshot_suivant():
+    snapshots = [
+        _market_snapshot(0, low=100.5),
+        _market_snapshot(1, bid=103.0, ask=104.0, low=103.5, high=104.0),
+        _market_snapshot(2, bid=103.0, ask=104.0, low=103.0, high=104.0),
+    ]
+    orders = _execute("pegged", snapshots)
+    assert len(orders) == 2
+    original, replacement = orders
+    assert original.status is OrderStatus.CANCELLED
+    assert replacement.replaces == original.client_order_id
+    assert replacement.fills[0].timestamp == snapshots[2].timestamp
+
+
+def test_vwap_active_chaque_tranche_a_son_horaire_causal():
+    snapshots = [
+        _market_snapshot(0),
+        _market_snapshot(1, low=99.0),
+        _market_snapshot(2, low=99.0),
+    ]
+    orders = _execute("vwap", snapshots, historical_volumes=(10.0, 10.0))
+    assert [order.metadata["slice"] for order in orders] == [1, 2]
+    assert orders[0].fills[0].timestamp == snapshots[1].timestamp
+    assert orders[1].fills[0].timestamp == snapshots[1].timestamp
+    assert all(
+        fill.timestamp != snapshots[0].timestamp
+        for order in orders
+        for fill in order.fills
+    )
+
+
+def test_pov_observe_un_volume_puis_attend_le_snapshot_suivant():
+    snapshots = [
+        _market_snapshot(0, low=99.0, volume=40.0),
+        _market_snapshot(1, low=99.0, volume=40.0),
+    ]
+    orders = _execute("pov", snapshots, quantity=1.0)
+    assert len(orders) == 1
+    assert orders[0].metadata["volume_event_id"] == "e0"
+    assert orders[0].fills[0].timestamp == snapshots[1].timestamp
 
 
 def test_matrix_is_reproducible_and_uses_same_scenario_for_each_policy():

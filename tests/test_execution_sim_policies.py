@@ -92,6 +92,12 @@ def test_vwap_uses_only_historical_volume_profile():
     assert all(o.metadata["volume_source"] == "past_only" for o in orders)
 
 
+def test_vwap_echoue_ferme_sans_profil_historique_complet():
+    policy = get_policy("vwap", {"slices": 3})
+    assert policy.plan(intent(qty=10.0), context(historical_volumes=())) == []
+    assert policy.plan(intent(qty=10.0), context(historical_volumes=(10.0, 20.0))) == []
+
+
 def test_pov_deduplicates_volume_and_respects_participation():
     policy = get_policy("pov", {"participation_rate": 0.1, "min_slice": 1.0, "max_slice": 5.0})
     state = policy.new_state(intent(qty=20.0))

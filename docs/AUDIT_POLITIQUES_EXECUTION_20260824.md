@@ -196,8 +196,13 @@ Autrement dit : **sur la moitie du flux, ce banc ne peut rien dire de la
 politique qui tourne reellement.** Sur la cohorte de jugement résolue commune
 à `v14_live` et `market` (`n = 4 331`), le scénario synthétique donne
 `v14_live = +0.186829 R`, `market = +0.066861 R`, soit un uplift de
-`+0.119968 R`. C'est une comparaison appariée correcte, mais toujours une
-borne modélisée, sans preuve de file L1 ni intervalle de confiance.
+`+0.119968 R`. Le bootstrap par grappes d'actifs (5 000 tirages, seed 14)
+donne un IC95 de `[+0.106311 ; +0.133653] R` quand chaque décision conserve
+son poids, et `[+0.106900 ; +0.143620] R` quand chaque symbole a le même
+poids. Le signal est donc stable sur la cohorte résolue, mais il ne s'étend
+pas automatiquement aux 5 518 décisions de jugement indéterminées : le taux
+de résolution n'est que de 43,974 % et l'attrition est probablement liée au
+spread et au TTL. Cela reste une borne modélisée, sans preuve de file L1.
 
 Consequence directe et actionnable : soit la boucle aligne ses TTL sur une
 grille mesurable, soit la mesure passe aux ticks L1. Rien d'autre ne leve cette
@@ -209,8 +214,11 @@ indetermination.
    séparés, mais aucun n'est un taux de remplissage observé.
 2. **La profondeur est reconstruite.** Seul le sommet du carnet est archive.
 3. **Une barre M5 ne resout pas l'intra-barre.** TWAP, adaptive et iceberg
-   sont indistinguables ; cancel/replace, pegged, VWAP et POV ne sont pas
-   fidèlement rejoués par le runner actuel. Ils sortent tous du classement.
+   sont indistinguables. Le runner événementiel rejoue désormais
+   cancel/replace, pegged, VWAP et POV sans décision ni fill rétroactif ; ils
+   restent néanmoins hors du classement M5, car la grille 300 s ne distingue
+   pas leurs actions sous la barre et l'audit ne fournit pas encore le profil
+   de volume historique exigé par VWAP.
 4. **La trajectoire de sortie est tenue fixe.** Un meilleur prix d'entree
    change la probabilite de toucher le stop ; cette mesure ne le capte pas.
 5. **Frais a zero par defaut.** Sur ces instruments le cout du courtier EST le
@@ -249,12 +257,12 @@ Quatre tâches en découlent, dans cet ordre :
 
 1. **La porte d'entree, pas l'execution.** Un flux a -0.74 R par decision ne
    se repare pas par un meilleur prix d'entree.
-2. **Un modele de file d'attente cale sur les ticks L1**, avec le contrat
-   Hermes H2 : `coverage_ok`, contact, franchissement et service séparés, cutoff,
-   liste de fichiers et hashes scelles, convention de bornes explicite. Tant
-   qu'il n'existe pas, aucune politique passive ne peut etre promue.
-3. **Rendre le runner fidèle** à cancel/replace, pegged, VWAP et POV avant de
-   réintégrer ces politiques au classement.
-4. **Ajouter des intervalles de confiance appariés** sur l'uplift de
-   `v14_live`, puis modéliser l'interaction entre meilleur prix d'entrée et
-   trajectoire de sortie.
+2. **Le banc L1 de contact est livré**, avec cutoff, hashes, continuité stricte,
+   contact et franchissement séparés. Il laisse volontairement `service=null` :
+   sans profondeur, file, transaction séquencée ni côté agresseur, aucune
+   politique passive ne peut être promue. Voir `docs/AUDIT_L1_PASSIF_20260824.md`.
+3. **Le runner dynamique est causal**, mais sa réintégration au classement
+   attend une source plus fine que M5 et, pour VWAP, un profil historique.
+4. **Les IC appariés par symbole sont livrés.** Le prochain travail statistique
+   est l'analyse de sélection résolus/indéterminés et l'interaction entre
+   meilleur prix d'entrée et trajectoire de sortie.

@@ -338,11 +338,44 @@ def test_comparaison_v14_live_market_utilise_exactement_la_meme_cohorte(module):
         _ligne("market", "jugement", effet=-2.0, decision_id="b"),
     ]
     juge = module.comparer_cohorte_commune(lignes)["jugement"]
-    assert juge == {
-        "n": 1, "politique": "v14_live", "effet_r_politique": 0.2,
-        "effet_r_market": 0.1, "uplift_r_vs_market": 0.1,
-        "contrat": "meme_decision_resolue|service_synthetique_scenario",
-    }
+    assert juge["n"] == 1
+    assert juge["n_total_politique"] == 2
+    assert juge["taux_resolution"] == pytest.approx(0.5)
+    assert juge["attrition_non_aleatoire_possible"] is True
+    assert juge["effet_r_politique"] == pytest.approx(0.2)
+    assert juge["effet_r_market"] == pytest.approx(0.1)
+    assert juge["uplift_r_vs_market"] == pytest.approx(0.1)
+    assert juge["bootstrap_cluster_symbole"]["valide"] is False
+
+
+def test_bootstrap_apparie_est_clusterise_par_symbole_et_deterministe(module):
+    lignes = []
+    for symbole, effets in {"A": (0.6, 0.2), "B": (-0.1, 0.1)}.items():
+        for index, (cible, marche) in enumerate(zip(effets, (0.0, 0.0), strict=True)):
+            decision = f"{symbole}-{index}"
+            lignes.extend([
+                _ligne("v14_live", "jugement", effet=cible,
+                       symbole=symbole, decision_id=decision),
+                _ligne("market", "jugement", effet=marche,
+                       symbole=symbole, decision_id=decision),
+            ])
+    premier = module.comparer_cohorte_commune(lignes)["jugement"]
+    second = module.comparer_cohorte_commune(lignes)["jugement"]
+    assert premier == second
+    bootstrap = premier["bootstrap_cluster_symbole"]
+    assert bootstrap["valide"] is True
+    assert bootstrap["n_symboles"] == 2
+    assert bootstrap["repetitions"] == 5_000
+    assert bootstrap["decision_weighted"]["moyenne"] == pytest.approx(0.2)
+    assert bootstrap["symbol_equal"]["moyenne"] == pytest.approx(0.2)
+    assert bootstrap["decision_weighted"]["ic95"] == pytest.approx([0.0, 0.4])
+
+
+def test_bootstrap_distingue_ponderation_decisions_et_symboles(module):
+    deltas = {"LIQUIDE": [1.0] * 9, "RARE": [-1.0]}
+    resultat = module._ic_bootstrap_par_symbole(deltas, repetitions=100, seed=7)
+    assert resultat["decision_weighted"]["moyenne"] == pytest.approx(0.8)
+    assert resultat["symbol_equal"]["moyenne"] == pytest.approx(0.0)
 
 
 # --------------------------------------------------------------------------

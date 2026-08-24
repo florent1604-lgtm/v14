@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import statistics as st
 import sys
 from datetime import datetime, timedelta, timezone
@@ -754,9 +755,89 @@ def classer(par_politique: dict) -> list[dict]:
                       ligne["choix_effet_r_service_synthetique"] or -9))
 
 
+def _percentile(valeurs: list[float], quantile: float) -> float | None:
+    """Percentile lineaire deterministe, sans dependance scientifique."""
+    if not valeurs:
+        return None
+    triees = sorted(float(v) for v in valeurs)
+    position = (len(triees) - 1) * quantile
+    bas = int(position)
+    haut = min(bas + 1, len(triees) - 1)
+    poids = position - bas
+    return triees[bas] * (1.0 - poids) + triees[haut] * poids
+
+
+def _ic_bootstrap_par_symbole(
+    deltas_par_symbole: dict[str, list[float]], *,
+    repetitions: int = 5_000, seed: int = 14,
+) -> dict:
+    """IC apparie par cluster symbole, sous deux ponderations explicites.
+
+    Les decisions d'un meme actif ne sont pas independantes. Le bootstrap tire
+    donc des ACTIFS avec remise, jamais des decisions isolees. La ponderation
+    ``decision`` conserve le poids historique de chaque actif ; la ponderation
+    ``symbole`` donne une voix egale a chaque actif et expose la sensibilite aux
+    exotiques tres prolifiques.
+    """
+    symboles = sorted(s for s, valeurs in deltas_par_symbole.items() if valeurs)
+    if not symboles:
+        return {
+            "n_symboles": 0,
+            "repetitions": 0,
+            "seed": seed,
+            "valide": False,
+            "decision_weighted": None,
+            "symbol_equal": None,
+        }
+    moyennes = {s: st.fmean(deltas_par_symbole[s]) for s in symboles}
+    observe_decision = st.fmean(
+        delta for s in symboles for delta in deltas_par_symbole[s])
+    observe_symbole = st.fmean(moyennes.values())
+    if len(symboles) < 2 or repetitions <= 0:
+        return {
+            "n_symboles": len(symboles),
+            "repetitions": 0,
+            "seed": seed,
+            "valide": False,
+            "decision_weighted": {
+                "moyenne": round(observe_decision, 6), "ic95": None},
+            "symbol_equal": {
+                "moyenne": round(observe_symbole, 6), "ic95": None},
+        }
+    rng = random.Random(seed)
+    boot_decision: list[float] = []
+    boot_symbole: list[float] = []
+    for _ in range(repetitions):
+        tires = [rng.choice(symboles) for _ in symboles]
+        boot_decision.append(st.fmean(
+            delta for s in tires for delta in deltas_par_symbole[s]))
+        boot_symbole.append(st.fmean(moyennes[s] for s in tires))
+    return {
+        "n_symboles": len(symboles),
+        "repetitions": repetitions,
+        "seed": seed,
+        "valide": True,
+        "decision_weighted": {
+            "moyenne": round(observe_decision, 6),
+            "ic95": [round(_percentile(boot_decision, 0.025), 6),
+                     round(_percentile(boot_decision, 0.975), 6)],
+        },
+        "symbol_equal": {
+            "moyenne": round(observe_symbole, 6),
+            "ic95": [round(_percentile(boot_symbole, 0.025), 6),
+                     round(_percentile(boot_symbole, 0.975), 6)],
+        },
+    }
+
+
 def comparer_cohorte_commune(lignes: list[dict],
                              politique: str = "v14_live") -> dict:
-    """Compare une politique et MARKET sur les memes decisions resolues."""
+    """Compare une politique et MARKET sur les memes decisions resolues.
+
+    L'attrition est publiee : les TTL intra-barre rendent une part non aleatoire
+    des decisions indeterminee. Un uplift sans ce taux de resolution ferait
+    passer une selection de spreads moderes pour la population complete.
+    """
     cibles = {(ligne["symbole"], ligne["decision_id"], ligne["split"])
               for ligne in lignes
               if ligne["politique"] == politique
@@ -765,6 +846,9 @@ def comparer_cohorte_commune(lignes: list[dict],
               ligne["politique"]): ligne for ligne in lignes}
     sortie: dict[str, dict] = {}
     for segment in SEGMENTS:
+        cohorte_politique = [ligne for ligne in lignes
+                             if ligne["politique"] == politique
+                             and ligne["split"] == segment]
         paires = []
         for symbole, decision_id, split in sorted(cibles):
             if split != segment:
@@ -777,19 +861,37 @@ def comparer_cohorte_commune(lignes: list[dict],
             sortie[segment] = {"n": 0, "politique": politique,
                                "effet_r_politique": None,
                                "effet_r_market": None,
-                               "uplift_r_vs_market": None}
+                               "uplift_r_vs_market": None,
+                               "n_total_politique": len(cohorte_politique),
+                               "taux_resolution": 0.0,
+                               "attrition_non_aleatoire_possible": bool(
+                                   cohorte_politique),
+                               "bootstrap_cluster_symbole":
+                                   _ic_bootstrap_par_symbole({})}
             continue
         effet_politique = st.fmean(
             paire[0]["effet_r_service_synthetique"] for paire in paires)
         effet_market = st.fmean(
             paire[1]["effet_r_service_synthetique"] for paire in paires)
+        deltas_par_symbole: dict[str, list[float]] = {}
+        for cible, marche in paires:
+            deltas_par_symbole.setdefault(cible["symbole"], []).append(
+                cible["effet_r_service_synthetique"]
+                - marche["effet_r_service_synthetique"])
+        taux_resolution = (len(paires) / len(cohorte_politique)
+                           if cohorte_politique else 0.0)
         sortie[segment] = {
             "n": len(paires),
+            "n_total_politique": len(cohorte_politique),
+            "taux_resolution": round(taux_resolution, 6),
+            "attrition_non_aleatoire_possible": len(paires) < len(cohorte_politique),
             "politique": politique,
             "effet_r_politique": round(effet_politique, 6),
             "effet_r_market": round(effet_market, 6),
             "uplift_r_vs_market": round(effet_politique - effet_market, 6),
             "contrat": "meme_decision_resolue|service_synthetique_scenario",
+            "bootstrap_cluster_symbole": _ic_bootstrap_par_symbole(
+                deltas_par_symbole),
         }
     return sortie
 

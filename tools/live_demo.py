@@ -912,6 +912,7 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             # mesure l'alignement. Le sur-comptage rangeait un setup à
             # 2 piliers parmi les « 4p ».
             context_key=_contexte_exact(sym, feats, out.side),
+            contre_tendance=bool(getattr(out, "contre_tendance", False)),
             indicators=dict((feats.get("_trace") or {}).get("indicators") or {}),
             ts_open=datetime.now(timezone.utc).isoformat(),
             # Sert a convertir en R la commission et le swap que MT5 rend en
@@ -949,6 +950,7 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
             entry=res.price or 0.0,
             sl_initial=res.sl or 0.0, tp_initial=res.tp or 0.0,
             context_key=_contexte_exact(sym, feats, out.side),
+            contre_tendance=bool(getattr(out, "contre_tendance", False)),
             indicators=dict((feats.get("_trace") or {}).get("indicators") or {}),
             ts_open=datetime.now(timezone.utc).isoformat(),
             risque_devise=float(risque_devise or 0.0),
@@ -1399,12 +1401,10 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         #    part du flux vient de la levee, et on jugerait la levee sur une
         #    performance globale ou elle est noyee. La famille reste par
         #    ailleurs inscrite dans la cle de contexte (`...|reversal|...`).
-        _tendance = int((feats or {}).get("trend") or 0)
-        _sens = int(getattr(out, "side", 0) or 0)
-        if _tendance != 0 and _sens == -_tendance:
+        if bool(getattr(out, "contre_tendance", False)):
             _compter_tunnel(stats, "anti_fade", "CONTRE_TENDANCE_AUTORISE")
             print(f"    {sym:8} contre-tendance autorisé (calibration 24/08) — "
-                  f"side={_sens} vs trend={_tendance}", flush=True)
+                  "drapeau RiskGate persisté", flush=True)
 
         # ── Réserve S≥3. Les derniers créneaux appartiennent à la strate qui
         #    nourrit la promotion : rare (~10 % des ENTER), elle serait sinon

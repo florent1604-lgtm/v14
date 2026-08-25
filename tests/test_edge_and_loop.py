@@ -204,6 +204,18 @@ def test_marqueur_exact_net_non_booleen_reste_fail_closed(tmp_path, valeur):
     assert trade_relu.exact_net is False
 
 
+def test_ancien_journal_sans_contre_tendance_reste_compatible(tmp_path):
+    f = tmp_path / "ancien.ndjson"
+    f.write_text(
+        json.dumps({"context": CTX.key(), "pnl_r": 0.5}) + "\n",
+        encoding="utf-8",
+    )
+
+    trade_relu = TradeJournal(f).read_all()[0]
+
+    assert trade_relu.contre_tendance is False
+
+
 def test_taux_exact_compare_avant_arrondi(livre):
     trades = [trade(exact_net=True) for _ in range(17_999)]
     trades.extend(trade(exact_net=False) for _ in range(2_001))

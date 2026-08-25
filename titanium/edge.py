@@ -106,6 +106,9 @@ class ClosedTrade:
     #: seul ce champ, journalisé à la CLÔTURE, permettra de comparer les deux
     #: sources sur des RÉSULTATS et non sur des taux de passage.
     candle_source: str = ""
+    #: Cohorte exacte autorisée par la levée de l'anti-fade. ``False`` est le
+    #: défaut rétrocompatible des journaux antérieurs au 25/08/2026.
+    contre_tendance: bool = False
 
     def __post_init__(self) -> None:
         # Une decomposition complete des couts implique necessairement que le
@@ -203,6 +206,7 @@ class TradeJournal:
                     exact_cost=cout_exact,
                     exact_net=net_exact,
                     candle_source=str(d.get("candle_source", "") or ""),
+                    contre_tendance=d.get("contre_tendance", False) is True,
                     horloge=str(d.get("horloge", "") or "")))
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
                 self.rejected_lines += 1

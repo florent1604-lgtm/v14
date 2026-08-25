@@ -94,7 +94,7 @@ def test_contexte_limite_sauve_retourne_une_preuve(monkeypatch, tmp_path):
     monkeypatch.setattr(live_demo, "RACINE", tmp_path)
     monkeypatch.setattr(live_demo, "_contexte_exact", lambda *_: "EURUSD|long|x|3p")
     monkeypatch.setattr(live_demo, "_stratification", lambda *_: {})
-    out = SimpleNamespace(side=1, stop_distance=0.005)
+    out = SimpleNamespace(side=1, stop_distance=0.005, contre_tendance=True)
     res = SimpleNamespace(
         price=1.1000,
         sl=1.0950,
@@ -114,6 +114,7 @@ def test_contexte_limite_sauve_retourne_une_preuve(monkeypatch, tmp_path):
     assert state["limit_planned_price"] == 1.1000
     assert state["limit_market_reference_price"] == 1.1002
     assert state["limit_target_saving_r"] == pytest.approx(0.04)
+    assert state["contre_tendance"] is True
 
 
 def test_contexte_ordre_marche_ne_se_fait_pas_passer_pour_une_limite(
@@ -124,7 +125,7 @@ def test_contexte_ordre_marche_ne_se_fait_pas_passer_pour_une_limite(
     monkeypatch.setattr(live_demo, "RACINE", tmp_path)
     monkeypatch.setattr(live_demo, "_contexte_exact", lambda *_: "EURUSD|long|x|3p")
     monkeypatch.setattr(live_demo, "_stratification", lambda *_: {})
-    out = SimpleNamespace(side=1, stop_distance=0.005)
+    out = SimpleNamespace(side=1, stop_distance=0.005, contre_tendance=True)
     res = SimpleNamespace(price=1.1000, sl=1.0950, tp=1.1075)
 
     _attacher_contexte(999, "EURUSD", {}, out, res, risque_devise=25.0)
@@ -134,6 +135,7 @@ def test_contexte_ordre_marche_ne_se_fait_pas_passer_pour_une_limite(
     assert state["limit_planned_price"] == 0.0
     assert state["limit_market_reference_price"] == 0.0
     assert state["limit_target_saving_r"] is None
+    assert state["contre_tendance"] is True
 
 
 def test_echec_contexte_limite_n_est_plus_silencieux(monkeypatch):

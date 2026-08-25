@@ -114,7 +114,8 @@ def test_la_mae_se_suit_au_fil_de_leau():
 
 def test_journalise_un_gagnant(tmp_path):
     j = tmp_path / "trades.ndjson"
-    ok = journaliser_cloture(etat(peak_fav_r=2.1, phase=PHASE_TRAILING), "555",
+    ok = journaliser_cloture(etat(peak_fav_r=2.1, phase=PHASE_TRAILING,
+                                  contre_tendance=True), "555",
                              prix_sortie=1.1180, ts_exit="2026-08-07T05:00:00+00:00",
                              journal_path=j, net_devise=180.0)
     assert ok
@@ -123,6 +124,11 @@ def test_journalise_un_gagnant(tmp_path):
     assert trades[0].pnl_r == pytest.approx(1.8, abs=0.01)
     assert trades[0].context == "EURUSD|long|continuation|3p"
     assert trades[0].timeframe == "H1"
+    assert trades[0].contre_tendance is True
+    excursion = json.loads(
+        (tmp_path / "excursions.ndjson").read_text(encoding="utf-8").strip()
+    )
+    assert excursion["contre_tendance"] is True
     assert trades[0].ticket == "live:555"
 
 

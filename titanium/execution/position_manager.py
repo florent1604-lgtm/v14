@@ -123,6 +123,10 @@ class TrackedState:
     sl_initial: float = 0.0
     tp_initial: float = 0.0
     context_key: str = ""
+    # Verdict du RiskGate figé à l'entrée. Il ne se confond pas avec la
+    # famille ``reversal`` : seul ce drapeau identifie exactement la cohorte
+    # ouverte grâce à la levée de l'anti-fade.
+    contre_tendance: bool = False
     indicators: dict = field(default_factory=dict)
     ts_open: str = ""
     mae_r: float = 0.0            # pire excursion observée (≤ 0)
@@ -191,6 +195,7 @@ class TrackedState:
                 "symbol": self.symbol, "side": self.side,
                 "entry": self.entry, "sl_initial": self.sl_initial,
                 "tp_initial": self.tp_initial, "context_key": self.context_key,
+                "contre_tendance": self.contre_tendance,
                 "indicators": self.indicators, "ts_open": self.ts_open,
                 "mae_r": self.mae_r, "risque_devise": self.risque_devise,
                 "spread_r": self.spread_r, "spread_exact": self.spread_exact,
@@ -224,6 +229,7 @@ class TrackedState:
             sl_initial=float(d.get("sl_initial", 0.0) or 0.0),
             tp_initial=float(d.get("tp_initial", 0.0) or 0.0),
             context_key=str(d.get("context_key", "")),
+            contre_tendance=d.get("contre_tendance", False) is True,
             indicators=dict(d.get("indicators") or {}),
             ts_open=str(d.get("ts_open", "")),
             mae_r=float(d.get("mae_r", 0.0) or 0.0),
@@ -872,6 +878,7 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
             quorum=st.quorum,
             support_pillars=st.support_pillars,
             candle_source=st.candle_source,
+            contre_tendance=st.contre_tendance,
             # `closed_at` est desormais du vrai UTC. Le marqueur permet a un
             # outil de refuser les lignes anciennes, ecrites en heure serveur.
             horloge="utc",
@@ -919,6 +926,7 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
                 "mae_r": round(st.mae_r, 4), "mfe_r": round(st.peak_fav_r, 4),
                 "giveback_r": giveback,
                 "exit_reason": st.phase, "context": st.context_key,
+                "contre_tendance": st.contre_tendance,
                 # Vrai si la sortie a tronqué la MFE (stop touché) : sans ce
                 # drapeau, toute statistique future de MFE est biaisée à la baisse.
                 "censored": st.phase != PHASE_TRAILING and pnl_r <= 0,
@@ -955,6 +963,7 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
                     "pnl_r": round(pnl_r, 4),
                     "cost_r": round(cout_total, 4) if cout_total is not None else None,
                     "context": st.context_key,
+                    "contre_tendance": st.contre_tendance,
                     "regime": (
                         str(st.context_key).split("|")[2]
                         if len(str(st.context_key).split("|")) > 2 else "unknown"

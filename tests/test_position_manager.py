@@ -535,19 +535,22 @@ def test_horizon_n_affecte_jamais_le_sl_decide():
 def test_tracked_state_roundtrip_conserve_l_instrumentation():
     s = etat(entry_levels={"sr_level": 1.105, "dist_sr_r": 0.5},
              entry_atr=0.015,
+             contre_tendance=True,
              horizon_excursions={"1": {"mfe_r": 0.2, "mae_r": -0.1}})
     relu = TrackedState.from_dict(s.to_dict())
     assert relu.entry_levels == {"sr_level": 1.105, "dist_sr_r": 0.5}
     assert relu.entry_atr == pytest.approx(0.015)
+    assert relu.contre_tendance is True
     assert relu.horizon_excursions == {"1": {"mfe_r": 0.2, "mae_r": -0.1}}
 
 
 def test_tracked_state_from_dict_tolere_un_etat_ancien_sans_instrumentation():
     """Un état écrit avant ce lot ne doit pas empêcher la relecture."""
     ancien = etat().to_dict()
-    for cle in ("entry_levels", "entry_atr", "horizon_excursions"):
+    for cle in ("entry_levels", "entry_atr", "contre_tendance", "horizon_excursions"):
         ancien.pop(cle, None)
     relu = TrackedState.from_dict(ancien)
     assert relu.entry_levels == {}
     assert relu.entry_atr == 0.0
+    assert relu.contre_tendance is False
     assert relu.horizon_excursions == {}

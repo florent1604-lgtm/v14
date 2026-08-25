@@ -77,6 +77,7 @@ Lecture seule. Aucun ordre, aucun compte, aucun seuil touche.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import statistics as st
@@ -127,6 +128,52 @@ SCHEMA_ARTEFACT = 2
 #: L'option existe pour les venues qui facturent vraiment au notionnel.
 MAKER_BPS_DEFAUT = 0.0
 TAKER_BPS_DEFAUT = 0.0
+
+STATUT_MESURE = "MESURE"
+STATUT_BLOQUE = "ANALYSIS_BLOCKED"
+STATUT_SANS_ARTEFACT = "NO_ARTIFACT_IN_VALID_CORPUS"
+
+#: Refus qui portent sur l'INTEGRITE du corpus lu. Aucun symbole valide pour
+#: l'une de ces raisons n'est pas un classement vide : c'est une mesure qui
+#: n'a pas eu lieu.
+MOTIFS_BLOQUANTS = ("manifeste_absent", "artifact_type", "schema_version",
+                    "epoque_moteur", "sceaux_ou_compteurs_invalides",
+                    "resume_absent")
+
+
+def _sha256(donnees: bytes) -> str:
+    return hashlib.sha256(donnees).hexdigest()
+
+
+def _sha256_fichier(chemin: Path) -> str:
+    try:
+        return _sha256(Path(chemin).read_bytes())
+    except OSError:
+        return ""
+
+
+def _canonique(objet: object) -> bytes:
+    return json.dumps(objet, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":")).encode("utf-8")
+
+
+def statut_analyse(valides: int, refuses: dict[str, str]) -> tuple[str, str]:
+    """Statut publiable : mesure faite, corpus sans artefact, ou analyse bloquee.
+
+    Zero artefact valide n'est jamais un resultat. Le 25/08/2026, un commit
+    sur un fichier moteur a fait refuser 147/147 artefacts en silence, avec un
+    code de sortie nul.
+    """
+    if valides:
+        return STATUT_MESURE, ""
+    bloquants = sorted({
+        prefixe for motif in refuses.values()
+        for prefixe in MOTIFS_BLOQUANTS if str(motif).startswith(prefixe)
+    })
+    if bloquants:
+        return STATUT_BLOQUE, "|".join(bloquants)
+    return STATUT_SANS_ARTEFACT, ""
+
 
 #: Sous cet effectif, une cellule ne conclut pas.
 EFFECTIF_MIN = 60
@@ -900,14 +947,25 @@ def mesurer(symboles: list[str], *, politiques: tuple[str, ...] = POLITIQUES,
             limite: int | None = 200, maker_bps: float = MAKER_BPS_DEFAUT,
             taker_bps: float = TAKER_BPS_DEFAUT,
             effectif_min: int = EFFECTIF_MIN, fenetre: int = FENETRE,
-            lignes_sortie: Path | None = None) -> dict:
+            lignes_sortie: Path | None = None, brut: Path = BRUT,
+            resumes: Path = RESUMES, pin_epoque: str | None = None) -> dict:
     config = load_config()
     config["execution"]["fees"] = {"maker_bps": maker_bps, "taker_bps": taker_bps}
-    empreinte = epoque_rejeu.empreinte_courante()
+    # L'epoque de reference est celle du CORPUS demande, pas celle de l'arbre
+    # de travail : sinon un commit sans effet sur le rejeu perime en silence
+    # 147 artefacts scelles (panne du 25/08/2026). Une demande vide n'est pas
+    # une mesure a zero symbole : c'est une analyse qui n'a pas eu lieu.
+    etat = (epoque_rejeu.etat_epoque(brut, symboles, pin=pin_epoque) if symboles
+            else {"corpus_epoch": "", "workspace_engine_epoch":
+                  epoque_rejeu.empreinte_courante(),
+                  "workspace_matches_corpus": False, "pin": pin_epoque or None,
+                  "manifests": []})
+    empreinte = etat["corpus_epoch"]
     lignes: list[dict] = []
     refuses: dict[str, str] = {}
     for symbole in symboles:
-        valide, motif = valider_artefact(symbole, empreinte_attendue=empreinte)
+        valide, motif = valider_artefact(symbole, brut=brut, resumes=resumes,
+                                         empreinte_attendue=empreinte)
         if not valide:
             refuses[symbole] = motif
             continue
@@ -922,14 +980,28 @@ def mesurer(symboles: list[str], *, politiques: tuple[str, ...] = POLITIQUES,
                 flux.write(json.dumps(ligne, ensure_ascii=False) + "\n")
     decisions_retenues = len({(ligne["symbole"], ligne["decision_id"])
                               for ligne in lignes})
+    mesures = len(symboles) - len(refuses)
+    statut, motif_bloquant = ((STATUT_BLOQUE, "CORPUS_VIDE") if not symboles
+                              else statut_analyse(mesures, refuses))
     return {
         "schema_version": 3,
+        "statut": statut,
+        "motif_bloquant": motif_bloquant or None,
         "mesure_le": datetime.now(timezone.utc).isoformat(),
         "moteur_execution": engine_fingerprint(),
         "epoque_rejeu": empreinte,
+        "epoque": {
+            **etat,
+            "manifests_sha256": _sha256(_canonique(etat["manifests"])),
+        },
+        "code": {
+            "analyse_sha256": _sha256_fichier(Path(__file__)),
+            "limit_pricing_sha256": _sha256_fichier(
+                RACINE / "titanium" / "execution" / "limit_pricing.py"),
+        },
         "artefacts": {"artifact_type": ARTIFACT_TYPE,
                       "schema_version": SCHEMA_ARTEFACT,
-                      "valides": len(symboles) - len(refuses),
+                      "valides": mesures,
                       "refuses": refuses},
         "symboles": [s for s in symboles if s not in refuses],
         "decisions_par_symbole": limite,
@@ -977,6 +1049,9 @@ def resumer(rapport: dict) -> str:
         f"  epoque rejeu : {rapport.get('epoque_rejeu', '')[:16]} — "
         f"{rapport['artefacts']['valides']} artefacts valides, "
         f"{len(rapport['artefacts']['refuses'])} refuses",
+        f"  arbre de travail : "
+        f"{(rapport.get('epoque') or {}).get('workspace_engine_epoch', '')[:16]}"
+        f"{'' if (rapport.get('epoque') or {}).get('workspace_matches_corpus') else ' — DIFFERENT de la generation mesuree (ecart permis, publie)'}",
         f"  fidelite : {rapport['fidelite']}",
         f"  causalite : {rapport['causalite']}",
         "",
@@ -1030,6 +1105,14 @@ def main() -> int:
     ap.add_argument("--fenetre", type=int, default=FENETRE,
                     help="barres M5 offertes a une politique pour etre servie")
     ap.add_argument("--sortie", type=Path, default=SORTIE)
+    ap.add_argument("--brut", type=Path, default=BRUT,
+                    help="racine des artefacts bruts scelles a mesurer")
+    ap.add_argument("--resumes", type=Path, default=RESUMES,
+                    help="racine des resumes lies aux manifestes")
+    ap.add_argument("--empreinte", default=None,
+                    help="epingle la generation attendue du corpus. ASSERTION: "
+                         "une valeur differente refuse la mesure au lieu de la "
+                         "contourner.")
     ap.add_argument("--lignes", type=Path, default=None,
                     help="NDJSON detaille (decision_id, instant, sens, prix)")
     ap.add_argument("--json", action="store_true")
@@ -1038,10 +1121,49 @@ def main() -> int:
 
     symboles = args.symboles or sorted(
         chemin.stem for chemin in (BARRES / "M5").glob("*.parquet"))
-    rapport = mesurer(symboles, politiques=tuple(args.politiques),
-                      limite=args.limite, maker_bps=args.maker_bps,
-                      taker_bps=args.taker_bps, effectif_min=args.effectif_min,
-                      fenetre=args.fenetre, lignes_sortie=args.lignes)
+    try:
+        rapport = mesurer(symboles, politiques=tuple(args.politiques),
+                          limite=args.limite, maker_bps=args.maker_bps,
+                          taker_bps=args.taker_bps,
+                          effectif_min=args.effectif_min,
+                          fenetre=args.fenetre, lignes_sortie=args.lignes,
+                          brut=args.brut, resumes=args.resumes,
+                          pin_epoque=args.empreinte)
+    except epoque_rejeu.EpoqueCorpusError as erreur:
+        blocage = epoque_rejeu.publier_blocage(args.sortie, {
+            "blocking_reason": erreur.motif,
+            "detail": erreur.detail,
+            "banc": "politiques_execution_reel",
+        })
+        print(json.dumps({"statut": STATUT_BLOQUE,
+                          "motif_bloquant": erreur.motif,
+                          "detail": erreur.detail, "ecrit": False,
+                          "rapport_bloque": str(blocage)},
+                         ensure_ascii=False, indent=2))
+        return 2
+    if rapport["statut"] == STATUT_BLOQUE:
+        # Ne rien ecrire A LA PLACE du classement : un classement vide qui
+        # ecrase le dernier classement valide fait passer une panne pour une
+        # absence de signal. Le blocage est publie a cote, car un tableau de
+        # bord ne lit pas un code de retour.
+        epoque = {cle: rapport["epoque"][cle] for cle in (
+            "corpus_epoch", "workspace_engine_epoch",
+            "workspace_matches_corpus")}
+        blocage = epoque_rejeu.publier_blocage(args.sortie, {
+            "blocking_reason": rapport["motif_bloquant"],
+            "artefacts": rapport["artefacts"],
+            "epoque": epoque,
+            "banc": "politiques_execution_reel",
+        })
+        print(json.dumps({"statut": rapport["statut"],
+                          "motif_bloquant": rapport["motif_bloquant"],
+                          "artefacts": rapport["artefacts"],
+                          "epoque": epoque,
+                          "ecrit": False,
+                          "rapport_bloque": str(blocage)},
+                         ensure_ascii=False, indent=2))
+        return 2
+    epoque_rejeu.lever_blocage(args.sortie)
     args.sortie.parent.mkdir(parents=True, exist_ok=True)
     args.sortie.write_text(json.dumps(rapport, ensure_ascii=False, indent=2),
                            encoding="utf-8")

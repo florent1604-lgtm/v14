@@ -55,26 +55,48 @@ def univers(tmp_path, monkeypatch):
     moteur_b = [{"name": "moteur.py", "bytes": 2, "sha256": "bb"}]
     _resume(rejeu, "COURANT", 0.10)
     _resume(rejeu, "ANCIEN", 0.90)
+    _resume(rejeu, "ANCIEN2", 0.70)
     _resume(rejeu, "SANS_MANIFESTE", 0.80)
     _manifeste(brut, "COURANT", moteur_a)
     _manifeste(brut, "ANCIEN", moteur_b)
+    _manifeste(brut, "ANCIEN2", moteur_b)
     monkeypatch.setattr(module, "empreinte_moteur_courante",
                         lambda: module.epoque_rejeu.empreinte(moteur_a))
+    module._moteurs = {"a": moteur_a, "b": moteur_b}
     return module
 
 
-def test_epoque_courante_ecarte_les_autres_generations(univers):
+def test_l_epoque_du_corpus_est_le_defaut_et_non_l_arbre_de_travail(univers):
+    """Regression du 25/08/2026 : un commit sur un fichier moteur ne doit plus
+    ecarter d'un coup un corpus scelle intact. La generation mesuree est celle
+    des artefacts, l'arbre de travail n'est qu'une information publiee."""
     resultats, tri = univers.charger_rejeu()
-    assert [r["symbole"] for r in resultats] == ["COURANT"]
-    assert tri["retenus"] == 1
+    assert sorted(r["symbole"] for r in resultats) == ["ANCIEN", "ANCIEN2"]
+    assert tri["retenus"] == 2
     assert tri["ecartes"] == 2
+    assert tri["arbre_correspond_au_corpus"] is False
+    assert tri["epoque_retenue"] == univers.epoque_rejeu.empreinte(
+        univers._moteurs["b"])[:16]
+
+
+def test_epoque_courante_reste_disponible(univers):
+    resultats, tri = univers.charger_rejeu(epoque="courante")
+    assert [r["symbole"] for r in resultats] == ["COURANT"]
+    assert tri["arbre_correspond_au_corpus"] is True
     assert "sans_manifeste" in tri["epoques_ecartees"]
+
+
+def test_une_empreinte_explicite_epingle_la_generation(univers):
+    attendue = univers.epoque_rejeu.empreinte(univers._moteurs["a"])
+    resultats, tri = univers.charger_rejeu(epoque=attendue)
+    assert [r["symbole"] for r in resultats] == ["COURANT"]
+    assert tri["epoque_retenue"] == attendue[:16]
 
 
 def test_epoque_toutes_est_un_mode_de_diagnostic(univers):
     resultats, tri = univers.charger_rejeu(epoque="toutes")
     assert sorted(r["symbole"] for r in resultats) == [
-        "ANCIEN", "COURANT", "SANS_MANIFESTE"]
+        "ANCIEN", "ANCIEN2", "COURANT", "SANS_MANIFESTE"]
     assert tri["ecartes"] == 0
 
 

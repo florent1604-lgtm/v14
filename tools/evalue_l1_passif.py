@@ -49,6 +49,40 @@ POLITIQUES = ("best_passive", "v14_live")
 ARTIFACT_TYPE = "v14.offline_replay.trades"
 ARTIFACT_SCHEMA = 2
 
+STATUT_MESURE = "MEASURED_PRICE_PATH_ONLY"
+STATUT_BLOQUE = "ANALYSIS_BLOCKED"
+STATUT_SANS_DECISION = "NO_DECISION_IN_VALID_CORPUS"
+
+#: Refus qui portent sur l'INTEGRITE du corpus. Zero symbole mesure pour l'une
+#: de ces raisons n'est pas un resultat nul : c'est une mesure qui n'a pas eu
+#: lieu, et elle doit sortir en erreur dure.
+MOTIFS_BLOQUANTS = (
+    "MANIFESTE_ABSENT_OU_INVALIDE",
+    "CONTRAT_ARTEFACT_INCOMPATIBLE",
+    "EPOQUE_REJEU_INCOMPATIBLE",
+    "SCEAU_ARTEFACT_INVALIDE",
+)
+
+
+def statut_analyse(inventaire: dict) -> tuple[str, str]:
+    """Statut publiable et motif bloquant eventuel.
+
+    Le 25/08/2026, un commit sur un fichier moteur a fait refuser 147/147
+    artefacts : le banc rendait `symbols_measured: 0` avec un code de sortie
+    nul, indistinguable d'une absence de signal. Trois etats sont desormais
+    separes : mesure faite, corpus valide sans decision, analyse bloquee.
+    """
+    refuses = inventaire.get("refused_symbols") or {}
+    if inventaire.get("symbols_measured"):
+        return STATUT_MESURE, ""
+    bloquants = sorted({
+        str(motif).split(":", 1)[0] for motif in refuses.values()
+        if str(motif).split(":", 1)[0] in MOTIFS_BLOQUANTS
+    })
+    if bloquants:
+        return STATUT_BLOQUE, "|".join(bloquants)
+    return STATUT_SANS_DECISION, ""
+
 
 def _canonique(objet: object) -> bytes:
     return (json.dumps(
@@ -479,12 +513,17 @@ def mesurer(
     cutoff_ms: int,
     seuil_gap_ms: int,
     symboles: list[str] | None = None,
+    pin_epoque: str | None = None,
 ) -> tuple[dict, list[dict]]:
     specifications_bytes = Path(specifications_path).read_bytes()
     specifications = json.loads(specifications_bytes)
-    empreinte = epoque_rejeu.empreinte_courante()
     dossiers_quotes = {p.name: p for p in Path(quotes).iterdir() if p.is_dir()}
     univers = sorted(symboles or (p.name for p in Path(bruts).iterdir() if p.is_dir()))
+    # L'epoque est celle du CORPUS scelle, jamais celle de l'arbre de travail :
+    # un commit qui ne change pas la semantique du rejeu ne perime pas une
+    # mesure, mais deux generations melangees restent un echec ferme.
+    etat_epoque = epoque_rejeu.etat_epoque(bruts, univers, pin=pin_epoque)
+    empreinte = etat_epoque["corpus_epoch"]
     details: list[dict] = []
     sources_quotes: list[dict] = []
     sources_rejeu: list[dict] = []
@@ -563,10 +602,25 @@ def mesurer(
         },
     }
     source_snapshot["snapshot_id"] = _sha256(_canonique(source_snapshot))
+    inventaire = {
+        "symbols_requested": len(univers),
+        "symbols_measured": len({ligne["symbole"] for ligne in details}),
+        "candidate_decisions": len({
+            (ligne["symbole"], ligne["decision_id"]) for ligne in details
+        }),
+        "detail_lines": len(details),
+        "refused_symbols": refuses,
+    }
+    statut, motif_bloquant = statut_analyse(inventaire)
     rapport = {
         "schema_version": SCHEMA_VERSION,
         "report_type": "v14.execution_l1.passive_price_path",
-        "status": "MEASURED_PRICE_PATH_ONLY",
+        "status": statut,
+        "blocking_reason": motif_bloquant or None,
+        "epoque": {
+            **etat_epoque,
+            "manifests_sha256": _sha256(_canonique(etat_epoque["manifests"])),
+        },
         "paper_demo_only": True,
         "cutoff": iso_utc_ms(cutoff_ms),
         "max_gap_ms": seuil_gap_ms,
@@ -579,15 +633,7 @@ def mesurer(
             "service_observable": False,
             "warning": "aucune profondeur, file, transaction ou cote agresseur; aucun fill infere",
         },
-        "inventory": {
-            "symbols_requested": len(univers),
-            "symbols_measured": len({ligne["symbole"] for ligne in details}),
-            "candidate_decisions": len({
-                (ligne["symbole"], ligne["decision_id"]) for ligne in details
-            }),
-            "detail_lines": len(details),
-            "refused_symbols": refuses,
-        },
+        "inventory": inventaire,
         "metrics": agreger(details),
         "source_snapshot": source_snapshot,
     }
@@ -614,6 +660,10 @@ def sceller_sorties(rapport: dict, details: list[dict], *, sortie: Path, details
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--cutoff", required=True, help="instant UTC ISO inclus dans le sceau")
+    ap.add_argument("--empreinte", default=None,
+                    help="epingle la generation attendue du corpus. C'est une "
+                         "ASSERTION: une valeur differente refuse la mesure, "
+                         "elle ne contourne jamais une validation.")
     ap.add_argument("--max-gap-ms", type=int, default=5_000)
     ap.add_argument("--quotes", type=Path, default=QUOTES_DEFAUT)
     ap.add_argument("--bruts", type=Path, default=BRUTS_DEFAUT)
@@ -626,21 +676,63 @@ def main() -> int:
     if args.max_gap_ms <= 0:
         ap.error("--max-gap-ms doit etre positif")
     cutoff_ms = instant_utc_ms(args.cutoff)
-    rapport, details = mesurer(
-        quotes=args.quotes,
-        bruts=args.bruts,
-        resumes=args.resumes,
-        specifications_path=args.specifications,
-        cutoff_ms=cutoff_ms,
-        seuil_gap_ms=args.max_gap_ms,
-        symboles=args.symboles,
-    )
+    try:
+        rapport, details = mesurer(
+            quotes=args.quotes,
+            bruts=args.bruts,
+            resumes=args.resumes,
+            specifications_path=args.specifications,
+            cutoff_ms=cutoff_ms,
+            seuil_gap_ms=args.max_gap_ms,
+            symboles=args.symboles,
+            pin_epoque=args.empreinte,
+        )
+    except epoque_rejeu.EpoqueCorpusError as erreur:
+        blocage = epoque_rejeu.publier_blocage(args.sortie, {
+            "blocking_reason": erreur.motif,
+            "detail": erreur.detail,
+            "banc": "evalue_l1_passif",
+        })
+        print(json.dumps({
+            "status": STATUT_BLOQUE,
+            "blocking_reason": erreur.motif,
+            "detail": erreur.detail,
+            "written": False,
+            "blocked_report": str(blocage),
+        }, ensure_ascii=False, indent=2))
+        return 2
+    if rapport["status"] == STATUT_BLOQUE:
+        # Ne rien ecrire A LA PLACE du rapport : un rapport vide qui ecrase le
+        # dernier rapport valide transforme une panne en « aucun signal ». Le
+        # blocage est publie a cote, car un tableau de bord ne lit pas un code
+        # de retour.
+        epoque = {cle: rapport["epoque"][cle] for cle in (
+            "corpus_epoch", "workspace_engine_epoch",
+            "workspace_matches_corpus")}
+        blocage = epoque_rejeu.publier_blocage(args.sortie, {
+            "blocking_reason": rapport["blocking_reason"],
+            "inventory": rapport["inventory"],
+            "epoque": epoque,
+            "banc": "evalue_l1_passif",
+        })
+        print(json.dumps({
+            "status": rapport["status"],
+            "blocking_reason": rapport["blocking_reason"],
+            "inventory": rapport["inventory"],
+            "epoque": epoque,
+            "written": False,
+            "blocked_report": str(blocage),
+        }, ensure_ascii=False, indent=2))
+        return 2
+    epoque_rejeu.lever_blocage(args.sortie)
     rapport = sceller_sorties(
         rapport, details, sortie=args.sortie, details_path=args.details,
     )
     print(json.dumps({
         "status": rapport["status"],
         "inventory": rapport["inventory"],
+        "epoque": {cle: rapport["epoque"][cle] for cle in (
+            "corpus_epoch", "workspace_engine_epoch", "workspace_matches_corpus")},
         "metrics": rapport["metrics"],
         "snapshot_id": rapport["source_snapshot"]["snapshot_id"],
         "manifest_sha256": rapport["manifest_sha256"],

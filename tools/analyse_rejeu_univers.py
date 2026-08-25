@@ -78,17 +78,37 @@ def empreinte_moteur_artefact(symbole: str) -> str:
     return epoque_rejeu.empreinte_artefact(REJEU_BRUT, symbole)
 
 
-def charger_rejeu(*, epoque: str = "courante") -> tuple[list[dict], dict]:
+def epoque_de_reference(epoque: str) -> str:
+    """Generation servant de filtre, selon le mot-cle ou l'empreinte donnee.
+
+    ``corpus`` est le defaut depuis le 25/08/2026 : la reference est la
+    generation DOMINANTE des artefacts scelles, et non le code present sur
+    disque. Un commit qui ne change pas la semantique du rejeu ne doit pas
+    ecarter d'un coup les 147 artefacts d'un corpus intact.
+    """
+    if epoque == "toutes":
+        return ""
+    if epoque == "courante":
+        return empreinte_moteur_courante()
+    if epoque == "corpus":
+        return epoque_rejeu.epoque_reference(REJEU_BRUT)[0]
+    valeur = str(epoque).strip().lower()
+    if len(valeur) == 64 and all(c in "0123456789abcdef" for c in valeur):
+        return valeur
+    raise ValueError(
+        "epoque doit valoir 'corpus', 'courante', 'toutes' ou une empreinte")
+
+
+def charger_rejeu(*, epoque: str = "corpus") -> tuple[list[dict], dict]:
     """Resultats du rejeu, un dict par symbole, et le tri par epoque.
 
     ``results/rejeu_univers`` est un dossier vivant : un backfill le remplit
     symbole par symbole pendant des heures, et les resumes de la generation
     precedente y restent jusqu'a leur reecriture. Les lire tous revient a
-    classer des actifs mesures par des moteurs differents. On ne garde donc,
-    par defaut, que les artefacts scelles par le moteur present sur disque.
+    classer des actifs mesures par des moteurs differents. On ne garde donc
+    que les artefacts d'UNE generation — celle du corpus par defaut.
     """
-    if epoque not in ("courante", "toutes"):
-        raise ValueError("epoque doit valoir 'courante' ou 'toutes'")
+    reference = epoque_de_reference(epoque)
     courante = empreinte_moteur_courante()
     out, ecartes = [], {}
     for chemin in sorted(REJEU.glob("*.json")):
@@ -101,7 +121,7 @@ def charger_rejeu(*, epoque: str = "courante") -> tuple[list[dict], dict]:
             continue
         symbole = o.get("symbole") or chemin.stem
         empreinte = empreinte_moteur_artefact(symbole)
-        if epoque == "courante" and empreinte != courante:
+        if reference and empreinte != reference:
             ecartes[symbole] = empreinte[:16] if empreinte else "sans_manifeste"
             continue
         out.append({
@@ -117,6 +137,8 @@ def charger_rejeu(*, epoque: str = "courante") -> tuple[list[dict], dict]:
         })
     tri = {
         "empreinte_moteur_courante": courante[:16],
+        "epoque_retenue": reference[:16] if reference else "toutes",
+        "arbre_correspond_au_corpus": bool(reference) and reference == courante,
         "retenus": len(out),
         "ecartes": len(ecartes),
         "epoques_ecartees": sorted(set(ecartes.values())),
@@ -183,10 +205,12 @@ def main() -> int:
     ap.add_argument("--tf", default="H1", help="timeframe des correlations")
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument(
-        "--epoque", choices=("courante", "toutes"), default="courante",
-        help="'courante' ne garde que les artefacts scelles par le moteur "
-             "present sur disque; 'toutes' melange les generations et ne sert "
-             "qu'au diagnostic",
+        "--epoque", default="corpus",
+        help="'corpus' (defaut) ne garde que la generation dominante des "
+             "artefacts scelles; 'courante' exige le moteur present sur "
+             "disque; une empreinte de 64 hexa epingle une generation "
+             "precise; 'toutes' melange les generations et ne sert qu'au "
+             "diagnostic",
     )
     ap.add_argument(
         "--min-symboles", type=int, default=SYMBOLES_MIN,
@@ -197,7 +221,11 @@ def main() -> int:
 
     R, tri = charger_rejeu(epoque=args.epoque)
     print(f"rejeu : {len(R)} symboles termines a l'epoque {args.epoque} "
-          f"(moteur {tri['empreinte_moteur_courante']})")
+          f"(generation retenue {tri['epoque_retenue']}, arbre de travail "
+          f"{tri['empreinte_moteur_courante']})")
+    if not tri["arbre_correspond_au_corpus"] and tri["epoque_retenue"] != "toutes":
+        print("  NOTE: l'arbre de travail n'est pas la generation mesuree. "
+              "L'ecart est permis, il est publie.")
     if tri["ecartes"]:
         print(f"  {tri['ecartes']} artefacts d'une AUTRE generation ecartes "
               f"{tri['epoques_ecartees']} — un backfill est probablement en cours")

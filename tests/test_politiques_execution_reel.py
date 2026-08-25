@@ -524,3 +524,116 @@ def test_aucune_cle_publiee_n_annonce_un_remplissage(module):
     assert cellule["taux_contact_inclusif"] == pytest.approx(1.0)
     for rang in module.classer(agrege):
         assert not any("rempli" in cle or "fill" in cle for cle in rang)
+
+
+# --------------------------------------------------------------------------
+# Epoque d'analyse declaree (P0 du 25/08/2026) : la generation mesuree est
+# celle du corpus, pas celle de l'arbre de travail.
+# --------------------------------------------------------------------------
+
+def test_le_classement_suit_l_epoque_du_corpus_et_publie_l_ecart(
+        module, tmp_path, monkeypatch):
+    """Regression : un commit sur un fichier moteur ne doit plus perimer un
+    corpus scelle intact. L'ecart avec l'arbre de travail est publie, pas
+    interdit."""
+    brut, resumes = _artefact(tmp_path)
+    from tools import epoque_rejeu
+
+    corpus = epoque_rejeu.empreinte([{"name": "a", "sha256": "b"}])
+    monkeypatch.setattr(module, "evaluer_symbole",
+                        lambda *a, **k: [_ligne(decision_id="d1")])
+    monkeypatch.setattr(module, "valider_artefact",
+                        lambda symbole, **k: (True, "ok"))
+    rapport = module.mesurer(["X"], politiques=("market",), limite=1,
+                             brut=brut, resumes=resumes)
+    assert rapport["statut"] == module.STATUT_MESURE
+    assert rapport["epoque"]["corpus_epoch"] == corpus
+    assert rapport["epoque_rejeu"] == corpus
+    assert rapport["epoque"]["workspace_engine_epoch"] == (
+        epoque_rejeu.empreinte_courante())
+    assert rapport["epoque"]["workspace_matches_corpus"] is False
+    assert [m["symbol"] for m in rapport["epoque"]["manifests"]] == ["X"]
+    assert len(rapport["code"]["analyse_sha256"]) == 64
+
+
+def test_un_corpus_a_deux_generations_refuse_le_classement(module, tmp_path):
+    from tools import epoque_rejeu
+
+    brut, resumes = _artefact(tmp_path, "X")
+    (brut / "Y").mkdir(parents=True)
+    (resumes / "Y.json").write_text("{}", encoding="utf-8")
+    (brut / "Y" / "manifest.json").write_text(json.dumps({
+        "artifact_type": "v14.offline_replay.trades", "schema_version": 2,
+        "symbol": "Y", "snapshot": {"engine": [{"name": "a", "sha256": "z"}]},
+    }), encoding="utf-8")
+    (brut / "Y" / "trades.ndjson").write_text("", encoding="utf-8")
+    with pytest.raises(epoque_rejeu.EpoqueCorpusError) as erreur:
+        module.mesurer(["X", "Y"], politiques=("market",), limite=1,
+                       brut=brut, resumes=resumes)
+    assert erreur.value.motif == "GENERATIONS_MIXTES"
+
+
+def test_un_pin_faux_refuse_et_un_pin_juste_passe(module, tmp_path, monkeypatch):
+    from tools import epoque_rejeu
+
+    brut, resumes = _artefact(tmp_path)
+    corpus = epoque_rejeu.empreinte([{"name": "a", "sha256": "b"}])
+    monkeypatch.setattr(module, "evaluer_symbole",
+                        lambda *a, **k: [_ligne(decision_id="d1")])
+    monkeypatch.setattr(module, "valider_artefact",
+                        lambda symbole, **k: (True, "ok"))
+    rapport = module.mesurer(["X"], politiques=("market",), limite=1,
+                             brut=brut, resumes=resumes, pin_epoque=corpus)
+    assert rapport["epoque"]["pin"] == corpus
+    with pytest.raises(epoque_rejeu.EpoqueCorpusError) as erreur:
+        module.mesurer(["X"], politiques=("market",), limite=1,
+                       brut=brut, resumes=resumes, pin_epoque="a" * 64)
+    assert erreur.value.motif == "PIN_DIFFERENT_DU_CORPUS"
+
+
+def test_zero_artefact_valide_bloque_l_analyse(module, tmp_path):
+    """Un classement vide n'est pas un classement : il doit se declarer bloque."""
+    brut, resumes = _artefact(tmp_path)
+    rapport = module.mesurer(["X"], politiques=("market",), limite=1,
+                             brut=brut, resumes=resumes)
+    assert rapport["statut"] == module.STATUT_BLOQUE
+    assert "sceaux_ou_compteurs_invalides" in rapport["motif_bloquant"]
+    assert rapport["artefacts"]["valides"] == 0
+
+
+def test_une_demande_vide_n_est_pas_une_mesure(module):
+    rapport = module.mesurer([], politiques=("market",), limite=1)
+    assert rapport["statut"] == module.STATUT_BLOQUE
+    assert rapport["motif_bloquant"] == "CORPUS_VIDE"
+
+
+def test_le_classement_bloque_publie_son_blocage_sans_ecraser_le_dernier(
+        module, tmp_path, monkeypatch, capsys):
+    """Durcissement Claude/Hermes : ANALYSIS_BLOCKED doit figurer DANS UN
+    RAPPORT PUBLIE, pas seulement dans un code de retour. C'est ce mode de
+    panne muet qui a dure du 25/08 08:08 au lendemain matin."""
+    from tools import epoque_rejeu
+
+    brut, resumes = _artefact(tmp_path, "X")
+    sortie = tmp_path / "classement.json"
+    sortie.write_text('{"statut": "MESURE"}', encoding="utf-8")
+    monkeypatch.setattr("sys.argv", [
+        "politiques_execution_reel.py", "--symboles", "X",
+        "--limite", "1", "--politiques", "market",
+        "--brut", str(brut), "--resumes", str(resumes),
+        "--sortie", str(sortie),
+    ])
+    assert module.main() == 2
+    rendu = json.loads(capsys.readouterr().out)
+    assert rendu["statut"] == module.STATUT_BLOQUE
+    # Le corpus est lisible et homogene : le blocage vient du SCEAU, pas de
+    # l'epoque. Les deux causes ne doivent jamais se confondre.
+    assert "sceaux_ou_compteurs_invalides" in rendu["motif_bloquant"]
+    assert rendu["epoque"]["corpus_epoch"]
+    assert rendu["ecrit"] is False
+    assert json.loads(sortie.read_text(encoding="utf-8"))["statut"] == "MESURE"
+    blocage = json.loads(
+        epoque_rejeu.chemin_blocage(sortie).read_text(encoding="utf-8"))
+    assert blocage["status"] == "ANALYSIS_BLOCKED"
+    assert blocage["banc"] == "politiques_execution_reel"
+    assert blocage["report_not_written"] == str(sortie)

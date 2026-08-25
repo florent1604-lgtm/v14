@@ -81,32 +81,34 @@ def empreinte_moteur_artefact(symbole: str) -> str:
 def epoque_de_reference(epoque: str) -> str:
     """Generation servant de filtre, selon le mot-cle ou l'empreinte donnee.
 
-    ``corpus`` est le defaut depuis le 25/08/2026 : la reference est la
-    generation DOMINANTE des artefacts scelles, et non le code present sur
-    disque. Un commit qui ne change pas la semantique du rejeu ne doit pas
-    ecarter d'un coup les 147 artefacts d'un corpus intact.
+    ``dominante`` est un mode de DIAGNOSTIC, jamais un defaut : sur un dossier
+    vivant, la majorite peut basculer d'une generation a l'autre pendant un
+    backfill, et le classement publierait alors un changement de cohorte comme
+    un changement de performance (AMEND 3 de la revue Codex, hub offset 649).
+    La voie publiable est une empreinte exacte.
     """
     if epoque == "toutes":
         return ""
     if epoque == "courante":
         return empreinte_moteur_courante()
-    if epoque == "corpus":
+    if epoque == "dominante":
         return epoque_rejeu.epoque_reference(REJEU_BRUT)[0]
     valeur = str(epoque).strip().lower()
     if len(valeur) == 64 and all(c in "0123456789abcdef" for c in valeur):
         return valeur
     raise ValueError(
-        "epoque doit valoir 'corpus', 'courante', 'toutes' ou une empreinte")
+        "epoque doit valoir 'courante', 'dominante', 'toutes' ou une empreinte")
 
 
-def charger_rejeu(*, epoque: str = "corpus") -> tuple[list[dict], dict]:
+def charger_rejeu(*, epoque: str = "courante") -> tuple[list[dict], dict]:
     """Resultats du rejeu, un dict par symbole, et le tri par epoque.
 
     ``results/rejeu_univers`` est un dossier vivant : un backfill le remplit
     symbole par symbole pendant des heures, et les resumes de la generation
     precedente y restent jusqu'a leur reecriture. Les lire tous revient a
     classer des actifs mesures par des moteurs differents. On ne garde donc
-    que les artefacts d'UNE generation — celle du corpus par defaut.
+    que les artefacts d'UNE generation : celle du moteur present sur disque
+    par defaut, ou celle qu'une empreinte explicite designe.
     """
     reference = epoque_de_reference(epoque)
     courante = empreinte_moteur_courante()
@@ -143,6 +145,15 @@ def charger_rejeu(*, epoque: str = "corpus") -> tuple[list[dict], dict]:
         "ecartes": len(ecartes),
         "epoques_ecartees": sorted(set(ecartes.values())),
         "epoque_demandee": epoque,
+        # Une generation choisie a la majorite d'un dossier vivant n'est pas
+        # une cohorte scellee : la lecture reste diagnostique, jamais metier.
+        "statut": "ANALYSIS_PARTIAL" if epoque in ("dominante", "toutes")
+                  else "MESURE",
+        "usage": ("diagnostic seulement : generation choisie a la majorite "
+                  "d'un dossier vivant" if epoque == "dominante" else
+                  "diagnostic seulement : generations melangees"
+                  if epoque == "toutes" else
+                  "cohorte d'une generation unique et declaree"),
     }
     return out, tri
 
@@ -205,12 +216,13 @@ def main() -> int:
     ap.add_argument("--tf", default="H1", help="timeframe des correlations")
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument(
-        "--epoque", default="corpus",
-        help="'corpus' (defaut) ne garde que la generation dominante des "
-             "artefacts scelles; 'courante' exige le moteur present sur "
-             "disque; une empreinte de 64 hexa epingle une generation "
-             "precise; 'toutes' melange les generations et ne sert qu'au "
-             "diagnostic",
+        "--epoque", default="courante",
+        help="'courante' (defaut) exige le moteur present sur disque; une "
+             "empreinte de 64 hexa epingle une generation precise et c'est la "
+             "voie publiable quand l'arbre de travail a bouge; 'dominante' "
+             "prend la generation majoritaire d'un dossier vivant et 'toutes' "
+             "melange les generations: ces deux modes sont diagnostiques et "
+             "publient ANALYSIS_PARTIAL",
     )
     ap.add_argument(
         "--min-symboles", type=int, default=SYMBOLES_MIN,
@@ -223,6 +235,10 @@ def main() -> int:
     print(f"rejeu : {len(R)} symboles termines a l'epoque {args.epoque} "
           f"(generation retenue {tri['epoque_retenue']}, arbre de travail "
           f"{tri['empreinte_moteur_courante']})")
+    if tri["statut"] == "ANALYSIS_PARTIAL":
+        print(f"  ANALYSIS_PARTIAL — {tri['usage']}. Ne pas publier ce "
+              "classement comme une mesure; epingler une empreinte exacte "
+              "pour cela.")
     if not tri["arbre_correspond_au_corpus"] and tri["epoque_retenue"] != "toutes":
         print("  NOTE: l'arbre de travail n'est pas la generation mesuree. "
               "L'ecart est permis, il est publie.")

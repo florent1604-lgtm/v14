@@ -232,3 +232,57 @@ def test_une_mesure_reussie_efface_le_blocage_precedent(terrain, monkeypatch):
     assert not epoque_rejeu.chemin_blocage(sortie).exists()
     assert json.loads(sortie.read_text(encoding="utf-8"))["status"] == (
         l1.STATUT_MESURE)
+
+
+def test_un_corpus_partiel_corrompu_ne_se_declare_pas_mesure(terrain):
+    """Bloqueur 1 de Codex : une mesure partielle silencieuse a exactement
+    l'allure d'une mesure complete. L'integrite prime sur le rendement."""
+    racine, mesurer = terrain
+    _corpus(racine, "AUTRE", MOTEUR_SCELLE)
+    _quotes(racine, "AUTRE")
+    chemin = racine / "bruts" / "AUTRE" / "trades.ndjson"
+    # Corruption a TAILLE CONSTANTE : ni le manifeste ni le couple ne bougent,
+    # seul le sceau du contenu tombe.
+    chemin.write_bytes(chemin.read_bytes().replace(b'"net_r":0.5', b'"net_r":0.4'))
+    rapport, _ = mesurer()
+    assert rapport["status"] == l1.STATUT_BLOQUE
+    assert rapport["blocking_reason"] == "SCEAU_ARTEFACT_INVALIDE"
+    assert rapport["inventory"]["symbols_requested"] == 2
+    assert rapport["inventory"]["symbols_measured"] == 1
+    assert rapport["inventory"]["refused_symbols"] == {
+        "AUTRE": "SCEAU_ARTEFACT_INVALIDE"}
+
+
+def test_un_refus_non_bloquant_laisse_la_mesure_partielle_valide(terrain):
+    """Toute absence n'est pas une corruption : un symbole sans flux L1 reduit
+    la couverture, il ne casse pas l'integrite du corpus."""
+    racine, mesurer = terrain
+    _corpus(racine, "AUTRE", MOTEUR_SCELLE)  # aucun quote pour AUTRE
+    rapport, _ = mesurer()
+    assert rapport["status"] == l1.STATUT_MESURE
+    assert rapport["inventory"]["symbols_measured"] == 1
+    assert set(rapport["inventory"]["refused_symbols"]) == {"AUTRE"}
+    assert "SCEAU" not in str(rapport["inventory"]["refused_symbols"])
+
+
+def test_le_fichier_de_blocage_est_ecrit_atomiquement(tmp_path, monkeypatch):
+    """AMEND 4 de Codex : un JSON tronque est illisible, et un fichier de
+    blocage illisible est le silence qu'il est cense rompre."""
+    import os
+
+    sortie = tmp_path / "rapport.json"
+    vraie = os.replace
+    monkeypatch.setattr(os, "fsync", lambda *a: (_ for _ in ()).throw(
+        OSError("disque plein")))
+    with pytest.raises(OSError):
+        epoque_rejeu.publier_blocage(sortie, {"blocking_reason": "TEST"})
+    assert not epoque_rejeu.chemin_blocage(sortie).exists()
+    assert list(tmp_path.iterdir()) == [], "aucun fichier provisoire ne survit"
+    monkeypatch.undo()
+    vus = []
+    monkeypatch.setattr(os, "replace",
+                        lambda a, b: (vus.append((a, b)), vraie(a, b))[1])
+    chemin = epoque_rejeu.publier_blocage(sortie, {"blocking_reason": "TEST"})
+    assert vus and Path(vus[0][1]) == chemin
+    assert json.loads(chemin.read_text(encoding="utf-8"))["status"] == (
+        "ANALYSIS_BLOCKED")

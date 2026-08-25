@@ -61,12 +61,14 @@ def test_generations_mixtes_sont_refusees(tmp_path: Path):
     with pytest.raises(ep.EpoqueCorpusError) as erreur:
         ep.epoque_corpus(tmp_path)
     assert erreur.value.motif == "GENERATIONS_MIXTES"
+    # Empreintes ENTIERES : un diagnostic de non-correspondance qui tronque
+    # cache exactement ce qui differe (addendum Codex, hub offset 651).
     assert set(erreur.value.detail["epoques"]) == {
-        ep.empreinte(MOTEUR_A)[:16], ep.empreinte(MOTEUR_B)[:16]}
+        ep.empreinte(MOTEUR_A), ep.empreinte(MOTEUR_B)}
     # Cas de refus n4 de Claude : le refus doit NOMMER le symbole fautif,
     # sinon il n'indique pas quoi rejouer.
-    assert erreur.value.detail["par_epoque"][ep.empreinte(MOTEUR_A)[:16]] == ["AAA"]
-    assert erreur.value.detail["par_epoque"][ep.empreinte(MOTEUR_B)[:16]] == ["BBB"]
+    assert erreur.value.detail["par_epoque"][ep.empreinte(MOTEUR_A)] == ["AAA"]
+    assert erreur.value.detail["par_epoque"][ep.empreinte(MOTEUR_B)] == ["BBB"]
 
 
 def test_manifeste_absent_est_refuse(tmp_path: Path):
@@ -173,14 +175,81 @@ def test_epoque_reference_prend_la_generation_dominante(tmp_path: Path):
     assert tri[ep.empreinte(MOTEUR_B)] == 1
 
 
-def test_epoque_reference_departage_de_facon_deterministe(tmp_path: Path):
+def test_epoque_reference_refuse_une_quasi_egalite(tmp_path: Path):
+    """Suggestion Claude : trancher 74 contre 73 revient a tirer la cohorte au
+    sort. Le decompte etait deja publie, il manquait le seuil."""
     _manifeste(tmp_path, "AAA", MOTEUR_A)
     _manifeste(tmp_path, "BBB", MOTEUR_B)
-    attendue = min(ep.empreinte(MOTEUR_A), ep.empreinte(MOTEUR_B))
-    assert ep.epoque_reference(tmp_path)[0] == attendue
-    assert ep.epoque_reference(tmp_path)[0] == attendue
+    with pytest.raises(ep.EpoqueCorpusError) as erreur:
+        ep.epoque_reference(tmp_path)
+    assert erreur.value.motif == "GENERATION_DOMINANTE_AMBIGUE"
+    assert erreur.value.detail["ecart"] == 0
+    assert erreur.value.detail["total"] == 2
 
 
 def test_epoque_reference_refuse_un_corpus_sans_generation(tmp_path: Path):
     with pytest.raises(ep.EpoqueCorpusError):
         ep.epoque_reference(tmp_path)
+
+
+# --------------------------------------------------------------------------
+# Le pin est un operateur HUMAIN : la forme courte 051f50adf179177e est celle
+# que l'equipe s'echange. La refuser coute du temps sans rien proteger.
+# AMEND Claude (offset 646) et addendum Codex (offset 651).
+# --------------------------------------------------------------------------
+
+def test_un_pin_prefixe_de_16_hexa_est_accepte(tmp_path: Path):
+    _manifeste(tmp_path, "AAA", MOTEUR_A)
+    attendue = ep.empreinte(MOTEUR_A)
+    assert ep.epoque_corpus(tmp_path, pin=attendue[:16]) == attendue
+    assert ep.epoque_corpus(tmp_path, pin=attendue[:32]) == attendue
+    assert ep.epoque_corpus(tmp_path, pin=attendue.upper()) == attendue
+
+
+def test_un_pin_trop_court_ou_non_hexa_est_un_refus_de_format(tmp_path: Path):
+    _manifeste(tmp_path, "AAA", MOTEUR_A)
+    attendue = ep.empreinte(MOTEUR_A)
+    for mauvais in (attendue[:15], "051f50adf179177z", "l'empreinte", ""):
+        with pytest.raises(ep.EpoqueCorpusError) as erreur:
+            ep.epoque_corpus(tmp_path, pin=mauvais)
+        assert erreur.value.motif == "PIN_FORMAT_INVALIDE"
+        assert erreur.value.detail["longueur_minimale"] == ep.LONGUEUR_PIN_MIN
+
+
+def test_un_prefixe_faux_est_refuse_sans_rien_tronquer(tmp_path: Path):
+    """Le pire choix de diagnostic est de masquer la partie qui differe."""
+    _manifeste(tmp_path, "AAA", MOTEUR_A)
+    attendue, autre = ep.empreinte(MOTEUR_A), ep.empreinte(MOTEUR_B)
+    with pytest.raises(ep.EpoqueCorpusError) as erreur:
+        ep.epoque_corpus(tmp_path, pin=autre[:16])
+    assert erreur.value.motif == "PIN_DIFFERENT_DU_CORPUS"
+    assert erreur.value.detail["corpus"] == attendue
+    assert erreur.value.detail["pin"] == autre[:16]
+    assert erreur.value.detail["pin_longueur"] == 16
+    assert erreur.value.detail["pin"] != erreur.value.detail["corpus"]
+
+
+def test_un_pin_court_juste_ne_sauve_pas_un_corpus_mixte(tmp_path: Path):
+    _manifeste(tmp_path, "AAA", MOTEUR_A)
+    _manifeste(tmp_path, "BBB", MOTEUR_B)
+    with pytest.raises(ep.EpoqueCorpusError) as erreur:
+        ep.epoque_corpus(tmp_path, pin=ep.empreinte(MOTEUR_A)[:16])
+    assert erreur.value.motif == "GENERATIONS_MIXTES"
+
+
+def test_l_epoque_et_les_octets_scelles_viennent_de_la_meme_lecture(
+        tmp_path: Path, monkeypatch):
+    """Bloqueur 2 de Codex : deux lectures ouvrent une fenetre TOCTOU entre la
+    generation publiee et les octets qui la justifient."""
+    _manifeste(tmp_path, "AAA", MOTEUR_A)
+    lectures = []
+    vraie = ep.manifestes_corpus
+
+    def compter(racine, symboles=None):
+        lectures.append(symboles)
+        return vraie(racine, symboles)
+
+    monkeypatch.setattr(ep, "manifestes_corpus", compter)
+    etat = ep.etat_epoque(tmp_path, ["AAA"])
+    assert len(lectures) == 1
+    assert etat["corpus_epoch"] == etat["manifests"][0]["engine_epoch"]

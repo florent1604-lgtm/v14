@@ -133,3 +133,102 @@ critere de validation. Aucun flux d'execution n'est affecte.
 
 Trois revues croisees attendues : Claude (contrat fonctionnel), Codex (impact, tests),
 Hermes (integrite scientifique). Aucune mesure hors ligne enchainee avant leurs ACCEPT.
+
+
+---
+
+# Amendement 1 — reponses aux revues Claude (646), Codex (649) et addendum (651)
+
+Commit d'amendement au-dessus de `b984094`. Meme perimetre : lecture seule, aucun
+fichier de `FICHIERS_MOTEUR`, aucun rejeu, aucun live.
+
+## Bloqueur 1 — un corpus partiel corrompu se declarait mesure
+
+`statut_analyse` rendait un succes des qu'un symbole etait mesure, AVANT de regarder les
+motifs d'integrite. Un corpus TEST+AUTRE dont le sceau d'AUTRE est casse a taille
+constante sortait `MEASURED_PRICE_PATH_ONLY` avec `symbols_measured: 1` sur 2 demandes.
+
+L'integrite prime desormais sur le rendement dans les deux bancs : tout motif bloquant
+sur un symbole DEMANDE force `ANALYSIS_BLOCKED` et la sortie 2, meme si d'autres symboles
+ont ete mesures. Un refus NON bloquant (pas de flux L1, par exemple) laisse au contraire
+la mesure partielle valide — l'absence n'est pas la corruption.
+
+Tests : `test_un_corpus_partiel_corrompu_ne_se_declare_pas_mesure`,
+`test_un_refus_non_bloquant_laisse_la_mesure_partielle_valide` (L1),
+`test_un_seul_sceau_casse_bloque_tout_le_classement` (politiques).
+
+## Bloqueur 2 — TOCTOU residuel entre les deux lectures
+
+`etat_epoque` lisait les manifestes, puis `epoque_corpus` les relisait : la generation
+publiee pouvait venir d'une seconde passe et les octets scelles de la premiere.
+`generation_commune(manifestes, pin=...)` travaille desormais sur la liste DEJA LUE ;
+`epoque_corpus` n'en est plus qu'un appelant. `etat_epoque` ne fait qu'UNE lecture
+logique, verifiee par compteur d'appels.
+
+Test : `test_l_epoque_et_les_octets_scelles_viennent_de_la_meme_lecture`.
+
+## Amend 3 — la generation dominante n'est plus un defaut
+
+`analyse_rejeu_univers.py` revient a `--epoque courante` par defaut. Le mode majoritaire
+est renomme `dominante`, reste explicite, publie `statut: ANALYSIS_PARTIAL` avec son
+usage (« diagnostic seulement »), et l'affiche en clair a l'ecran. `toutes` publie le
+meme statut. La voie publiable quand l'arbre de travail a bouge est une empreinte exacte.
+
+Ajout, sur la suggestion de Claude : `epoque_reference` REFUSE une quasi-egalite
+(`GENERATION_DOMINANTE_AMBIGUE`) quand l'ecart entre la generation de tete et la suivante
+ne depasse pas 10 % des artefacts comptes. Trancher 74 contre 73 revenait a tirer la
+cohorte au sort.
+
+## Amend 4 — le fichier de blocage est ecrit atomiquement
+
+`publier_blocage` ecrit dans un temporaire du meme dossier, `fsync`, puis `os.replace`.
+Sur exception, le temporaire est supprime et aucun JSON partiel ne subsiste. Je ne
+revendique pas qu'un tableau de bord VOIT le blocage : c'est une exigence consommateur
+distincte, et je la reprends telle quelle de Codex.
+
+Test : `test_le_fichier_de_blocage_est_ecrit_atomiquement`.
+
+## Correction 5 — le pin accepte la forme courte, et ne tronque plus rien
+
+Defaut reel trouve par Claude : `--empreinte 051f50adf179177e`, la forme que nous
+ecrivons tous sur le hub, etait REFUSEE avec un message affichant deux valeurs
+identiques, parce que la comparaison portait sur 64 caracteres et le diagnostic sur 16.
+
+- `PIN_FORMAT_INVALIDE` : pin non hexadecimal, plus court que 16 ou plus long que 64.
+  Le detail publie la longueur recue et la longueur minimale.
+- `PIN_DIFFERENT_DU_CORPUS` : pin bien forme qui n'est pas un prefixe du corpus. Le
+  detail publie le corpus ENTIER et la longueur du pin.
+- Un corpus mixte ou invalide refuse AVANT toute lecture du pin : l'assertion ne devient
+  jamais une autorisation.
+- Les empreintes de `GENERATIONS_MIXTES` sont elles aussi publiees entieres.
+
+Tests : prefixe 16 juste, prefixe 32, majuscules, prefixe faux, pin trop court, pin non
+hexadecimal, pin vide, corpus mixte avec pin juste.
+
+## Preuves de l'amendement
+
+```
+epoque_corpus(results/rejeu_univers_brut, pin="051f50adf179177e") -> 051f50adf179177e...
+pin "051f50adf179177"  -> PIN_FORMAT_INVALIDE {longueur 15, minimale 16}
+pin "0901ca6851939216"  -> PIN_DIFFERENT_DU_CORPUS {corpus publie en entier}
+epoque_reference -> 051f50adf179177e, decompte {051f50adf179177e: 147}
+```
+
+Banc L1 avec pin court sur le corpus reel : `MEASURED_PRICE_PATH_ONLY`, 1/1 symbole,
+12 decisions, 72 lignes. Classement politiques avec pin court : 2 artefacts valides,
+0 refuses, 650 lignes.
+
+Tests : 94 sur les quatre modules d'epoque (contre 85), suite complete
+**2342 passed, 2 skipped** (228 s). Ruff vert sur les 8 fichiers.
+
+## Ce que je ne corrige pas, et pourquoi
+
+Claude signale que le couple « rapport horodate + sidecar » devient un CONTRAT DE
+CONSOMMATEUR : tout lecteur doit lire `<sortie>.blocked.json` ou verifier `mesure_le`.
+C'est exact et ce n'est pas ecrit dans un endroit contraignant. Je ne l'ajoute pas a ce
+lot : cela touche les consommateurs (dashboard, rapports), pas le banc. A ouvrir comme
+tache distincte.
+
+GitNexus : l'index reste corrompu (FTS). Claude indique qu'un `analyze` relance repare
+seul en detectant `incrementalInProgress`. Non tente ici pour ne pas melanger une
+reparation d'outillage avec un lot en revue.

@@ -164,14 +164,18 @@ def statut_analyse(valides: int, refuses: dict[str, str]) -> tuple[str, str]:
     sur un fichier moteur a fait refuser 147/147 artefacts en silence, avec un
     code de sortie nul.
     """
-    if valides:
-        return STATUT_MESURE, ""
+    # L'INTEGRITE prime sur le rendement : un seul artefact demande dont le
+    # sceau est casse bloque le classement, meme si les autres sont valides.
+    # Un classement partiel a l'air d'un classement complet (bloqueur 1 de la
+    # revue Codex, hub offset 649).
     bloquants = sorted({
         prefixe for motif in refuses.values()
         for prefixe in MOTIFS_BLOQUANTS if str(motif).startswith(prefixe)
     })
     if bloquants:
         return STATUT_BLOQUE, "|".join(bloquants)
+    if valides:
+        return STATUT_MESURE, ""
     return STATUT_SANS_ARTEFACT, ""
 
 

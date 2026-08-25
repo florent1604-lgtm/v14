@@ -637,3 +637,33 @@ def test_le_classement_bloque_publie_son_blocage_sans_ecraser_le_dernier(
     assert blocage["status"] == "ANALYSIS_BLOCKED"
     assert blocage["banc"] == "politiques_execution_reel"
     assert blocage["report_not_written"] == str(sortie)
+
+
+def test_un_seul_sceau_casse_bloque_tout_le_classement(module, tmp_path,
+                                                       monkeypatch):
+    """Bloqueur 1 de Codex : un classement partiel a l'air d'un classement
+    complet. Un artefact demande dont l'integrite tombe bloque l'analyse."""
+    brut, resumes = _artefact(tmp_path, "X")
+    (brut / "Y").mkdir()
+    (brut / "Y" / "trades.ndjson").write_text("", encoding="utf-8")
+    (brut / "Y" / "manifest.json").write_text(
+        (brut / "X" / "manifest.json").read_text(encoding="utf-8").replace(
+            '"X"', '"Y"'), encoding="utf-8")
+    (resumes / "Y.json").write_text("{}", encoding="utf-8")
+    appels = {"n": 0}
+
+    def valider(symbole, **_):
+        appels["n"] += 1
+        return (True, "ok") if symbole == "X" else (
+            False, "sceaux_ou_compteurs_invalides")
+
+    monkeypatch.setattr(module, "valider_artefact", valider)
+    monkeypatch.setattr(module, "evaluer_symbole",
+                        lambda *a, **k: [_ligne(decision_id="d1")])
+    rapport = module.mesurer(["X", "Y"], politiques=("market",), limite=1,
+                             brut=brut, resumes=resumes)
+    assert rapport["statut"] == module.STATUT_BLOQUE
+    assert rapport["motif_bloquant"] == "sceaux_ou_compteurs_invalides"
+    assert rapport["artefacts"]["valides"] == 1
+    assert rapport["artefacts"]["refuses"] == {
+        "Y": "sceaux_ou_compteurs_invalides"}

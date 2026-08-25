@@ -66,24 +66,27 @@ def univers(tmp_path, monkeypatch):
     return module
 
 
-def test_l_epoque_du_corpus_est_le_defaut_et_non_l_arbre_de_travail(univers):
-    """Regression du 25/08/2026 : un commit sur un fichier moteur ne doit plus
-    ecarter d'un coup un corpus scelle intact. La generation mesuree est celle
-    des artefacts, l'arbre de travail n'est qu'une information publiee."""
+def test_le_defaut_reste_le_moteur_present_sur_disque(univers):
+    """AMEND 3 de Codex : une generation choisie a la MAJORITE d'un dossier
+    vivant ne peut pas etre un defaut. Pendant un backfill, le defaut
+    basculerait a 50 pourcent et publierait un changement de cohorte comme un
+    changement de performance."""
     resultats, tri = univers.charger_rejeu()
+    assert [r["symbole"] for r in resultats] == ["COURANT"]
+    assert tri["arbre_correspond_au_corpus"] is True
+    assert tri["statut"] == "MESURE"
+    assert "sans_manifeste" in tri["epoques_ecartees"]
+
+
+def test_la_generation_dominante_est_un_mode_de_diagnostic(univers):
+    resultats, tri = univers.charger_rejeu(epoque="dominante")
     assert sorted(r["symbole"] for r in resultats) == ["ANCIEN", "ANCIEN2"]
     assert tri["retenus"] == 2
     assert tri["ecartes"] == 2
     assert tri["arbre_correspond_au_corpus"] is False
+    assert tri["statut"] == "ANALYSIS_PARTIAL"
     assert tri["epoque_retenue"] == univers.epoque_rejeu.empreinte(
         univers._moteurs["b"])[:16]
-
-
-def test_epoque_courante_reste_disponible(univers):
-    resultats, tri = univers.charger_rejeu(epoque="courante")
-    assert [r["symbole"] for r in resultats] == ["COURANT"]
-    assert tri["arbre_correspond_au_corpus"] is True
-    assert "sans_manifeste" in tri["epoques_ecartees"]
 
 
 def test_une_empreinte_explicite_epingle_la_generation(univers):

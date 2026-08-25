@@ -73,14 +73,18 @@ def statut_analyse(inventaire: dict) -> tuple[str, str]:
     separes : mesure faite, corpus valide sans decision, analyse bloquee.
     """
     refuses = inventaire.get("refused_symbols") or {}
-    if inventaire.get("symbols_measured"):
-        return STATUT_MESURE, ""
+    # L'INTEGRITE prime sur le rendement : un seul artefact demande dont le
+    # sceau est casse bloque la mesure, meme si les autres ont ete mesures.
+    # Sinon une mesure partielle silencieuse se lit comme une mesure complete
+    # (bloqueur 1 de la revue Codex, hub offset 649).
     bloquants = sorted({
         str(motif).split(":", 1)[0] for motif in refuses.values()
         if str(motif).split(":", 1)[0] in MOTIFS_BLOQUANTS
     })
     if bloquants:
         return STATUT_BLOQUE, "|".join(bloquants)
+    if inventaire.get("symbols_measured"):
+        return STATUT_MESURE, ""
     return STATUT_SANS_DECISION, ""
 
 

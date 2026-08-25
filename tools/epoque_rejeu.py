@@ -22,7 +22,10 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import sys
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -172,33 +175,80 @@ def manifestes_corpus(racine: Path, symboles: list[str] | None = None) -> list[d
     return retenus
 
 
-def epoque_corpus(racine: Path, symboles: list[str] | None = None, *,
-                  pin: str | None = None) -> str:
-    """Generation commune au corpus demande; echec ferme sinon.
+#: Longueur minimale d'un pin. 16 hexa = 64 bits : assez pour designer sans
+#: ambiguite une generation parmi celles d'un depot, et c'est la forme courte
+#: que l'equipe s'echange sur le hub. En dessous, le pin ne designe rien.
+LONGUEUR_PIN_MIN = 16
 
-    ``pin`` est une ASSERTION, jamais une autorisation : une valeur differente
-    de celle du corpus refuse la mesure, et un pin juste ne rattrape jamais un
-    corpus melange ou illisible.
+
+def _valider_pin(pin: str) -> str:
+    """Forme normalisee d'un pin, ou echec ferme sur le FORMAT.
+
+    Le pin est un operateur HUMAIN, pas une frontiere cryptographique : la
+    forme courte 051f50adf179177e est celle que nous ecrivons tous. La refuser
+    au motif qu'elle n'a pas 64 caracteres coute du temps sans rien proteger
+    (addendum Codex, hub offset 651).
     """
-    manifestes = manifestes_corpus(racine, symboles)
+    valeur = str(pin).strip().lower()
+    hexa = all(c in "0123456789abcdef" for c in valeur)
+    if not hexa or not (LONGUEUR_PIN_MIN <= len(valeur) <= 64):
+        raise EpoqueCorpusError("PIN_FORMAT_INVALIDE", {
+            "pin": valeur,
+            "longueur": len(valeur),
+            "longueur_minimale": LONGUEUR_PIN_MIN,
+            "attendu": "prefixe hexadecimal de 16 a 64 caracteres",
+        })
+    return valeur
+
+
+def generation_commune(manifestes: list[dict], *, pin: str | None = None) -> str:
+    """Generation d'une liste DEJA LUE de manifestes; echec ferme sinon.
+
+    Prend la liste et non la racine : relire le disque pour trancher l'epoque
+    apres l'avoir lu pour sceller le rapport ouvrirait une fenetre TOCTOU
+    entre les deux (bloqueur 2 de la revue Codex, hub offset 649).
+    """
     epoques = sorted({m["engine_epoch"] for m in manifestes})
+    if not epoques:
+        raise EpoqueCorpusError("CORPUS_VIDE", {"symboles": []})
     if len(epoques) > 1:
         # Nommer les symboles fautifs : un compteur ne dit pas quoi rejouer.
+        # Les empreintes sont publiees ENTIERES : tronquer un diagnostic de
+        # non-correspondance cache justement ce qui differe.
         raise EpoqueCorpusError("GENERATIONS_MIXTES", {
-            "epoques": [e[:16] for e in epoques],
+            "epoques": epoques,
             "symboles": len(manifestes),
             "par_epoque": {
-                epoque[:16]: [m["symbol"] for m in manifestes
-                              if m["engine_epoch"] == epoque][:20]
+                epoque: [m["symbol"] for m in manifestes
+                         if m["engine_epoch"] == epoque][:20]
                 for epoque in epoques
             },
         })
     corpus = epoques[0]
-    if pin and pin != corpus:
-        raise EpoqueCorpusError("PIN_DIFFERENT_DU_CORPUS", {
-            "pin": pin[:16], "corpus": corpus[:16],
-        })
+    if pin is not None:
+        # Une chaine vide est un pin DEMANDE et vide, pas une absence de pin :
+        # la laisser passer en silence rendrait l'assertion facultative.
+        # L'ordre compte : un pin juste ne rattrape jamais un corpus melange,
+        # donc la verification du corpus a deja eu lieu ci-dessus.
+        valeur = _valider_pin(pin)
+        if not corpus.startswith(valeur):
+            raise EpoqueCorpusError("PIN_DIFFERENT_DU_CORPUS", {
+                "pin": valeur,
+                "pin_longueur": len(valeur),
+                "corpus": corpus,
+            })
     return corpus
+
+
+def epoque_corpus(racine: Path, symboles: list[str] | None = None, *,
+                  pin: str | None = None) -> str:
+    """Generation commune au corpus demande; echec ferme sinon.
+
+    ``pin`` est une ASSERTION, jamais une autorisation : une valeur qui n'est
+    pas un prefixe de la generation du corpus refuse la mesure, et un pin
+    juste ne rattrape jamais un corpus melange ou illisible.
+    """
+    return generation_commune(manifestes_corpus(racine, symboles), pin=pin)
 
 
 def etat_epoque(racine: Path, symboles: list[str] | None = None, *,
@@ -208,10 +258,14 @@ def etat_epoque(racine: Path, symboles: list[str] | None = None, *,
     L'ecart entre le corpus et l'arbre de travail est PERMIS — un commit qui
     ne touche pas la semantique du rejeu ne perime pas une mesure — mais il
     est toujours VISIBLE dans le rapport.
+
+    Les manifestes ne sont lus QU'UNE FOIS : la generation publiee et les
+    octets scelles viennent de la meme lecture, sinon le rapport certifierait
+    une decision prise sur des fichiers qu'il ne decrit pas.
     """
     demandes = _symboles_corpus(racine, symboles)
     manifestes = manifestes_corpus(racine, symboles)
-    corpus = epoque_corpus(racine, symboles, pin=pin)
+    corpus = generation_commune(manifestes, pin=pin)
     arbre = empreinte_courante()
     retenus = sorted(m["symbol"] for m in manifestes)
     return {
@@ -231,13 +285,21 @@ def etat_epoque(racine: Path, symboles: list[str] | None = None, *,
     }
 
 
+#: Ecart minimal, en part des artefacts comptes, entre la generation de tete
+#: et la suivante. Sous ce seuil il n'y a pas de majorite : 74 contre 73 se
+#: tranchait par pile ou face (suggestion Claude, hub offset 646).
+MARGE_DOMINANTE = 0.10
+
+
 def epoque_reference(racine: Path, symboles: list[str] | None = None) -> tuple[str, dict]:
     """Generation DOMINANTE d'un dossier vivant, et le decompte par epoque.
 
     ``results/rejeu_univers_brut`` peut legitimement melanger deux generations
     pendant un backfill : la reference y est la generation majoritaire, et le
-    decompte publie rend le melange visible. Le depart d'egalite est
-    lexicographique pour rester deterministe d'un appel a l'autre.
+    decompte publie rend le melange visible. Une quasi-egalite est un REFUS et
+    non un depart d'egalite : choisir entre deux moities revient a tirer la
+    cohorte au sort. C'est une lecture de DIAGNOSTIC, jamais une cohorte
+    scellee : pour publier, epingler une empreinte exacte.
     """
     noms = _symboles_corpus(racine, symboles)
     if not noms:
@@ -250,8 +312,18 @@ def epoque_reference(racine: Path, symboles: list[str] | None = None) -> tuple[s
         tri[signee] = tri.get(signee, 0) + 1
     if not tri:
         raise EpoqueCorpusError("EPOQUE_ABSENTE", {"symboles": noms[:10]})
-    reference = min(tri, key=lambda e: (-tri[e], e))
-    return reference, dict(sorted(tri.items()))
+    classement = sorted(tri.items(), key=lambda paire: (-paire[1], paire[0]))
+    total = sum(tri.values())
+    if len(classement) > 1:
+        ecart = classement[0][1] - classement[1][1]
+        if ecart <= MARGE_DOMINANTE * total:
+            raise EpoqueCorpusError("GENERATION_DOMINANTE_AMBIGUE", {
+                "decompte": dict(classement),
+                "ecart": ecart,
+                "marge_minimale": MARGE_DOMINANTE * total,
+                "total": total,
+            })
+    return classement[0][0], dict(sorted(tri.items()))
 
 
 STATUT_BLOQUE = "ANALYSIS_BLOCKED"
@@ -272,8 +344,6 @@ def chemin_blocage(sortie: Path) -> Path:
 
 def publier_blocage(sortie: Path, charge: dict) -> Path:
     """Ecrit la declaration de blocage et rend son chemin."""
-    from datetime import datetime, timezone
-
     chemin = chemin_blocage(sortie)
     chemin.parent.mkdir(parents=True, exist_ok=True)
     corps = {
@@ -282,8 +352,22 @@ def publier_blocage(sortie: Path, charge: dict) -> Path:
         "report_not_written": str(sortie),
         **charge,
     }
-    chemin.write_text(json.dumps(corps, ensure_ascii=False, indent=2),
-                      encoding="utf-8")
+    # Ecriture atomique : un JSON tronque par une interruption est illisible,
+    # et un fichier de blocage illisible est exactement le silence qu'il est
+    # cense rompre (AMEND 4 de la revue Codex, hub offset 649).
+    octets = json.dumps(corps, ensure_ascii=False, indent=2).encode("utf-8")
+    descripteur, provisoire = tempfile.mkstemp(
+        dir=str(chemin.parent), prefix=chemin.name, suffix=".tmp")
+    try:
+        with os.fdopen(descripteur, "wb") as flux:
+            flux.write(octets)
+            flux.flush()
+            os.fsync(flux.fileno())
+        os.replace(provisoire, chemin)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(provisoire)
+        raise
     return chemin
 
 

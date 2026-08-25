@@ -1,4 +1,8 @@
-# V14 — Titanium hybride
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## V14 — Titanium hybride
 
 ## Skills locaux Claude
 
@@ -105,6 +109,64 @@ données MT5 (prioritaire) / yfinance (secours)
 Corollaire de coût : délibérer sur 149 actifs est intenable. On ne délibère que
 sur ce que les portes ont déjà validé — quelques décisions par jour.
 
+## Style de réponse attendu
+
+Instruction de Florent, 25/08/2026 : **des réponses claires, complètes, mais
+courtes.**
+
+Les trois tiennent ensemble. Complet ne veut pas dire long : cela veut dire ne
+rien omettre de ce qui change une décision — un chiffre mesuré, une réserve, un
+échec. Court veut dire supprimer ce qui n'en change aucune — le récit des
+étapes, les options écartées, la reformulation de ce qui vient d'être dit.
+
+En pratique :
+
+- Le résultat d'abord, la méthode seulement si elle est contestable.
+- Un chiffre vaut mieux qu'un adjectif ; une mesure vaut mieux qu'un avis.
+- Les détails vont dans les fichiers du dépôt, pas dans la réponse.
+- Une réserve se dit en une phrase, pas en un paragraphe.
+- Ne pas réexpliquer ce qui est déjà dans un rapport commité : le citer.
+
+## Commandes
+
+L'interpréteur est **`.venv/Scripts/python.exe`**, jamais `python` nu : le venv
+est un lanceur-relais et le `python` du PATH n'a pas les dépendances du projet.
+
+```bash
+# suite complète — environ 4 min, 2342 tests
+.venv/Scripts/python.exe -m pytest tests/ -q
+
+# un seul fichier, une seule fonction
+.venv/Scripts/python.exe -m pytest tests/test_riskgate.py -q
+.venv/Scripts/python.exe -m pytest tests/test_riskgate.py::test_anti_fade_bloque_le_contre_tendance_quand_il_est_arme
+
+# la porte de lint du dépôt — la MEME que le pre-commit et la CI
+bash tools/lint_gate.sh          # ruff --select E9,F63,F7,F82 sur 4 dossiers
+
+# relevé de tests qui alimente le tableau de bord
+.venv/Scripts/python.exe tools/dashboard.py --tests
+```
+
+Le hook `pre-commit` enchaîne `tools/lint_gate.sh` puis une sélection de tests
+de sûreté (28). Il tourne à chaque commit ; ne pas le contourner.
+
+Encodage : passer `-X utf8` à tout script qui écrit du texte accentué, et
+`sys.stdout.reconfigure(encoding="utf-8", errors="replace")` dans les scripts
+d'analyse. Sans cela la sortie casse sur la console Windows.
+
+### Outils d'analyse hors ligne
+
+```bash
+# conformité de l'archive de barres, par symbole et unité de temps
+.venv/Scripts/python.exe -X utf8 tools/audit_archive_barres.py --timeframes M15 H4
+
+# état des artefacts de rejeu : époque, sceaux, générations mixtes
+.venv/Scripts/python.exe -X utf8 tools/audit_rejeu_artefacts.py
+
+# classement par actif, borné à l'époque scellée du corpus
+.venv/Scripts/python.exe -X utf8 tools/analyse_rejeu_univers.py
+```
+
 ## Arborescence
 
 ```
@@ -139,7 +201,8 @@ V14/
 | **Gestion de position** (`titanium/execution/position_manager.py`) | ✅ 43 |
 | **Orchestrateur** (`titanium/orchestrator.py`) | ✅ 29 |
 
-**Suite complète : 939 passed, 2 skipped** — 363 titanium + 576 socle.
+**Suite complète : 2342 passed, 2 skipped** (relevé du 25/08/2026). Les deux
+skips sont structurels : `langchain_aws` absent et clé DeepSeek non renseignée.
 Relevé authoritatif : `python tools/dashboard.py --tests`. Ajouter une brique
 dans `BRIQUES` (tools/dashboard.py) la fait apparaître sur la page **et** dans
 le compteur — les deux lisaient auparavant des listes distinctes, et les
@@ -193,7 +256,7 @@ Le terminal peut basculer de compte entre deux appels : c'est arrivé le
 
 | Verrou | Variable | État |
 |---|---|---|
-| 1. Armement | `TITANIUM_EXEC_ENABLED` | `0` — **fermé** |
+| 1. Armement | `TITANIUM_EXEC_ENABLED` | **ouvert** — la boucle trade en démo depuis le 07/08/2026 |
 | 2. Le courtier dit DEMO (`trade_mode==0`) | — (lu du serveur) | ✅ ouvert |
 | 3. Login attendu | `TITANIUM_DEMO_LOGIN=10055401` | ✅ concordant |
 
@@ -409,8 +472,10 @@ l'API toutes les 10 s, elle n'est jamais « au repos ». Attendre
   Gemini Pro est hors free tier. Config dans `.env` (`TRADINGAGENTS_*`).
 - Machine **CPU seul** (Ryzen 7 7730U, pas de GPU utilisable) — aucun LLM local
   dans le chemin de décision.
-- MT5 : terminal Axi, **compte réel 60261188**. Le mur démo↔réel est
-  obligatoire avant tout `order_send`.
+- MT5 : terminal Axi, **compte démo 10055401** (Axi-US50-Demo). Le compte réel
+  60261188 existe sur le même terminal : le mur démo↔réel est vérifié à chaque
+  ordre, jamais mis en cache, parce que le terminal peut basculer entre deux
+  appels.
 
 ## Rapport à V12 et V13
 
@@ -418,6 +483,111 @@ l'API toutes les 10 s, elle n'est jamais « au repos ». Attendre
   depuis V14**, toujours.
 - **V13** (`C:\Users\flore\Desktop\V13`) est le banc d'essai qui a validé la
   mécanique de délibération. On y garde le diagnostic comparatif.
+
+## Ce qui scelle les artefacts — `FICHIERS_MOTEUR`
+
+`tools/rejeu_univers.py:67` liste **onze fichiers** dont l'empreinte SHA-256
+combinée est scellée dans chaque artefact de rejeu. En modifier un seul fait
+basculer l'empreinte, et **les 147 artefacts deviennent incomparables au code
+présent** : les bancs hors ligne refusent tout en bloc.
+
+```
+tools/rejeu_univers.py · titanium/backtest.py · titanium/data/archive_barres.py
+titanium/edge.py · features/{builder,candlesticks,indicators,smc,structure,
+ict_structure}.py · gates/confluence_gate.py
+```
+
+Coût réel d'une bascule : **un rejeu complet de 149 symboles, ~15 h**. Arrivé
+deux fois entre le 22 et le 25/08. Avant toute édition d'un de ces onze
+fichiers, se demander si le changement peut attendre un lot groupé.
+
+Piège associé, vécu le 25/08 : `edge.py` porte de la télémétrie *live*
+(`ClosedTrade`, `TradeJournal`) **et** est fichier moteur. Un correctif
+d'instrumentation parfaitement légitime a donc périmé 147 artefacts, et
+**aucun des 2342 tests ne l'a signalé** — rien ne lie l'arbre de travail à la
+génération scellée. L'extraction de ces classes hors de `edge.py` est une dette
+ouverte.
+
+L'analyse doit se caler sur la génération scellée dans les artefacts, jamais sur
+l'état du code du jour : `tools/epoque_rejeu.py` (hors `FICHIERS_MOTEUR` par
+construction) fournit `epoque_corpus`, le pin `--empreinte` (préfixe hexa de 16
+à 64), et le sidecar `<sortie>.blocked.json`.
+
+⚠️ **`symbols_measured: 0` n'est pas un résultat nul.** Un rapport vide se lit
+comme « aucun signal » alors qu'il dit « rien mesuré ». Tout consommateur doit
+lire le sidecar OU vérifier `mesure_le` avant de revendiquer une fraîcheur.
+
+## Deux canaux de collaboration, à ne pas confondre
+
+| canal | support | qui le lit |
+|---|---|---|
+| **CollabHub** `127.0.0.1:8770/mcp` | SQLite, offsets globaux | **canonique** — Codex, Hermes, Prime |
+| bus NDJSON `tools/collab_bus.mjs` | fichier partagé avec V12 | secours hors ligne |
+
+Ils ne sont **pas** synchronisés. Un verdict publié le 24/08 sur le bus est
+resté invisible une journée entière, et l'équipe a maintenu un HOLD faute de
+réponse. Publier sur le hub :
+
+```python
+# collab_publish : principal, target, kind, content, idempotency_key requis
+# target accepte 'codex', 'hermes', 'topic:prime', 'topic:team', 'florent'
+```
+
+`collab_read` prend `after_offset`, pas `from_offset`.
+
+## Jointure des journaux live — deux normalisations obligatoires
+
+```
+limit_lifecycle.position_ticket   89347153        (entier)
+trades.ndjson.ticket              live:89347153   (chaîne préfixée)
+excursions.ndjson.ticket          live:89347153
+```
+
+Une jointure naïve rend **zéro correspondance** et ressemble à une absence de
+données ; après `str(t).split(":")[-1]` elle est **complète, 373/373, sans
+collision**. Les ordres `expired` n'ont aucun `position_ticket` — ils ne sont
+jamais devenus des positions, donc ils n'ont pas d'aval.
+
+Second piège : `spread_r` n'est porté que par l'événement **`placed`**, pas par
+`closed`. Il faut joindre par `order_ticket`. Lire `closed` seul fait conclure
+que l'axe n'existe pas.
+
+## Pièges de mesure constatés
+
+- **`df.index.view("int64")` rend du bruit** sur un index horodaté (`[1, 1, 1]`).
+  Utiliser `idx.tz_convert("UTC").tz_localize(None).astype("datetime64[s]")
+  .astype("int64")`. Deux conclusions publiées ont dû être retirées.
+- **`cmd /k` survit à la mort de sa commande.** Quatre fenêtres « boucle armée »
+  dans une liste de processus peuvent n'être qu'un seul interpréteur vivant :
+  descendre aux enfants, un `conhost.exe` seul signale une coquille vide.
+- **Le spread brut n'est pas comparable entre actifs.** Rapporté à l'ATR, la
+  corrélation espérance↔coût passe de −0,399 à −0,867.
+- **Une partition par `exit_reason` est en partie définitionnelle** : atteindre
+  +0,8 R déclenche le breakeven et change le motif. Les taux de réussite par
+  seau ne sont pas des résultats.
+
+## GitNexus — sortir de la boucle FTS
+
+Symptôme : `analyze` échoue sur `FTS index 'file_fts' is inconsistent`, et
+`--repair-fts` refuse en renvoyant vers `analyze`. La boucle se casse seule —
+un `node .gitnexus/run.cjs analyze` **nu** détecte le drapeau
+`incrementalInProgress`, force une reconstruction complète et se répare (~70 s).
+Rencontré deux fois le 25/08.
+
+## État des politiques live au 25/08/2026
+
+| | |
+|---|---|
+| porte de coût | `MAX_COUT_SPREAD_PCT = 0.125` (`titanium/sizing.py:70`) |
+| FX | **suspendu** (`live_demo.py:178`), décision Florent du 24/08 |
+| anti-fade contre-tendance | **levé** en politique (`riskgate.py:63`), réarmable par un mot |
+| mode d'entrée | **MARCHE** depuis `691adb6` — la cohorte limite est gelée |
+
+Le carnet L2 n'existe pas chez Axi : mode d'exécution `MARKET (dealer)`,
+`market_book_add` rend `False`, et les ticks ne portent que `BID`/`ASK` — aucun
+`LAST`, `BUY`, `SELL`. Profondeur, file d'attente et côté agresseur sont donc
+**non observables et non identifiables** depuis ce courtier. Le modèle de file
+a été abandonné par consensus des quatre agents.
 
 ## Journal
 
@@ -919,9 +1089,10 @@ Une seule chose, et elle ne dépend pas du code :
 
 - **Accumuler des trades pour mesurer l'edge.** `titanium/edge.py` lit un
   journal append-only et rend un verdict par contexte, mais il faut
-  `MIN_SAMPLES = 20` trades clos par contexte. Aujourd'hui : **0**. Tant que
-  l'edge est inconnu, le mode PROD bloque tout — par conception, c'est le
-  correctif du fail-OPEN de V12.
+  `MIN_SAMPLES = 20` trades clos par contexte. Au 25/08/2026 : **455 trades
+  clos** dans `results/trades.ndjson`, dont 373 issus d'entrées limites. Le
+  registre n'est plus vide ; c'est la couverture PAR CONTEXTE qui reste le
+  facteur limitant.
 - **Armer la démo** quand tu le décides : `TITANIUM_EXEC_ENABLED=1`. C'est ce
   qui déclenchera l'accumulation ci-dessus.
 
@@ -947,7 +1118,7 @@ lot backfill et de la réparation contrôlée du journal :
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (9528 symbols, 19446 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (9976 symbols, 19858 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -980,11 +1151,11 @@ This project is indexed by GitNexus as **titanium-v14** (9528 symbols, 19446 rel
 
 | Task | Read this skill file |
 |------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->

@@ -12,6 +12,8 @@ l'ordre -- la seule chose qui decide si un signal valide devient une position
 ou disparait.
 """
 
+import inspect
+
 from titanium.execution.limit_orders import place_limit_order
 from titanium.execution.mt5_executor import place_market_order
 from tools.live_demo import MODE_ENTREE, _decision_policy_identity, _envoi_entree
@@ -53,6 +55,28 @@ def test_une_panne_de_sceau_ne_casse_pas_la_boucle(monkeypatch):
 
     monkeypatch.setattr(live_demo, "build_policy_identity", fail)
     assert _decision_policy_identity("explore", 2.0) == {}
+
+
+def test_snapshot_est_fixe_avant_tout_envoi_et_couvre_les_producteurs():
+    import tools.live_demo as live_demo
+
+    source = inspect.getsource(live_demo.tour)
+    assert source.index("_decision_policy_identity(") < source.index(
+        "res = _envoi_entree()(",
+    )
+    inventory = live_demo._BASE_CODE_SNAPSHOT["inventory"]
+    for required in (
+        "titanium/edge.py",
+        "titanium/features/builder.py",
+        "titanium/orchestrator.py",
+        "titanium/selection.py",
+        "titanium/correlation.py",
+        "titanium/echelle.py",
+        "titanium/avis.py",
+        "titanium/risk/riskgate.py",
+        "titanium/execution/policy_identity.py",
+    ):
+        assert required in inventory
 
 
 def test_un_mode_inconnu_ne_bloque_pas_l_entree():

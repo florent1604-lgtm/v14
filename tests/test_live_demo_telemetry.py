@@ -155,7 +155,8 @@ def test_contexte_ordre_marche_conserve_l_identite_de_politique(
 
     _attacher_contexte(
         999, "EURUSD", {}, out, res, risque_devise=25.0,
-        policy_identity=identity,
+        policy_identity=identity, decision_id="epoch-a:999",
+        decision_at="2026-08-26T08:00:00+00:00",
     )
 
     state = json.loads((tmp_path / "results" / "positions.json").read_text())["999"]
@@ -163,6 +164,8 @@ def test_contexte_ordre_marche_conserve_l_identite_de_politique(
     assert state["policy_epoch"] == "epoch-a"
     assert state["config_sha256"] == "a" * 64
     assert state["code_sha256"] == "b" * 64
+    assert state["decision_id"] == "epoch-a:999"
+    assert state["ts_open"] == "2026-08-26T08:00:00+00:00"
 
 
 def test_echec_contexte_limite_n_est_plus_silencieux(monkeypatch):

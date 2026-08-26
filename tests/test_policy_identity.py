@@ -4,18 +4,21 @@ from pathlib import Path
 
 import pytest
 
-from titanium.execution.policy_identity import build_policy_identity
+from titanium.execution.policy_identity import (
+    build_policy_identity,
+    snapshot_code_identity,
+)
 
 
 def _identity(tmp_path: Path, *, value: int = 1) -> dict[str, str]:
     source = tmp_path / "engine.py"
     source.write_text(f"VALUE = {value}\n", encoding="utf-8")
+    snapshot = snapshot_code_identity(root=tmp_path, code_sources=["engine.py"])
     return build_policy_identity(
         entry_policy="limite",
         execution_mode="explore",
         config={"risk_cap": 6.0, "rr_ratio": 2.0},
-        root=tmp_path,
-        code_paths=["engine.py"],
+        base_code_snapshot=snapshot,
     )
 
 
@@ -40,8 +43,9 @@ def test_code_ou_config_differents_ouvrent_une_nouvelle_epoque(
         entry_policy="LIMITE",
         execution_mode="explore",
         config={"risk_cap": 5.0, "rr_ratio": 2.0},
-        root=tmp_path,
-        code_paths=["engine.py"],
+        base_code_snapshot=snapshot_code_identity(
+            root=tmp_path, code_sources=["engine.py"],
+        ),
     )
 
     assert changed_code["code_sha256"] != base["code_sha256"]
@@ -52,14 +56,33 @@ def test_code_ou_config_differents_ouvrent_une_nouvelle_epoque(
 
 def test_identite_refuse_un_fichier_absent_ou_hors_depot(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="absent"):
-        build_policy_identity(
-            entry_policy="MARCHE", execution_mode="explore", config={"x": 1},
-            root=tmp_path, code_paths=["missing.py"],
-        )
+        snapshot_code_identity(root=tmp_path, code_sources=["missing.py"])
     outside = tmp_path.parent / "outside.py"
     outside.write_text("x = 1\n", encoding="utf-8")
     with pytest.raises(ValueError, match="hors depot"):
-        build_policy_identity(
-            entry_policy="MARCHE", execution_mode="explore", config={"x": 1},
-            root=tmp_path, code_paths=[outside],
-        )
+        snapshot_code_identity(root=tmp_path, code_sources=[outside])
+
+
+def test_snapshot_startup_ne_change_pas_si_le_disque_change(tmp_path: Path) -> None:
+    source = tmp_path / "edge.py"
+    source.write_text("EDGE = 1\n", encoding="utf-8")
+    startup = snapshot_code_identity(root=tmp_path, code_sources=["edge.py"])
+    before = build_policy_identity(
+        entry_policy="MARCHE", execution_mode="explore", config={"x": 1},
+        base_code_snapshot=startup,
+    )
+
+    source.write_text("EDGE = 2\n", encoding="utf-8")
+    same_process = build_policy_identity(
+        entry_policy="MARCHE", execution_mode="explore", config={"x": 1},
+        base_code_snapshot=startup,
+    )
+    next_startup = snapshot_code_identity(root=tmp_path, code_sources=["edge.py"])
+    next_process = build_policy_identity(
+        entry_policy="MARCHE", execution_mode="explore", config={"x": 1},
+        base_code_snapshot=next_startup,
+    )
+
+    assert same_process == before
+    assert next_process["code_sha256"] != before["code_sha256"]
+    assert next_process["policy_epoch"] != before["policy_epoch"]

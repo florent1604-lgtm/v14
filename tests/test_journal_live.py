@@ -73,6 +73,7 @@ def test_aller_retour_disque_preserve_le_contexte(tmp_path):
         peak_fav_r=1.4, mae_r=-0.3,
         entry_policy="MARCHE", policy_epoch="epoch-a",
         config_sha256="a" * 64, code_sha256="b" * 64,
+        decision_id="epoch-a:42",
     )})
     relu = load_state(f)["42"]
     assert relu.entry == 1.1000
@@ -85,6 +86,7 @@ def test_aller_retour_disque_preserve_le_contexte(tmp_path):
     assert relu.policy_epoch == "epoch-a"
     assert relu.config_sha256 == "a" * 64
     assert relu.code_sha256 == "b" * 64
+    assert relu.decision_id == "epoch-a:42"
 
 
 def test_etat_ancien_se_relit_sans_planter(tmp_path):
@@ -147,6 +149,7 @@ def test_cloture_propage_l_identite_de_politique(tmp_path):
         "policy_epoch": "epoch-a",
         "config_sha256": "a" * 64,
         "code_sha256": "b" * 64,
+        "decision_id": "epoch-a:558",
     }
     assert journaliser_cloture(
         etat(**policy), "558", prix_sortie=1.1150,
@@ -160,6 +163,12 @@ def test_cloture_propage_l_identite_de_politique(tmp_path):
     assert excursion["execution_mode"] == "explore"
     assert excursion["config_sha256"] == "a" * 64
     assert excursion["code_sha256"] == "b" * 64
+    registry = [
+        json.loads(line) for line in
+        (tmp_path / "decision_registry.ndjson").read_text(encoding="utf-8").splitlines()
+    ]
+    assert registry[0]["event"] == "resolved"
+    assert registry[0]["decision_id"] == "epoch-a:558"
 
 
 def test_journalise_un_perdant(tmp_path):

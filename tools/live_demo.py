@@ -41,7 +41,14 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-from titanium.execution.policy_identity import build_policy_identity  # noqa: E402
+from titanium.execution.policy_identity import (  # noqa: E402
+    build_policy_identity,
+    snapshot_code_identity,
+)
+from titanium.execution.decision_registry import (  # noqa: E402
+    append_decision_event,
+    make_decision_id,
+)
 from tools.console_output import configure_console_output  # noqa: E402
 
 #: Univers candidat. Chaque tour filtre selon ce que l'equity peut porter.
@@ -158,14 +165,23 @@ DERIVE_MAX_R = 0.35
 #: plafond empêche encore d'empiler trois fois le même risque corrélé.
 MAX_PAR_SYMBOLE = 1
 
-_POLICY_CODE_PATHS = (
+_POLICY_CODE_SOURCES = (
     "tools/live_demo.py",
-    "titanium/confiance.py",
-    "titanium/execution/mt5_executor.py",
-    "titanium/execution/limit_orders.py",
-    "titanium/gates/confluence_gate.py",
-    "titanium/sizing.py",
+    # Sur-approximation volontaire : tout module Titanium peut devenir une
+    # dépendance dynamique de la décision. Un faux nouvel epoch est sûr; un
+    # changement de décision non détecté ne l'est pas.
+    "titanium",
+    "tradingagents/default_config.py",
 )
+
+try:
+    # Snapshot UNE FOIS au chargement du processus. Une modification ultérieure
+    # du working tree ne peut donc pas réétiqueter le bytecode déjà chargé.
+    _BASE_CODE_SNAPSHOT = snapshot_code_identity(
+        root=RACINE, code_sources=_POLICY_CODE_SOURCES,
+    )
+except (OSError, ValueError):
+    _BASE_CODE_SNAPSHOT = None
 
 
 def _decision_policy_identity(execution_mode: str, rr_ratio: float) -> dict[str, str]:
@@ -185,8 +201,7 @@ def _decision_policy_identity(execution_mode: str, rr_ratio: float) -> dict[str,
                 "reserve_s3": RESERVE_S3,
                 "rr_ratio": float(rr_ratio),
             },
-            root=RACINE,
-            code_paths=_POLICY_CODE_PATHS,
+            base_code_snapshot=_BASE_CODE_SNAPSHOT or {},
         )
     except (OSError, TypeError, ValueError):
         return {}
@@ -917,7 +932,8 @@ def _observer_prod(sym: str, feats: dict, verdict: str) -> None:
 def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
                        risque_devise: float = 0.0,
                        spread_r: float | None = None,
-                       policy_identity: dict[str, str] | None = None) -> None:
+                       policy_identity: dict[str, str] | None = None,
+                       decision_id: str = "", decision_at: str = "") -> None:
     """Ecrit le contexte d'entree dans l'etat suivi, des l'envoi de l'ordre.
 
     Sans cela, `position_manager` decouvrira le ticket au tour suivant et ne
@@ -950,7 +966,7 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             context_key=_contexte_exact(sym, feats, out.side),
             contre_tendance=bool(getattr(out, "contre_tendance", False)),
             indicators=dict((feats.get("_trace") or {}).get("indicators") or {}),
-            ts_open=datetime.now(timezone.utc).isoformat(),
+            ts_open=decision_at or datetime.now(timezone.utc).isoformat(),
             # Sert a convertir en R la commission et le swap que MT5 rend en
             # devise. Sans lui, ces frais seraient journalises a zero.
             risque_devise=float(risque_devise or 0.0),
@@ -963,6 +979,7 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             policy_epoch=str(identity.get("policy_epoch", "")),
             config_sha256=str(identity.get("config_sha256", "")),
             code_sha256=str(identity.get("code_sha256", "")),
+            decision_id=decision_id,
             **_stratification(sym, feats, out.side),
         )
         save_state(chemin, etat)
@@ -976,6 +993,8 @@ def _memoriser_contexte_limit(
     risque_devise: float = 0.0,
     spread_r: float | None = None,
     policy_identity: dict[str, str] | None = None,
+    decision_id: str = "",
+    decision_at: str = "",
 ) -> tuple[bool, str]:
     """Conserve le contexte jusqu'au fill et rend une preuve exploitable."""
     if not ticket or not getattr(res, "expires_at", ""):
@@ -997,7 +1016,7 @@ def _memoriser_contexte_limit(
             context_key=_contexte_exact(sym, feats, out.side),
             contre_tendance=bool(getattr(out, "contre_tendance", False)),
             indicators=dict((feats.get("_trace") or {}).get("indicators") or {}),
-            ts_open=datetime.now(timezone.utc).isoformat(),
+            ts_open=decision_at or datetime.now(timezone.utc).isoformat(),
             risque_devise=float(risque_devise or 0.0),
             spread_r=(None if spread_r is None else float(spread_r)),
             spread_exact=False,
@@ -1016,6 +1035,7 @@ def _memoriser_contexte_limit(
             policy_epoch=str(identity.get("policy_epoch", "")),
             config_sha256=str(identity.get("config_sha256", "")),
             code_sha256=str(identity.get("code_sha256", "")),
+            decision_id=decision_id,
             **_stratification(sym, feats, out.side),
         )
         save_pending_context(
@@ -1568,6 +1588,11 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         # Une seule décision d'entrée, deux façons de la poser. Le mur
         # d'armement, le lot et le SL/TP sont identiques des deux côtés :
         # seul le type d'ordre change.
+        decision_stratification = _stratification(sym, feats, out.side)
+        decision_at = datetime.now(timezone.utc).isoformat()
+        policy_identity = _decision_policy_identity(
+            str(decision_stratification.get("mode", "")), cfg.rr_ratio,
+        )
         res = _envoi_entree()(
             sym, out.side, budget.risk_money, out.stop_distance or 0.0,
             policy=politique,
@@ -1575,20 +1600,56 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             idempotency_key=cle_barre(sym, feats),
         )
 
+        decision_id = ""
+        if res.sent:
+            try:
+                decision_id = make_decision_id(
+                    policy_identity.get("policy_epoch", ""), res.ticket,
+                )
+                ctxk = _contexte_exact(sym, feats, out.side)
+                unite_decision = getattr(budgets.get(sym), "timeframe", LTF)
+                written, reason = append_decision_event(
+                    RACINE / "results" / "decision_registry.ndjson",
+                    {
+                        "event": "decided",
+                        "decision_id": decision_id,
+                        "decision_at": decision_at,
+                        "execution_ticket": int(res.ticket),
+                        "symbol": sym,
+                        "side": int(out.side),
+                        "asset_class": decision_stratification.get("asset_class", ""),
+                        "context": ctxk,
+                        "timeframe": unite_decision,
+                        "quorum": decision_stratification.get("quorum", 0),
+                        "support_pillars": decision_stratification.get(
+                            "support_pillars", 0,
+                        ),
+                        **policy_identity,
+                    },
+                )
+                stats["decision_registry_events"] = int(
+                    stats.get("decision_registry_events", 0) or 0,
+                ) + int(written)
+                if not written and reason != "DUPLICATE":
+                    _compter_tunnel(stats, "decision_registry_failure", reason)
+            except Exception as exc:  # noqa: BLE001 - télémétrie fail-soft
+                _compter_tunnel(
+                    stats, "decision_registry_failure",
+                    f"ERROR_{type(exc).__name__.upper()}",
+                )
+
         if res.sent and MODE_ENTREE != "LIMITE":
             stats["envoyes"] += 1
             ouvertes += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
-            policy_identity = _decision_policy_identity(
-                str(_stratification(sym, feats, out.side).get("mode", "")),
-                cfg.rr_ratio,
-            )
             _attacher_contexte(res.ticket, sym, feats, out, res,
                                risque_devise=budget.risk_money,
                                spread_r=budget.cout_spread,
-                               policy_identity=policy_identity)
+                               policy_identity=policy_identity,
+                               decision_id=decision_id,
+                               decision_at=decision_at)
             unite_b = getattr(budgets.get(sym), "timeframe", LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             ctxk = _contexte_exact(sym, feats, out.side)
@@ -1604,15 +1665,13 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
-            policy_identity = _decision_policy_identity(
-                str(_stratification(sym, feats, out.side).get("mode", "")),
-                cfg.rr_ratio,
-            )
             contexte_sauve, motif_contexte = _memoriser_contexte_limit(
                 res.ticket, sym, feats, out, res,
                 risque_devise=budget.risk_money,
                 spread_r=budget.cout_spread,
                 policy_identity=policy_identity,
+                decision_id=decision_id,
+                decision_at=decision_at,
             )
             if contexte_sauve:
                 stats["pending_context_saved"] = int(

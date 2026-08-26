@@ -161,6 +161,7 @@ class TrackedState:
     policy_epoch: str = ""
     config_sha256: str = ""
     code_sha256: str = ""
+    decision_id: str = ""
     # Provenance d'une entree passive. Ces champs restent vides pour les
     # positions historiques ou ouvertes au marche. Ils rendent possible le
     # rapprochement causal ordre limite -> fill -> cloture, sans reconstruire
@@ -214,6 +215,7 @@ class TrackedState:
                 "policy_epoch": self.policy_epoch,
                 "config_sha256": self.config_sha256,
                 "code_sha256": self.code_sha256,
+                "decision_id": self.decision_id,
                 "limit_order_ticket": self.limit_order_ticket,
                 "limit_planned_price": self.limit_planned_price,
                 "limit_market_reference_price": self.limit_market_reference_price,
@@ -258,6 +260,7 @@ class TrackedState:
             policy_epoch=str(d.get("policy_epoch", "") or ""),
             config_sha256=str(d.get("config_sha256", "") or ""),
             code_sha256=str(d.get("code_sha256", "") or ""),
+            decision_id=str(d.get("decision_id", "") or ""),
             limit_order_ticket=int(d.get("limit_order_ticket", 0) or 0),
             limit_planned_price=float(d.get("limit_planned_price", 0.0) or 0.0),
             limit_market_reference_price=float(
@@ -959,6 +962,30 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
                 "horizon_excursions": st.horizon_excursions,
                 "source": "live",
             }, ensure_ascii=False) + "\n")
+        if st.decision_id:
+            from titanium.execution.decision_registry import append_decision_event
+
+            decision_written, decision_reason = append_decision_event(
+                journal_path.parent / "decision_registry.ndjson",
+                {
+                    "event": "resolved",
+                    "decision_id": st.decision_id,
+                    "execution_ticket": int(ticket),
+                    "symbol": st.symbol,
+                    "closed_at": ts_exit,
+                    "ts_exit": ts_exit,
+                    "pnl_r": round(pnl_r, 4),
+                    "mae_r": round(st.mae_r, 4),
+                    "mfe_r": round(st.peak_fav_r, 4),
+                    "giveback_r": giveback,
+                    "exit_reason": st.phase,
+                },
+            )
+            if diagnostic is not None:
+                diagnostic.update(
+                    decision_registry_written=decision_written,
+                    decision_registry_reason=decision_reason,
+                )
         if st.limit_order_ticket:
             # La fermeture complete le meme fil causal que le placement et le
             # fill. Le PnL reste le net comptable MT5 deja valide ci-dessus.

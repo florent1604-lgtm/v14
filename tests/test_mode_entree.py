@@ -14,7 +14,7 @@ ou disparait.
 
 from titanium.execution.limit_orders import place_limit_order
 from titanium.execution.mt5_executor import place_market_order
-from tools.live_demo import MODE_ENTREE, _envoi_entree
+from tools.live_demo import MODE_ENTREE, _decision_policy_identity, _envoi_entree
 
 
 def test_le_mode_marche_envoie_au_marche():
@@ -33,6 +33,26 @@ def test_la_production_prend_le_risque():
     """Garde-fou explicite : revenir au tout-limite doit etre un choix visible."""
     assert MODE_ENTREE == "MARCHE"
     assert _envoi_entree() is place_market_order
+
+
+def test_la_decision_journalise_une_identite_de_politique_complete():
+    identity = _decision_policy_identity("explore", 2.0)
+
+    assert identity["entry_policy"] == MODE_ENTREE
+    assert identity["execution_mode"] == "explore"
+    assert len(identity["policy_epoch"]) == 16
+    assert len(identity["config_sha256"]) == 64
+    assert len(identity["code_sha256"]) == 64
+
+
+def test_une_panne_de_sceau_ne_casse_pas_la_boucle(monkeypatch):
+    import tools.live_demo as live_demo
+
+    def fail(**_kwargs):
+        raise OSError("disque indisponible")
+
+    monkeypatch.setattr(live_demo, "build_policy_identity", fail)
+    assert _decision_policy_identity("explore", 2.0) == {}
 
 
 def test_un_mode_inconnu_ne_bloque_pas_l_entree():

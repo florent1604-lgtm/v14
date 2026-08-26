@@ -41,6 +41,7 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
+from titanium.execution.policy_identity import build_policy_identity  # noqa: E402
 from tools.console_output import configure_console_output  # noqa: E402
 
 #: Univers candidat. Chaque tour filtre selon ce que l'equity peut porter.
@@ -156,6 +157,39 @@ DERIVE_MAX_R = 0.35
 #: l'idempotence : si la clé de barre échoue pour une raison quelconque, ce
 #: plafond empêche encore d'empiler trois fois le même risque corrélé.
 MAX_PAR_SYMBOLE = 1
+
+_POLICY_CODE_PATHS = (
+    "tools/live_demo.py",
+    "titanium/confiance.py",
+    "titanium/execution/mt5_executor.py",
+    "titanium/execution/limit_orders.py",
+    "titanium/gates/confluence_gate.py",
+    "titanium/sizing.py",
+)
+
+
+def _decision_policy_identity(execution_mode: str, rr_ratio: float) -> dict[str, str]:
+    """Scelle la politique; une panne de télémétrie ne casse jamais l'ordre."""
+    try:
+        return build_policy_identity(
+            entry_policy=MODE_ENTREE,
+            execution_mode=execution_mode,
+            config={
+                "derive_max_r": DERIVE_MAX_R,
+                "htf": HTF,
+                "ltf": LTF,
+                "max_limites_en_attente": MAX_LIMITES_EN_ATTENTE,
+                "max_par_symbole": MAX_PAR_SYMBOLE,
+                "max_positions": MAX_POSITIONS,
+                "max_risque_cumule_pct": MAX_RISQUE_CUMULE_PCT,
+                "reserve_s3": RESERVE_S3,
+                "rr_ratio": float(rr_ratio),
+            },
+            root=RACINE,
+            code_paths=_POLICY_CODE_PATHS,
+        )
+    except (OSError, TypeError, ValueError):
+        return {}
 
 #: Créneaux réservés à la strate S≥3 parmi MAX_POSITIONS.
 #:
@@ -882,7 +916,8 @@ def _observer_prod(sym: str, feats: dict, verdict: str) -> None:
 
 def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
                        risque_devise: float = 0.0,
-                       spread_r: float | None = None) -> None:
+                       spread_r: float | None = None,
+                       policy_identity: dict[str, str] | None = None) -> None:
     """Ecrit le contexte d'entree dans l'etat suivi, des l'envoi de l'ordre.
 
     Sans cela, `position_manager` decouvrira le ticket au tour suivant et ne
@@ -902,6 +937,7 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
         etat = load_state(chemin)
         r = abs((res.price or 0.0) - (res.sl or 0.0))
         r_eff = r if r > 0 else (out.stop_distance or 0.0)
+        identity = policy_identity or {}
         etat[str(ticket)] = TrackedState(
             r=r_eff,
             symbol=sym, side=out.side,
@@ -923,6 +959,10 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             entry_levels=_niveaux_entree(
                 feats, entry=res.price or 0.0, side=out.side, r=r_eff),
             entry_atr=float((feats.get("_trace") or {}).get("atr") or 0.0),
+            entry_policy=str(identity.get("entry_policy", "")),
+            policy_epoch=str(identity.get("policy_epoch", "")),
+            config_sha256=str(identity.get("config_sha256", "")),
+            code_sha256=str(identity.get("code_sha256", "")),
             **_stratification(sym, feats, out.side),
         )
         save_state(chemin, etat)
@@ -930,9 +970,13 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
         pass
 
 
-def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
-                              *, risque_devise: float = 0.0,
-                              spread_r: float | None = None) -> tuple[bool, str]:
+def _memoriser_contexte_limit(
+    ticket, sym: str, feats: dict, out, res,
+    *,
+    risque_devise: float = 0.0,
+    spread_r: float | None = None,
+    policy_identity: dict[str, str] | None = None,
+) -> tuple[bool, str]:
     """Conserve le contexte jusqu'au fill et rend une preuve exploitable."""
     if not ticket or not getattr(res, "expires_at", ""):
         return False, "TICKET_OU_EXPIRATION_ABSENT"
@@ -944,6 +988,7 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
 
         r = abs((res.price or 0.0) - (res.sl or 0.0))
         r_eff = r if r > 0 else (out.stop_distance or 0.0)
+        identity = policy_identity or {}
         template = TrackedState(
             r=r_eff,
             symbol=sym, side=out.side,
@@ -967,6 +1012,10 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
                 float(getattr(res, "spread_saved_price", 0.0) or 0.0) / r
                 if r > 0 else None
             ),
+            entry_policy=str(identity.get("entry_policy", "")),
+            policy_epoch=str(identity.get("policy_epoch", "")),
+            config_sha256=str(identity.get("config_sha256", "")),
+            code_sha256=str(identity.get("code_sha256", "")),
             **_stratification(sym, feats, out.side),
         )
         save_pending_context(
@@ -1532,9 +1581,14 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
+            policy_identity = _decision_policy_identity(
+                str(_stratification(sym, feats, out.side).get("mode", "")),
+                cfg.rr_ratio,
+            )
             _attacher_contexte(res.ticket, sym, feats, out, res,
                                risque_devise=budget.risk_money,
-                               spread_r=budget.cout_spread)
+                               spread_r=budget.cout_spread,
+                               policy_identity=policy_identity)
             unite_b = getattr(budgets.get(sym), "timeframe", LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             ctxk = _contexte_exact(sym, feats, out.side)
@@ -1550,10 +1604,15 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
+            policy_identity = _decision_policy_identity(
+                str(_stratification(sym, feats, out.side).get("mode", "")),
+                cfg.rr_ratio,
+            )
             contexte_sauve, motif_contexte = _memoriser_contexte_limit(
                 res.ticket, sym, feats, out, res,
                 risque_devise=budget.risk_money,
                 spread_r=budget.cout_spread,
+                policy_identity=policy_identity,
             )
             if contexte_sauve:
                 stats["pending_context_saved"] = int(
@@ -1591,6 +1650,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     "mode": stratification.get("mode", ""),
                     "timeframe": unite_b,
                     "candle_source": stratification.get("candle_source", ""),
+                    **policy_identity,
                 },
             )
             if evenement_ecrit:

@@ -20,6 +20,14 @@ from typing import Any
 SCHEMA_VERSION = "v14.p1a.sealed-cohort.v1"
 SUPPORTED_EXIT_REASONS = {"init", "breakeven", "trailing"}
 CONTEXT_PILLARS = re.compile(r"\|(\d+)p$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+COHORT_IDENTITY_FIELDS = (
+    "entry_policy",
+    "execution_mode",
+    "policy_epoch",
+    "config_sha256",
+    "code_sha256",
+)
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -118,6 +126,21 @@ def lifecycle_prefix_bytes(data: bytes, through_line: int) -> bytes:
     return b"".join(lines[:through_line])
 
 
+def placed_identity(row: dict) -> dict[str, str] | None:
+    """Extrait l'identité journalisée; les anciennes lignes restent legacy."""
+    values = {field: row.get(field) for field in COHORT_IDENTITY_FIELDS}
+    if all(value in (None, "") for value in values.values()):
+        return None
+    if any(value in (None, "") for value in values.values()):
+        raise ValueError("identité de politique partielle dans placed")
+    identity = {field: str(value) for field, value in values.items()}
+    for field in ("config_sha256", "code_sha256"):
+        identity[field] = identity[field].lower()
+        if not SHA256.fullmatch(identity[field]):
+            raise ValueError(f"{field} invalide dans placed")
+    return identity
+
+
 def build_sealed_cohort(
     lifecycle_path: Path,
     trades_path: Path,
@@ -125,6 +148,7 @@ def build_sealed_cohort(
     *,
     through_closed_event_id: str,
     expected_count: int | None = None,
+    policy_epoch: str | None = None,
 ) -> tuple[dict, dict]:
     lifecycle_data = stable_read(lifecycle_path)
     trades_data = stable_read(trades_path)
@@ -140,13 +164,41 @@ def build_sealed_cohort(
     lifecycle_prefix = [item for item in lifecycle_rows if item[0] <= through_line]
     closed_rows = [item for item in lifecycle_prefix if item[1].get("event") == "closed"]
     placed_rows = [item for item in lifecycle_prefix if item[1].get("event") == "placed"]
-    if expected_count is not None and len(closed_rows) != expected_count:
-        raise ValueError(f"cohorte inattendue: {len(closed_rows)} clôtures, attendu {expected_count}")
-
     unique_index(closed_rows, "position_ticket", lifecycle_path)
     placed_index = unique_index(placed_rows, "order_ticket", lifecycle_path)
     trade_index = unique_index(trade_rows, "ticket", trades_path)
     excursion_index = unique_index(excursion_rows, "ticket", excursions_path)
+
+    selected_closed: list[tuple[int, dict]] = []
+    selected_identities: list[dict[str, str] | None] = []
+    for item in closed_rows:
+        closed = item[1]
+        order_ticket = normalize_ticket(closed.get("order_ticket"))
+        if order_ticket not in placed_index:
+            raise ValueError(f"placed manquant pour order_ticket {order_ticket}")
+        identity = placed_identity(placed_index[order_ticket][1])
+        if (
+            policy_epoch is not None
+            and (identity is None or identity["policy_epoch"] != str(policy_epoch))
+        ):
+            continue
+        selected_closed.append(item)
+        selected_identities.append(identity)
+    closed_rows = selected_closed
+    if policy_epoch is not None and not closed_rows:
+        raise ValueError(f"aucune clôture pour policy_epoch {policy_epoch}")
+    if expected_count is not None and len(closed_rows) != expected_count:
+        raise ValueError(f"cohorte inattendue: {len(closed_rows)} clôtures, attendu {expected_count}")
+
+    cohort_identity: dict[str, str] | None = None
+    complete = [identity for identity in selected_identities if identity is not None]
+    if complete and len(complete) != len(selected_identities):
+        raise ValueError("cohorte mélange des décisions legacy et identifiées")
+    unique_identities = {canonical_bytes(identity) for identity in complete}
+    if len(unique_identities) > 1:
+        raise ValueError("cohorte mélange plusieurs politiques; utiliser --policy-epoch")
+    if complete:
+        cohort_identity = complete[0]
 
     cohort: list[dict] = []
     selected_placed: list[dict] = []
@@ -320,6 +372,8 @@ def build_sealed_cohort(
             "quorum": dict(sorted(quorum_counts.items())),
         },
     }
+    if cohort_identity is not None:
+        manifest["cohort_identity"] = cohort_identity
     return artifact, manifest
 
 
@@ -335,6 +389,16 @@ def verify_sealed_cohort(cohort_path: Path, manifest_path: Path) -> tuple[dict, 
         raise ValueError("cardinalité de cohorte invalide")
     if artifact.get("through_closed_event_id") != manifest.get("cutoff", {}).get("through_closed_event_id"):
         raise ValueError("cutoff incohérent")
+    identity = manifest.get("cohort_identity")
+    if identity is not None:
+        checked = placed_identity(identity)
+        if checked is None:
+            raise ValueError("identité de cohorte vide")
+        if any(
+            str(row.get("mode")) != checked["execution_mode"]
+            for row in artifact.get("cohort", [])
+        ):
+            raise ValueError("mode de cohorte incohérent")
     return artifact, manifest
 
 
@@ -345,6 +409,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--excursions", type=Path, default=Path("results/excursions.ndjson"))
     parser.add_argument("--through-closed-event-id", required=True)
     parser.add_argument("--expected-count", type=int)
+    parser.add_argument("--policy-epoch")
     parser.add_argument("--cohort-out", type=Path, default=Path("results/p1a/cohorte_373.json"))
     parser.add_argument("--manifest-out", type=Path, default=Path("results/p1a/cohorte_373.manifest.json"))
     return parser.parse_args()
@@ -358,6 +423,7 @@ def main() -> int:
         args.excursions,
         through_closed_event_id=args.through_closed_event_id,
         expected_count=args.expected_count,
+        policy_epoch=args.policy_epoch,
     )
     atomic_write(args.cohort_out, canonical_bytes(artifact))
     atomic_write(args.manifest_out, canonical_bytes(manifest))

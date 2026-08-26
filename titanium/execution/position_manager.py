@@ -155,6 +155,12 @@ class TrackedState:
     #: l acceptait pas : le TypeError etait avale par un `except` d observabilite
     #: et TOUT le contexte d ouverture etait perdu silencieusement.
     candle_source: str = ""
+    # Identité de politique figée à la décision. Mesure seule : aucune porte,
+    # aucun sizing et aucune gestion de stop ne lit ces champs.
+    entry_policy: str = ""
+    policy_epoch: str = ""
+    config_sha256: str = ""
+    code_sha256: str = ""
     # Provenance d'une entree passive. Ces champs restent vides pour les
     # positions historiques ou ouvertes au marche. Ils rendent possible le
     # rapprochement causal ordre limite -> fill -> cloture, sans reconstruire
@@ -204,6 +210,10 @@ class TrackedState:
                 "asset_class": self.asset_class, "account": self.account,
                 "timeframe": self.timeframe,
                 "candle_source": self.candle_source,
+                "entry_policy": self.entry_policy,
+                "policy_epoch": self.policy_epoch,
+                "config_sha256": self.config_sha256,
+                "code_sha256": self.code_sha256,
                 "limit_order_ticket": self.limit_order_ticket,
                 "limit_planned_price": self.limit_planned_price,
                 "limit_market_reference_price": self.limit_market_reference_price,
@@ -244,6 +254,10 @@ class TrackedState:
             account=str(d.get("account", "")),
             timeframe=str(d.get("timeframe", "")),
             candle_source=str(d.get("candle_source", "") or ""),
+            entry_policy=str(d.get("entry_policy", "") or ""),
+            policy_epoch=str(d.get("policy_epoch", "") or ""),
+            config_sha256=str(d.get("config_sha256", "") or ""),
+            code_sha256=str(d.get("code_sha256", "") or ""),
             limit_order_ticket=int(d.get("limit_order_ticket", 0) or 0),
             limit_planned_price=float(d.get("limit_planned_price", 0.0) or 0.0),
             limit_market_reference_price=float(
@@ -927,6 +941,11 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
                 "giveback_r": giveback,
                 "exit_reason": st.phase, "context": st.context_key,
                 "contre_tendance": st.contre_tendance,
+                "entry_policy": st.entry_policy,
+                "execution_mode": st.mode,
+                "policy_epoch": st.policy_epoch,
+                "config_sha256": st.config_sha256,
+                "code_sha256": st.code_sha256,
                 # Vrai si la sortie a tronqué la MFE (stop touché) : sans ce
                 # drapeau, toute statistique future de MFE est biaisée à la baisse.
                 "censored": st.phase != PHASE_TRAILING and pnl_r <= 0,
@@ -970,6 +989,11 @@ def journaliser_cloture(st: TrackedState, ticket: str, *,
                     ),
                     "asset_class": st.asset_class or _classe_de(st.symbol),
                     "mode": st.mode,
+                    "entry_policy": st.entry_policy,
+                    "execution_mode": st.mode,
+                    "policy_epoch": st.policy_epoch,
+                    "config_sha256": st.config_sha256,
+                    "code_sha256": st.code_sha256,
                     "closed_at": ts_exit,
                 },
             )

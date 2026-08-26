@@ -69,7 +69,11 @@ def test_letat_retient_le_contexte_dentree():
 
 def test_aller_retour_disque_preserve_le_contexte(tmp_path):
     f = tmp_path / "s.json"
-    save_state(f, {"42": etat(peak_fav_r=1.4, mae_r=-0.3)})
+    save_state(f, {"42": etat(
+        peak_fav_r=1.4, mae_r=-0.3,
+        entry_policy="MARCHE", policy_epoch="epoch-a",
+        config_sha256="a" * 64, code_sha256="b" * 64,
+    )})
     relu = load_state(f)["42"]
     assert relu.entry == 1.1000
     assert relu.context_key == "EURUSD|long|continuation|3p"
@@ -77,6 +81,10 @@ def test_aller_retour_disque_preserve_le_contexte(tmp_path):
     assert relu.peak_fav_r == 1.4
     assert relu.mae_r == -0.3
     assert relu.timeframe == "H1"
+    assert relu.entry_policy == "MARCHE"
+    assert relu.policy_epoch == "epoch-a"
+    assert relu.config_sha256 == "a" * 64
+    assert relu.code_sha256 == "b" * 64
 
 
 def test_etat_ancien_se_relit_sans_planter(tmp_path):
@@ -130,6 +138,28 @@ def test_journalise_un_gagnant(tmp_path):
     )
     assert excursion["contre_tendance"] is True
     assert trades[0].ticket == "live:555"
+
+
+def test_cloture_propage_l_identite_de_politique(tmp_path):
+    j = tmp_path / "trades.ndjson"
+    policy = {
+        "entry_policy": "MARCHE",
+        "policy_epoch": "epoch-a",
+        "config_sha256": "a" * 64,
+        "code_sha256": "b" * 64,
+    }
+    assert journaliser_cloture(
+        etat(**policy), "558", prix_sortie=1.1150,
+        ts_exit="2026-08-07T05:00:00+00:00", journal_path=j,
+        net_devise=150.0,
+    )
+
+    excursion = json.loads(
+        (tmp_path / "excursions.ndjson").read_text(encoding="utf-8").strip()
+    )
+    assert excursion["execution_mode"] == "explore"
+    assert excursion["config_sha256"] == "a" * 64
+    assert excursion["code_sha256"] == "b" * 64
 
 
 def test_journalise_un_perdant(tmp_path):

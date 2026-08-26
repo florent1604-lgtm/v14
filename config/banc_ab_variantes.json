@@ -96,8 +96,10 @@
       "method": "two_way_product_symbol_decision_day",
       "draws": 10000,
       "seed": 140826,
-      "confidence": 0.95
+      "confidence": 0.95,
+      "min_valid_fraction": 0.95
     },
+    "min_valid_omissions_fraction": 1.0,
     "sensitivity": [
       "LOSO",
       "LODO"

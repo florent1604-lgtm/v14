@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -297,6 +298,58 @@ def test_sealed_loader_derives_identity_and_refuses_row_mode_mismatch(tmp_path):
         banc.load_sealed_cohort(spec, root=tmp_path)
 
 
+def test_loader_hashes_and_parses_the_same_immutable_bytes(monkeypatch, tmp_path):
+    spec, _, artifact_path, _ = _write_sealed_fixture(tmp_path, [_row(0)])
+    original_read = banc._read_bytes_once
+    mutated = False
+
+    def read_then_mutate(path):
+        nonlocal mutated
+        data = original_read(path)
+        if Path(path).resolve() == artifact_path.resolve() and not mutated:
+            payload = json.loads(data)
+            payload["cohort"][0]["pnl_r"] = 999.0
+            artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+            mutated = True
+        return data
+
+    monkeypatch.setattr(banc, "_read_bytes_once", read_then_mutate)
+    rows, _, provenance = banc.load_sealed_cohort(spec, root=tmp_path)
+
+    assert mutated is True
+    assert rows[0]["pnl_r"] != 999.0
+    assert provenance["artifact_sha256"] == spec["source"]["artifact_sha256"]
+
+
+def test_cli_refuses_a_self_signed_but_not_preregistered_spec(tmp_path):
+    _, spec_path, artifact_path, _ = _write_sealed_fixture(tmp_path, [_row(0)])
+    accepted_pin = banc.spec_file_sha256(spec_path)
+    weakened = json.loads(spec_path.read_text(encoding="utf-8"))
+    weakened["primary"]["gate"].update({
+        "min_four_p": 1,
+        "min_total": 1,
+        "min_decision_days": 1,
+        "min_symbols": 1,
+    })
+    spec_path.write_text(json.dumps(weakened), encoding="utf-8")
+    output = tmp_path / "result.json"
+
+    rc = banc.main([
+        "--cohort", str(artifact_path), "--spec", str(spec_path),
+        "--spec-sha256", accepted_pin,
+        "--output", str(output), "--cutoff", "2026-12-31T00:00:00Z",
+        "--measure",
+    ])
+
+    assert rc == 2
+    blocked = json.loads(
+        (tmp_path / "result.blocked.json").read_text(encoding="utf-8"),
+    )
+    assert blocked["reason"] == "SPEC_PIN:SPEC_SHA256_MISMATCH"
+    assert blocked["spec_pin"]["expected_sha256"] == accepted_pin
+    assert blocked["spec_pin"]["actual_sha256"] != accepted_pin
+
+
 def test_historical_373_is_blocked_while_config_and_code_seals_are_absent():
     with pytest.raises(banc.SourceSealError, match="COHORT_IDENTITY_INCOMPLETE"):
         banc.load_sealed_cohort(banc.load_spec())
@@ -334,6 +387,7 @@ def test_measure_cli_publishes_not_powered_sidecar_and_preserves_last_report(tmp
 
     rc = banc.main([
         "--cohort", str(artifact_path), "--spec", str(spec_path),
+        "--spec-sha256", banc.spec_file_sha256(spec_path),
         "--output", str(output), "--cutoff", "2026-12-31T00:00:00Z", "--measure",
     ])
 
@@ -367,6 +421,7 @@ def test_measure_cli_publishes_blocked_sidecar_for_p0_failures(
 
     rc = banc.main([
         "--cohort", str(artifact_path), "--spec", str(spec_path),
+        "--spec-sha256", banc.spec_file_sha256(spec_path),
         "--output", str(output), "--cutoff", "2026-12-31T00:00:00Z", "--measure",
     ])
 
@@ -407,8 +462,27 @@ def test_powered_result_contains_full_preregistered_inference(monkeypatch):
     }
     assert len(primary["bootstrap"]["ci95"]) == 2
     assert primary["loso"]["omissions"] == 30
+    assert primary["loso"]["fragile"] is False
     assert primary["lodo"]["omissions"] == 20
+    assert primary["lodo"]["fragile"] is False
     assert result["walk_forward"]["purge_applied"] is True
     assert all(fold["zero_overlap"] for fold in result["walk_forward"]["folds"])
     assert all(item["monetary_status"] == "NOT_IDENTIFIABLE" for item in result["b_r"])
     assert all(item["interpretation"] == "RELATIVE_SENSITIVITY_ONLY" for item in result["b_r"])
+
+
+def test_bootstrap_refuse_trop_peu_de_tirages_valides():
+    records = [
+        {"symbol": "A", "decision_day": "2026-01-01", "pillars": 2, "outcome": 1.0},
+        {"symbol": "B", "decision_day": "2026-01-02", "pillars": 3, "outcome": 1.0},
+    ]
+    bootstrap = {
+        "method": "two_way_product_symbol_decision_day",
+        "draws": 100,
+        "seed": 1,
+        "confidence": 0.95,
+        "min_valid_fraction": 0.95,
+    }
+
+    with pytest.raises(banc.ContractError, match="bootstrap valide insuffisant"):
+        banc._bootstrap_two_way(records, bootstrap)

@@ -47,6 +47,15 @@ class SourceSealError(ContractError):
     """L'artefact, son manifeste ou son identité ne correspond pas au sceau."""
 
 
+class SpecPinError(ContractError):
+    """La spec lue ne correspond pas au sceau préenregistré par l'appelant."""
+
+    def __init__(self, expected: str, actual: str):
+        super().__init__("SPEC_SHA256_MISMATCH")
+        self.expected = expected
+        self.actual = actual
+
+
 def _canonical_bytes(value: object) -> bytes:
     return (json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
@@ -57,17 +66,13 @@ def _sha256(value: object) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _read_bytes_once(path: Path) -> bytes:
+    """Retourne l'unique snapshot d'octets utilisé pour hash ET parsing."""
+    return Path(path).read_bytes()
 
 
-def load_spec(path: Path = SPEC_PAR_DEFAUT) -> dict[str, Any]:
-    """Charge et valide le contrat versionné sans lire de donnée de résultat."""
-    spec = json.loads(Path(path).read_text(encoding="utf-8"))
+def _validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    """Valide le contrat déjà parsé sans lire de donnée de résultat."""
     if spec.get("schema_version") != "v14.banc-ab-entrees.spec.v1":
         raise ContractError("schema de specification incompatible")
     if spec.get("paper_demo_only") is not True:
@@ -107,7 +112,31 @@ def load_spec(path: Path = SPEC_PAR_DEFAUT) -> dict[str, Any]:
         raise ContractError("bootstrap two-way non preenregistre")
     if int(bootstrap.get("draws") or 0) <= 0 or bootstrap.get("seed") is None:
         raise ContractError("draws ou seed bootstrap invalides")
+    valid_fraction = float(bootstrap.get("min_valid_fraction") or 0.0)
+    if not 0.0 < valid_fraction <= 1.0:
+        raise ContractError("fraction minimale de bootstrap invalide")
+    omission_fraction = float(inference.get("min_valid_omissions_fraction") or 0.0)
+    if not 0.0 < omission_fraction <= 1.0:
+        raise ContractError("fraction minimale d omissions invalide")
     return spec
+
+
+def load_spec(path: Path = SPEC_PAR_DEFAUT) -> dict[str, Any]:
+    """Charge et valide une spec; le CLI utilise toujours la variante épinglée."""
+    return _validate_spec(json.loads(_read_bytes_once(path)))
+
+
+def load_pinned_spec(path: Path, expected_sha256: str) -> tuple[dict[str, Any], str]:
+    """Lit une fois, vérifie le sceau sémantique puis valide la spec."""
+    expected = str(expected_sha256).lower()
+    if not _SHA256.fullmatch(expected):
+        raise SpecPinError(expected, "INVALID_EXPECTED_SHA256")
+    raw = _read_bytes_once(path)
+    parsed = json.loads(raw)
+    actual = spec_sha256(parsed)
+    if actual != expected:
+        raise SpecPinError(expected, actual)
+    return _validate_spec(parsed), actual
 
 
 def spec_sha256(spec: Mapping[str, Any]) -> str:
@@ -138,7 +167,8 @@ def load_sealed_cohort(
         raise SourceSealError("ARTIFACT_PATH_MISMATCH")
     if not selected_artifact.is_file():
         raise SourceSealError("ARTIFACT_ABSENT")
-    artifact_sha = _file_sha256(selected_artifact)
+    artifact_bytes = _read_bytes_once(selected_artifact)
+    artifact_sha = hashlib.sha256(artifact_bytes).hexdigest()
     if artifact_sha != source["artifact_sha256"]:
         raise SourceSealError("ARTIFACT_SHA256_MISMATCH")
 
@@ -148,12 +178,13 @@ def load_sealed_cohort(
     declared_manifest = declared_manifest.resolve()
     if not declared_manifest.is_file():
         raise SourceSealError("MANIFEST_ABSENT")
-    manifest_sha = _file_sha256(declared_manifest)
+    manifest_bytes = _read_bytes_once(declared_manifest)
+    manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
     if manifest_sha != source["manifest_sha256"]:
         raise SourceSealError("MANIFEST_SHA256_MISMATCH")
 
-    artifact = json.loads(selected_artifact.read_text(encoding="utf-8"))
-    manifest = json.loads(declared_manifest.read_text(encoding="utf-8"))
+    artifact = json.loads(artifact_bytes)
+    manifest = json.loads(manifest_bytes)
     schema = source["artifact_schema"]
     if artifact.get("schema_version") != schema or manifest.get("schema_version") != schema:
         raise SourceSealError("ARTIFACT_SCHEMA_MISMATCH")
@@ -169,10 +200,15 @@ def load_sealed_cohort(
         raise SourceSealError("CARDINALITY_MISMATCH")
     if manifest_artifact.get("sha256") != artifact_sha:
         raise SourceSealError("MANIFEST_ARTIFACT_SHA256_MISMATCH")
-    cutoff = source["through_closed_event_id"]
+    if source.get("decision_cutoff") is not None:
+        cutoff_field = "decision_cutoff"
+        cutoff = parse_utc(source[cutoff_field]).isoformat()
+    else:
+        cutoff_field = "through_closed_event_id"
+        cutoff = source[cutoff_field]
     if (
-        artifact.get("through_closed_event_id") != cutoff
-        or (manifest.get("cutoff") or {}).get("through_closed_event_id") != cutoff
+        artifact.get(cutoff_field) != cutoff
+        or (manifest.get("cutoff") or {}).get(cutoff_field) != cutoff
     ):
         raise SourceSealError("CUTOFF_MISMATCH")
 
@@ -190,7 +226,7 @@ def load_sealed_cohort(
         "artifact_sha256": artifact_sha,
         "manifest_sha256": manifest_sha,
         "cohort_id": sealed_id,
-        "through_closed_event_id": cutoff,
+        cutoff_field: cutoff,
         "cohort_count": len(rows),
     }
 
@@ -485,10 +521,18 @@ def _bootstrap_two_way(
         if counts[2] and counts[3]:
             estimates.append(sums[3] / counts[3] - sums[2] / counts[2])
     alpha = (1.0 - confidence) / 2.0
+    required_valid = math.ceil(
+        draws * float(bootstrap_spec["min_valid_fraction"]),
+    )
+    if len(estimates) < required_valid:
+        raise ContractError(
+            f"bootstrap valide insuffisant: {len(estimates)}/{required_valid}",
+        )
     return {
         "method": bootstrap_spec["method"],
         "draws": draws,
         "valid_draws": len(estimates),
+        "required_valid_draws": required_valid,
         "seed": seed,
         "confidence": confidence,
         "ci95": [_percentile(estimates, alpha), _percentile(estimates, 1.0 - alpha)],
@@ -501,6 +545,7 @@ def _omit_sensitivity(
     field: str,
     label: str,
     full_effect: float,
+    min_valid_fraction: float,
 ) -> dict[str, Any]:
     effects = []
     for omitted in sorted({str(row[field]) for row in records}):
@@ -516,10 +561,13 @@ def _omit_sensitivity(
         (0 if value == 0 else (1 if value > 0 else -1)) == reference_sign
         for value in finite
     )
+    required_valid = math.ceil(len(effects) * min_valid_fraction)
     return {
         "method": label,
         "omissions": len(effects),
         "valid_omissions": len(finite),
+        "required_valid_omissions": required_valid,
+        "fragile": len(finite) < required_valid or not stable,
         "sign_stable": stable,
         "min_effect": min(finite) if finite else None,
         "max_effect": max(finite) if finite else None,
@@ -629,9 +677,15 @@ def evaluate_phase_two(
             "bootstrap": bootstrap,
             "loso": _omit_sensitivity(
                 records, field="symbol", label="LOSO", full_effect=quality,
+                min_valid_fraction=float(
+                    spec["inference"]["min_valid_omissions_fraction"],
+                ),
             ),
             "lodo": _omit_sensitivity(
                 records, field="decision_day", label="LODO", full_effect=quality,
+                min_valid_fraction=float(
+                    spec["inference"]["min_valid_omissions_fraction"],
+                ),
             ),
         },
         "b_r": [
@@ -706,12 +760,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cohort", type=Path, required=True)
     parser.add_argument("--spec", type=Path, default=SPEC_PAR_DEFAUT)
+    parser.add_argument("--spec-sha256", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--measure", action="store_true")
     args = parser.parse_args(argv)
 
-    spec = load_spec(args.spec)
+    try:
+        spec, actual_spec_sha = load_pinned_spec(args.spec, args.spec_sha256)
+    except (SpecPinError, json.JSONDecodeError, OSError) as exc:
+        expected = str(args.spec_sha256).lower()
+        actual = getattr(exc, "actual", "UNREADABLE")
+        blocked = _blocked(f"SPEC_PIN:{exc}")
+        blocked["spec_pin"] = {
+            "expected_sha256": expected,
+            "actual_sha256": actual,
+        }
+        _write_json_atomic(_sidecar_path(args.output, ANALYSIS_BLOCKED), blocked)
+        return 2
+    spec_pin = {
+        "expected_sha256": str(args.spec_sha256).lower(),
+        "actual_sha256": actual_spec_sha,
+    }
     source_path = Path(spec["source"]["artifact"])
     if source_path.is_absolute():
         root = source_path.parent
@@ -727,6 +797,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (SourceSealError, json.JSONDecodeError, OSError) as exc:
         frozen = _blocked(f"SOURCE_SEAL:{exc}")
         frozen["spec_sha256"] = spec_sha256(spec)
+    frozen["spec_pin"] = spec_pin
 
     state = str(frozen["state"])
     exit_codes = spec["cli_exit_codes"]
@@ -738,6 +809,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(exit_codes[state])
     report = evaluate_phase_two(frozen, rows, spec)
     report["provenance"] = provenance
+    report["spec_pin"] = spec_pin
     report["cutoff"] = frozen["cutoff"]
     _write_json_atomic(args.output, report)
     return int(exit_codes[EXPLORATORY_MEASURED])

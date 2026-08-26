@@ -11,6 +11,7 @@ Sources de l'amendement :
 | Codex, 5 réserves | hub 679 | AMEND avant les deux ACCEPT |
 | Claude, sémantique P1a | hub 690-692, commit `75914a9` | **ACCEPT** |
 | Hermès, puissance | hub 693 + addendum 694 | **NO-GO pour conclure**, AMEND scientifique |
+| Hermès, revue indépendante | hub 705, commit `db6060c` | **AMEND**, quatre contrats à fermer |
 | Prime, mesures | hub 685-688 | embargo falsifié, B sous-déterminé |
 
 Corpus : `results/p1a/cohorte_373.json`, SHA-256
@@ -68,9 +69,27 @@ est de surcroît asymétrique — le plancher écrase la moitié basse à 2 pili
 plafond la moitié haute à 4 piliers — donc `conviction = 0,5` n'est pas un choix
 neutre : il biaise les deux strates en sens opposés.
 
-**Décision.** B devient **B(r)**, famille de sensibilité à un paramètre, où
-`r ∈ [1,35 ; 2,81]` est le ratio de poids 4p/3p supposé, et où la contribution
-de chaque trade 4p est mise à l'échelle de `1/r`. Règles :
+**Décision.** B devient **B(r)**, famille de sensibilité relative à un
+paramètre, où `r ∈ [1,35 ; 2,81]` est le ratio de poids 4p/3p supposé. Elle
+n'est pas dérivée de la variante A figée à `conviction = 0,5` et ne tente pas
+de retrouver deux poids absolus inconnus.
+
+Pour la liste complète gelée de `n` décisions, avec `y_i = pnl_r(i)` uniquement
+lu en phase issue, on définit deux contributions relatives :
+
+```text
+w_r(i) = r si i est 4p, sinon 1
+A_r(i) = y_i * w_r(i)
+N(i)   = y_i
+delta_r = (1 / n) * somme_i [N(i) - A_r(i)]
+```
+
+Le dénominateur est toujours le nombre `n` de décisions gelées, y compris les
+abstentions valant zéro. Il est interdit de diviser par la somme des poids, de
+renormaliser l'exposition ou de réallouer le poids retiré. `delta_r` est une
+sensibilité en R relatif, **pas** une différence monétaire ou portefeuille. La
+variante A reste un proxy séparé fondé sur la table figée du §1 ; aucun résultat
+de A ne peut être présenté comme un point de B(r). Règles :
 
 1. Aucun point-estimate B unique n'est publié. La sortie est une **bande** sur
    l'enveloppe complète, plus des scénarios **nommés** (`r = 2,25` s'appelle
@@ -80,7 +99,7 @@ de chaque trade 4p est mise à l'échelle de `1/r`. Règles :
    d'Hermès concerne **uniquement** la confirmation de l'association de qualité
    en R ; il ne rend pas le sizing reconstructible. Plus d'observations ne
    résoudront jamais une entrée non journalisée.
-3. B(r) est un **proxy de repondération sans réallocation**. Ni reproduction du
+3. B(r) est un **proxy de repondération relative sans réallocation**. Ni reproduction du
    live, ni conséquence portefeuille : `POIDS_CONVICTION`, le portefeuille, le
    lot minimum et les arrondis restent absents, et le rejeu calcule à
    `quantity = 1`.
@@ -93,6 +112,9 @@ de chaque trade 4p est mise à l'échelle de `1/r`. Règles :
    gagnant. L'enveloppe est calculée analytiquement à ses deux extrémités
    préenregistrées ; le scénario `r = 2,25` reste illustratif et ne peut pas
    remplacer cette enveloppe.
+6. Les deux bornes `r = 1,35` et `r = 2,81` sont calculées sur la même liste
+   complète et dans cet ordre. `r = 2,25` n'est qu'un diagnostic nommé. Aucun
+   autre `r` n'est ajouté après lecture des issues.
 
 ## 2. Embargo — RETIRÉ, remplacé par une purge par chevauchement exact
 
@@ -125,6 +147,10 @@ est retiré.
 - Test obligatoire : un fold construit sur un TF mixte M15/H1/H4 dont un trade
   chevauche la frontière doit voir ce trade **exclu**, et le décompte d'exclus
   publié.
+- Invariant de fold : après purge, aucun intervalle d'apprentissage ne doit
+  intersecter `[debut_validation, fin_validation]`. Le rapport publie les
+  effectifs avant purge, après purge et le nombre sur-purgé par le proxy
+  conservateur.
 
 ## 3. Résolution des cinq réserves de Codex (offset 679)
 
@@ -158,11 +184,13 @@ et de plafond. Le zéro d'une décision filtrée mesure une **abstention sans
 réallocation** — le capital libéré ne finance rien — et jamais un déploiement
 live.
 
-**R5 — séparer sélection et score.** Accepté. `net_r`, `gross_r`, `pnl_r`,
-`mfe_r`, `mae_r` et tout champ d'issue sont **interdits** dans la construction
-et la sélection d'une variante, et autorisés **uniquement** dans le calcul du
-résultat **après gel du masque**. Le masque est gelé, sérialisé et haché avant
-la première lecture d'une issue. **Test de non-interférence obligatoire** :
+**R5 — séparer sélection et score.** Accepté. L'API comporte deux phases
+physiquement séparées. En phase 1, le lecteur ne projette que l'allowlist ex
+ante, construit les gates et le masque, puis sérialise et hache ce masque. Tout
+accès à `net_r`, `gross_r`, `pnl_r`, `mfe_r`, `mae_r` ou à un autre champ
+d'issue est interdit et lève une exception. Ces champs deviennent accessibles
+uniquement en phase 2, **après gel du masque et passage des gates**. **Test de
+non-interférence obligatoire** :
 permuter ou remplacer les issues sans toucher aux champs ex ante ne doit
 **jamais** modifier le masque ; le test échoue si le hash du masque bouge.
 
@@ -179,23 +207,56 @@ permuter ou remplacer les issues sans toucher aux champs ex ante ne doit
 | 7 | mapping 4p→support 3, 5p explicite | §3 R2 et §7 — accepté |
 | 694-1 | B non identifié → bande ou `NOT_IDENTIFIABLE` | §1 — accepté, B retirée et remplacée |
 | 694-2 | purge par chevauchement exact | §2 — accepté |
+| 705-1 | estimand B(r) algébrique | §1 — moyenne à dénominateur fixe, sans normalisation |
+| 705-2 | machine d'états et secondaires | §5/§6 — états prioritaires, secondaires exclus de v1 |
+| 705-3 | maturation future | §5 — cohorte gelée puis attente de toutes les résolutions |
+| 705-4 | politiques et époques | §5 — cohortes disjointes, aucun cumul de puissance |
 
-## 5. Porte machine `NOT_POWERED`
+## 5. Portes machine, maturation et époques
+
+La machine d'états est prioritaire et exhaustive :
+
+1. `ANALYSIS_BLOCKED` — intégrité, sceau, résolution ou homogénéité de cohorte
+   invalide ; aucune issue n'est lue ;
+2. `NOT_IDENTIFIABLE` — l'estimand demandé n'existe pas avec les champs gelés ;
+3. `NOT_POWERED` — estimand défini mais gate prospectif insuffisant ;
+4. `EXPLORATORY_MEASURED` — gate passé sur une analyse explicitement
+   exploratoire ; ce statut n'est jamais un verdict métier.
 
 Avant toute mesure, et **avant** toute lecture d'issue, le banc publie par
 cellule : effectif, effectif par strate, nombre de **blocs de décision
-effectifs**, nombre de symboles, empan calendaire.
+effectifs**, nombre de symboles, empan calendaire et MDE prospective.
 
-Minima préenregistrés pour qu'une cellule soit **conclusive** : ≥ 125
-observations 4p, ≥ 814 observations totales, ≥ 20 jours de décision
-indépendants, ≥ 30 symboles.
+Le gate propre à `H_quality` exige ≥ 125 observations 4p, ≥ 814 observations
+totales, ≥ 20 jours de décision indépendants et ≥ 30 symboles. Une cellule sous
+l'un de ces minima rend l'état **`NOT_POWERED`**. Cet état n'est ni un zéro, ni
+une absence d'effet, ni un « pas de différence significative » : c'est un
+**refus de mesurer**. Sur la cohorte actuelle (57 / 373 / 9 blocs 4p / 62
+symboles), l'axe piliers sort `NOT_POWERED`, et c'est le comportement attendu du
+banc au premier jour.
 
-Une cellule sous l'un de ces minima rend l'état **`NOT_POWERED`**. Cet état
-n'est ni un zéro, ni une absence d'effet, ni un « pas de différence
-significative » : c'est un **refus de mesurer**. Sur la cohorte actuelle
-(57 / 373 / 9 blocs 4p / 62 symboles) **toutes les cellules de l'axe piliers
-sortent `NOT_POWERED`**, et c'est le comportement attendu du banc au premier
-jour.
+### Maturation de la fenêtre future
+
+La cohorte future est figée par `decision_proxy_at <= cutoff` dans le journal
+immuable, indépendamment de son état de sortie. Le rapport publie trois comptes
+distincts : décisions éligibles, décisions closes et décisions encore ouvertes.
+La v1 choisit la règle la plus conservatrice : **attendre la résolution de toutes
+les décisions éligibles**. Tant qu'une seule reste ouverte, l'état est
+`ANALYSIS_BLOCKED` et le lecteur d'issues reste inaccessible. Une décision
+ouverte n'est jamais supprimée, imputée ou transformée silencieusement en zéro.
+Toute censure administrative future exigera un nouvel amendement préenregistré
+et une méthode compatible, avant le cutoff.
+
+### Homogénéité de politique et d'époque
+
+Une cohorte est identifiée au minimum par
+`(entry_policy, execution_mode, policy_epoch, config_sha256, code_sha256)`.
+Les 373 historiques forment exclusivement la cohorte `LIMITE` de l'époque
+`051f50ad`. Une fenêtre `MARCHE`, ou toute fenêtre ayant un autre sceau de
+configuration/code, constitue une nouvelle cohorte et estime son propre effet.
+Les lignes, effectifs et gates ne sont **jamais** cumulés entre cohortes pour
+atteindre 125/814. Tout changement de politique, sizing ou garde clôt la cohorte
+courante et en ouvre une nouvelle.
 
 ## 6. Plan d'inférence préenregistré
 
@@ -205,8 +266,13 @@ jour.
 - **B(r) est distincte de `H_quality`** : sensibilité de repondération toujours
   `NOT_IDENTIFIABLE` pour une revendication monétaire, sans test d'hypothèse,
   p-value, optimisation ou choix de scénario après lecture des issues.
-- **Secondaires** : classe d'actif, TF, sens, spread — sous **BH 5 %**, avec la
-  famille d'hypothèses **déclarée avant** la mesure et son cardinal publié.
+- **Secondaires v1** : aucun contraste secondaire n'est admis ; la famille BH
+  est gelée vide, de cardinal zéro. Classe d'actif, TF, sens et spread restent
+  des diagnostics de comptage sans lecture d'issue. Leur admission ultérieure
+  exige, avant outcomes, un amendement qui fige pour chaque contraste ses deux
+  niveaux, `n` par niveau, jours de décision, symboles, MDE et cardinal BH.
+  Faute de gate propre préenregistré, le statut est `NOT_POWERED`. Aucun retrait
+  post-hoc d'une hypothèse faible n'est permis.
 - Incertitude par **bootstrap deux voies symbole × jour de décision**, qui est
   le seul schéma respectant les deux dépendances. Les IC iid et une-voie peuvent
   être publiés comme diagnostics, jamais comme preuve.
@@ -245,7 +311,7 @@ effectifs, durées, poids, blocs — jamais des issues.
 
 ## 9. Séquence
 
-1. Deux ACCEPT sur cet amendement. ← **porte actuelle**
+1. Deux ACCEPT sur cet amendement. ← **porte actuelle ; Hermès 705 = AMEND**
 2. Spécification préenregistrée : masque, familles d'hypothèses, minima, gel et
    hachage.
 3. Tests d'abord — non-interférence, purge par chevauchement, table figée vs

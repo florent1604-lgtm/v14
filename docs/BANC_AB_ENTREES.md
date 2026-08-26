@@ -30,3 +30,28 @@ les poids, ni réallocation, ni interprétation monétaire.
 Le corpus historique de 373 décisions ne contient pas de sceaux complets de
 configuration et de code. Le banc doit donc le signaler comme bloqué tant que
 ces sceaux ne sont pas fournis ; il ne doit jamais les inventer.
+
+## Exécution contrôlée
+
+Le CLI dérive l'identité exclusivement du manifeste dont le SHA-256 figure dans
+la spécification. Il vérifie le SHA-256 et le schéma de l'artefact, la
+cardinalité, le cutoff et la cohérence du mode avant de construire le masque.
+L'ancien argument d'identité fourni par l'appelant est volontairement supprimé.
+
+```powershell
+.venv\Scripts\python.exe tools\banc_ab_entrees.py `
+  --cohort results\p1a\cohorte_373.json `
+  --spec config\banc_ab_variantes.json `
+  --cutoff 2026-08-25T11:52:37Z `
+  --output results\banc_ab_entrees.json --measure
+```
+
+Codes de sortie : `0` mesuré, `2` analyse bloquée, `3` non identifiable,
+`4` puissance insuffisante. En cas de refus, le dernier rapport mesuré n'est
+jamais écrasé : un fichier frère `.blocked.json`, `.not_identifiable.json` ou
+`.not_powered.json` est écrit atomiquement.
+
+Une mesure admissible publie l'IC bootstrap deux voies symbole × jour de
+décision, LOSO, LODO, les folds calendaires avec purge exacte, la MDE et la
+graine. `B(r)` conserve sur chaque borne l'étiquette
+`monetary_status=NOT_IDENTIFIABLE` et ne constitue qu'une sensibilité relative.

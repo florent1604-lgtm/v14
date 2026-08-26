@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -48,6 +51,37 @@ def _row(index: int, *, four_p: bool = False, open_decision: bool = False):
 
 def _powered_rows():
     return [_row(i, four_p=i < 125) for i in range(814)]
+
+
+def _write_sealed_fixture(tmp_path, rows, *, identity=None, spec=None):
+    spec = copy.deepcopy(spec or banc.load_spec())
+    artifact = {
+        "cohort": rows,
+        "cohort_count": len(rows),
+        "schema_version": spec["source"]["artifact_schema"],
+        "through_closed_event_id": "fixture:closed",
+    }
+    artifact_path = tmp_path / "cohort.json"
+    artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+    artifact_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    manifest = {
+        "schema_version": spec["source"]["artifact_schema"],
+        "artifact": {"cohort_count": len(rows), "sha256": artifact_sha},
+        "cutoff": {"through_closed_event_id": "fixture:closed"},
+        "cohort_identity": identity if identity is not None else _identity(),
+    }
+    manifest_path = tmp_path / "cohort.manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    spec["source"].update({
+        "artifact": artifact_path.name,
+        "artifact_sha256": artifact_sha,
+        "manifest": manifest_path.name,
+        "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "through_closed_event_id": "fixture:closed",
+    })
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    return spec, spec_path, artifact_path, manifest_path
 
 
 def test_specification_is_sealed_and_has_no_secondary_family():
@@ -221,3 +255,160 @@ def test_phase_two_refuses_a_mask_or_spec_changed_after_freeze():
     changed = {**spec, "schema_version": "changed-after-freeze"}
     with pytest.raises(banc.ContractError, match="specification"):
         banc.evaluate_phase_two(frozen, rows, changed)
+
+
+def test_sealed_loader_rejects_artifact_manifest_cutoff_and_count_tampering(tmp_path):
+    spec, _, artifact_path, manifest_path = _write_sealed_fixture(tmp_path, [_row(0)])
+
+    artifact_path.write_text("{}", encoding="utf-8")
+    with pytest.raises(banc.SourceSealError, match="ARTIFACT_SHA256"):
+        banc.load_sealed_cohort(spec, root=tmp_path)
+
+    spec, _, _, manifest_path = _write_sealed_fixture(tmp_path, [_row(0)])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["cutoff"]["through_closed_event_id"] = "wrong"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    spec["source"]["manifest_sha256"] = hashlib.sha256(
+        manifest_path.read_bytes(),
+    ).hexdigest()
+    with pytest.raises(banc.SourceSealError, match="CUTOFF"):
+        banc.load_sealed_cohort(spec, root=tmp_path)
+
+    spec, _, _, manifest_path = _write_sealed_fixture(tmp_path, [_row(0)])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifact"]["cohort_count"] = 2
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    spec["source"]["manifest_sha256"] = hashlib.sha256(
+        manifest_path.read_bytes(),
+    ).hexdigest()
+    with pytest.raises(banc.SourceSealError, match="CARDINALITY"):
+        banc.load_sealed_cohort(spec, root=tmp_path)
+
+
+def test_sealed_loader_derives_identity_and_refuses_row_mode_mismatch(tmp_path):
+    spec, _, _, _ = _write_sealed_fixture(tmp_path, [_row(0)])
+    rows, identity, provenance = banc.load_sealed_cohort(spec, root=tmp_path)
+
+    assert identity == _identity()
+    assert provenance["artifact_sha256"] == spec["source"]["artifact_sha256"]
+    rows[0]["mode"] = "market"
+    spec, _, _, _ = _write_sealed_fixture(tmp_path, rows)
+    with pytest.raises(banc.SourceSealError, match="MODE_MISMATCH"):
+        banc.load_sealed_cohort(spec, root=tmp_path)
+
+
+def test_historical_373_is_blocked_while_config_and_code_seals_are_absent():
+    with pytest.raises(banc.SourceSealError, match="COHORT_IDENTITY_INCOMPLETE"):
+        banc.load_sealed_cohort(banc.load_spec())
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("support_pillars", 2),
+        ("timeframe", "H1"),
+        ("mode", "market"),
+        ("placed_at", "2026-01-01T10:00:09+00:00"),
+        ("ts_open", "2026-01-01T09:59:59+00:00"),
+        ("closed_at", "2026-01-01T11:01:00+00:00"),
+        ("ts_exit", "2026-01-01T11:01:00+00:00"),
+    ],
+)
+def test_phase_two_hashes_every_influential_phase_one_field(field, replacement):
+    rows = _powered_rows()
+    spec = banc.load_spec()
+    frozen = banc.prepare_phase_one(rows, spec, _identity())
+    rows[0][field] = replacement
+
+    with pytest.raises(banc.ContractError, match="projection|masque"):
+        banc.evaluate_phase_two(frozen, rows, spec)
+
+
+def test_measure_cli_publishes_not_powered_sidecar_and_preserves_last_report(tmp_path):
+    rows = [_row(i, four_p=i < 5) for i in range(40)]
+    for row in rows:
+        row.pop("pnl_r")
+    _, spec_path, artifact_path, _ = _write_sealed_fixture(tmp_path, rows)
+    output = tmp_path / "measured.json"
+    output.write_text('{"status":"OLD_VALID_REPORT"}', encoding="utf-8")
+
+    rc = banc.main([
+        "--cohort", str(artifact_path), "--spec", str(spec_path),
+        "--output", str(output), "--cutoff", "2026-12-31T00:00:00Z", "--measure",
+    ])
+
+    assert rc == 4
+    assert json.loads(output.read_text(encoding="utf-8"))["status"] == "OLD_VALID_REPORT"
+    sidecar = tmp_path / "measured.not_powered.json"
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["state"] == "NOT_POWERED"
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_reason"),
+    [
+        ("open", "OPEN_DECISIONS"),
+        ("identity", "COHORT_IDENTITY_INCOMPLETE"),
+        ("seal", "SOURCE_SEAL"),
+    ],
+)
+def test_measure_cli_publishes_blocked_sidecar_for_p0_failures(
+    tmp_path, case, expected_reason,
+):
+    rows = [_row(0, open_decision=case == "open")]
+    identity = _identity()
+    if case == "identity":
+        identity["config_sha256"] = None
+    _, spec_path, artifact_path, _ = _write_sealed_fixture(
+        tmp_path, rows, identity=identity,
+    )
+    if case == "seal":
+        artifact_path.write_text("{}", encoding="utf-8")
+    output = tmp_path / "measured.json"
+
+    rc = banc.main([
+        "--cohort", str(artifact_path), "--spec", str(spec_path),
+        "--output", str(output), "--cutoff", "2026-12-31T00:00:00Z", "--measure",
+    ])
+
+    assert rc == 2
+    sidecar = json.loads(
+        (tmp_path / "measured.blocked.json").read_text(encoding="utf-8"),
+    )
+    assert sidecar["state"] == "ANALYSIS_BLOCKED"
+    assert expected_reason in sidecar["reason"]
+    assert not output.exists()
+
+
+def test_powered_result_contains_full_preregistered_inference(monkeypatch):
+    rows = _powered_rows()
+    spec = copy.deepcopy(banc.load_spec())
+    spec["inference"]["bootstrap"]["draws"] = 80
+    frozen = banc.prepare_phase_one(rows, spec, _identity())
+    calls = 0
+    original = banc.purge_overlaps
+
+    def tracked(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(banc, "purge_overlaps", tracked)
+    result = banc.evaluate_phase_two(frozen, rows, spec)
+
+    assert calls > 0
+    primary = result["primary"]
+    assert primary["status"] == "EXPLORATORY_MEASURED"
+    assert primary["mde"] == spec["primary"]["gate"]
+    assert primary["bootstrap"] == {
+        **primary["bootstrap"],
+        "method": "two_way_product_symbol_decision_day",
+        "draws": 80,
+        "seed": 140826,
+    }
+    assert len(primary["bootstrap"]["ci95"]) == 2
+    assert primary["loso"]["omissions"] == 30
+    assert primary["lodo"]["omissions"] == 20
+    assert result["walk_forward"]["purge_applied"] is True
+    assert all(fold["zero_overlap"] for fold in result["walk_forward"]["folds"])
+    assert all(item["monetary_status"] == "NOT_IDENTIFIABLE" for item in result["b_r"])
+    assert all(item["interpretation"] == "RELATIVE_SENSITIVITY_ONLY" for item in result["b_r"])

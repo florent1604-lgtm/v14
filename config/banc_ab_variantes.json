@@ -6,6 +6,7 @@
     "artifact_schema": "v14.p1a.sealed-cohort.v1",
     "artifact_sha256": "10d6277664775ea8599b9304b8e7e86055b35f9a659fce572dfc2f4b22e2e908",
     "manifest": "results/p1a/cohorte_373.manifest.json",
+    "manifest_sha256": "7c1d257cb22b1466de0fd9718e004b01e16561fd98967815b174aabf87ea5342",
     "through_closed_event_id": "97465104:closed"
   },
   "phases": {
@@ -89,6 +90,28 @@
     "bh_alpha": 0.05,
     "cardinality": 0,
     "items": []
+  },
+  "inference": {
+    "bootstrap": {
+      "method": "two_way_product_symbol_decision_day",
+      "draws": 10000,
+      "seed": 140826,
+      "confidence": 0.95
+    },
+    "sensitivity": [
+      "LOSO",
+      "LODO"
+    ],
+    "walk_forward": {
+      "folds": 5,
+      "purge": "exact_interval_overlap"
+    }
+  },
+  "cli_exit_codes": {
+    "EXPLORATORY_MEASURED": 0,
+    "ANALYSIS_BLOCKED": 2,
+    "NOT_IDENTIFIABLE": 3,
+    "NOT_POWERED": 4
   },
   "states_priority": [
     "ANALYSIS_BLOCKED",

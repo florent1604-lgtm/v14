@@ -15,8 +15,10 @@ import hashlib
 import json
 import math
 import os
+import random
 import re
 import tempfile
+from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +43,10 @@ class OutcomeAccessError(ContractError):
     """Une issue a été demandée avant l'ouverture licite de la phase 2."""
 
 
+class SourceSealError(ContractError):
+    """L'artefact, son manifeste ou son identité ne correspond pas au sceau."""
+
+
 def _canonical_bytes(value: object) -> bytes:
     return (json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
@@ -49,6 +55,14 @@ def _canonical_bytes(value: object) -> bytes:
 
 def _sha256(value: object) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def load_spec(path: Path = SPEC_PAR_DEFAUT) -> dict[str, Any]:
@@ -83,6 +97,16 @@ def load_spec(path: Path = SPEC_PAR_DEFAUT) -> dict[str, Any]:
         ANALYSIS_BLOCKED, NOT_IDENTIFIABLE, NOT_POWERED, EXPLORATORY_MEASURED,
     ]:
         raise ContractError("priorite des etats invalide")
+    source = spec.get("source") or {}
+    for field in ("artifact_sha256", "manifest_sha256"):
+        if not _SHA256.fullmatch(str(source.get(field) or "")):
+            raise ContractError(f"sceau source absent: {field}")
+    inference = spec.get("inference") or {}
+    bootstrap = inference.get("bootstrap") or {}
+    if bootstrap.get("method") != "two_way_product_symbol_decision_day":
+        raise ContractError("bootstrap two-way non preenregistre")
+    if int(bootstrap.get("draws") or 0) <= 0 or bootstrap.get("seed") is None:
+        raise ContractError("draws ou seed bootstrap invalides")
     return spec
 
 
@@ -94,6 +118,81 @@ def spec_sha256(spec: Mapping[str, Any]) -> str:
 def spec_file_sha256(path: Path = SPEC_PAR_DEFAUT) -> str:
     """Empreinte canonique du JSON sur disque, indépendante des fins de ligne."""
     return spec_sha256(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+def load_sealed_cohort(
+    spec: Mapping[str, Any],
+    *,
+    root: Path = RACINE,
+    artifact_path: Path | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Charge une cohorte dont artefact, manifeste et identité sont scellés."""
+    root = Path(root).resolve()
+    source = spec["source"]
+    declared_artifact = Path(source["artifact"])
+    if not declared_artifact.is_absolute():
+        declared_artifact = root / declared_artifact
+    declared_artifact = declared_artifact.resolve()
+    selected_artifact = Path(artifact_path or declared_artifact).resolve()
+    if selected_artifact != declared_artifact:
+        raise SourceSealError("ARTIFACT_PATH_MISMATCH")
+    if not selected_artifact.is_file():
+        raise SourceSealError("ARTIFACT_ABSENT")
+    artifact_sha = _file_sha256(selected_artifact)
+    if artifact_sha != source["artifact_sha256"]:
+        raise SourceSealError("ARTIFACT_SHA256_MISMATCH")
+
+    declared_manifest = Path(source["manifest"])
+    if not declared_manifest.is_absolute():
+        declared_manifest = root / declared_manifest
+    declared_manifest = declared_manifest.resolve()
+    if not declared_manifest.is_file():
+        raise SourceSealError("MANIFEST_ABSENT")
+    manifest_sha = _file_sha256(declared_manifest)
+    if manifest_sha != source["manifest_sha256"]:
+        raise SourceSealError("MANIFEST_SHA256_MISMATCH")
+
+    artifact = json.loads(selected_artifact.read_text(encoding="utf-8"))
+    manifest = json.loads(declared_manifest.read_text(encoding="utf-8"))
+    schema = source["artifact_schema"]
+    if artifact.get("schema_version") != schema or manifest.get("schema_version") != schema:
+        raise SourceSealError("ARTIFACT_SCHEMA_MISMATCH")
+    rows = artifact.get("cohort")
+    if not isinstance(rows, list):
+        raise SourceSealError("ARTIFACT_COHORT_INVALID")
+    artifact_count = artifact.get("cohort_count")
+    manifest_artifact = manifest.get("artifact") or {}
+    if (
+        artifact_count != len(rows)
+        or manifest_artifact.get("cohort_count") != len(rows)
+    ):
+        raise SourceSealError("CARDINALITY_MISMATCH")
+    if manifest_artifact.get("sha256") != artifact_sha:
+        raise SourceSealError("MANIFEST_ARTIFACT_SHA256_MISMATCH")
+    cutoff = source["through_closed_event_id"]
+    if (
+        artifact.get("through_closed_event_id") != cutoff
+        or (manifest.get("cutoff") or {}).get("through_closed_event_id") != cutoff
+    ):
+        raise SourceSealError("CUTOFF_MISMATCH")
+
+    identity = manifest.get("cohort_identity")
+    if not isinstance(identity, dict):
+        raise SourceSealError("COHORT_IDENTITY_INCOMPLETE")
+    try:
+        sealed_id = cohort_id(identity)
+    except ContractError as exc:
+        raise SourceSealError("COHORT_IDENTITY_INCOMPLETE") from exc
+    expected_mode = str(identity["execution_mode"])
+    if any(str(row.get("mode")) != expected_mode for row in rows):
+        raise SourceSealError("MODE_MISMATCH")
+    return rows, dict(identity), {
+        "artifact_sha256": artifact_sha,
+        "manifest_sha256": manifest_sha,
+        "cohort_id": sealed_id,
+        "through_closed_event_id": cutoff,
+        "cohort_count": len(rows),
+    }
 
 
 def parse_utc(value: str | datetime) -> datetime:
@@ -193,13 +292,37 @@ def _blocked(reason: str, *, eligible: int = 0, closed: int = 0) -> dict[str, An
         "mask_sha256": None,
         "cohort_id": None,
         "decision_ids": [],
+        "eligible_indexes": [],
+        "projection_sha256": None,
     }
+
+
+def _phase_one_projection(
+    raw: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    *,
+    policy_epoch: str,
+) -> tuple[dict[str, Any], datetime]:
+    row = PhaseOneRow(raw, spec)
+    proxy = _decision_proxy(row)
+    fields = sorted(
+        set(spec["phases"]["ex_ante_fields"])
+        | set(spec["phases"]["resolution_fields"]),
+    )
+    projection = {field: row.get(field) for field in fields}
+    projection.update({
+        "policy_epoch": policy_epoch,
+        "decision_proxy_at": proxy.isoformat(),
+    })
+    return projection, proxy
 
 
 def prepare_phase_one(
     rows: Sequence[Mapping[str, Any]],
     spec: Mapping[str, Any],
     identity: Mapping[str, Any],
+    *,
+    cutoff: str | datetime | None = None,
 ) -> dict[str, Any]:
     """Scelle masque et gates sans jamais accéder aux champs d'issue."""
     try:
@@ -208,34 +331,54 @@ def prepare_phase_one(
         return _blocked("COHORT_IDENTITY_INCOMPLETE")
 
     decision_ids: list[str] = []
+    projections: list[dict[str, Any]] = []
+    eligible_indexes: list[int] = []
     proxies: list[datetime] = []
     symbols: set[str] = set()
     closed = 0
     four_p = 0
     seen: set[tuple[str, str, str]] = set()
     policy_epoch = str(identity["policy_epoch"])
+    cutoff_at = parse_utc(cutoff) if cutoff is not None else None
+    expected_mode = str(identity["execution_mode"])
 
     try:
-        for raw in rows:
-            row = PhaseOneRow(raw, spec)
-            key = (policy_epoch, str(row["symbol"]), str(row["position_ticket"]))
+        for index, raw in enumerate(rows):
+            projection, proxy = _phase_one_projection(
+                raw, spec, policy_epoch=policy_epoch,
+            )
+            if cutoff_at is not None and proxy > cutoff_at:
+                continue
+            if str(projection["mode"]) != expected_mode:
+                raise ContractError("MODE_MISMATCH")
+            key = (
+                policy_epoch,
+                str(projection["symbol"]),
+                str(projection["position_ticket"]),
+            )
             if key in seen:
-                return _blocked("DUPLICATE_DECISION_ID", eligible=len(rows), closed=closed)
+                return _blocked(
+                    "DUPLICATE_DECISION_ID", eligible=len(eligible_indexes) + 1,
+                    closed=closed,
+                )
             seen.add(key)
-            proxy = _decision_proxy(row)
+            eligible_indexes.append(index)
+            projections.append(projection)
             proxies.append(proxy)
-            symbols.add(str(row["symbol"]))
-            pillars = int(row["support_pillars"])
+            symbols.add(str(projection["symbol"]))
+            pillars = int(projection["support_pillars"])
             if pillars not in (2, 3):
                 raise ContractError("strate de piliers hors contrat")
             four_p += int(pillars == 3)
-            is_closed = bool(row.get("closed_at")) and bool(row.get("ts_exit"))
+            is_closed = bool(projection.get("closed_at")) and bool(projection.get("ts_exit"))
             closed += int(is_closed)
             decision_ids.append("|".join(key))
     except (KeyError, TypeError, ValueError, ContractError) as exc:
-        return _blocked(f"INVALID_EX_ANTE:{exc}", eligible=len(rows), closed=closed)
+        return _blocked(
+            f"INVALID_EX_ANTE:{exc}", eligible=len(eligible_indexes), closed=closed,
+        )
 
-    total = len(rows)
+    total = len(eligible_indexes)
     days = {instant.date().isoformat() for instant in proxies}
     gate_spec = spec["primary"]["gate"]
     gate = {
@@ -260,10 +403,13 @@ def prepare_phase_one(
         "reason": "" if resolved else "OPEN_DECISIONS",
         "counts": {"eligible": total, "closed": closed, "open": total - closed},
         "gate": gate,
-        "mask_sha256": _sha256(decision_ids),
+        "mask_sha256": _sha256(projections),
+        "projection_sha256": _sha256(projections),
         "cohort_id": sealed_cohort_id,
         "policy_epoch": policy_epoch,
         "decision_ids": decision_ids,
+        "eligible_indexes": eligible_indexes,
+        "cutoff": cutoff_at.isoformat() if cutoff_at else None,
         "spec_sha256": spec_sha256(spec),
     }
 
@@ -289,6 +435,144 @@ def relative_b_delta(
     return delta / len(outcomes)
 
 
+def _quality(records: Sequence[Mapping[str, Any]]) -> float:
+    three_p = [float(row["outcome"]) for row in records if int(row["pillars"]) == 2]
+    four_p = [float(row["outcome"]) for row in records if int(row["pillars"]) == 3]
+    if not three_p or not four_p:
+        raise ContractError("strate primaire vide")
+    return sum(four_p) / len(four_p) - sum(three_p) / len(three_p)
+
+
+def _percentile(values: Sequence[float], probability: float) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        raise ContractError("bootstrap sans tirage valide")
+    position = (len(ordered) - 1) * probability
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    fraction = position - lower
+    return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
+
+
+def _bootstrap_two_way(
+    records: Sequence[Mapping[str, Any]],
+    bootstrap_spec: Mapping[str, Any],
+) -> dict[str, Any]:
+    symbols = sorted({str(row["symbol"]) for row in records})
+    days = sorted({str(row["decision_day"]) for row in records})
+    draws = int(bootstrap_spec["draws"])
+    seed = int(bootstrap_spec["seed"])
+    confidence = float(bootstrap_spec["confidence"])
+    rng = random.Random(seed)
+    estimates = []
+    for _ in range(draws):
+        symbol_weights = Counter(rng.choice(symbols) for _ in symbols)
+        day_weights = Counter(rng.choice(days) for _ in days)
+        sums = {2: 0.0, 3: 0.0}
+        counts = {2: 0, 3: 0}
+        for row in records:
+            multiplicity = (
+                symbol_weights[str(row["symbol"])]
+                * day_weights[str(row["decision_day"])]
+            )
+            if not multiplicity:
+                continue
+            pillar = int(row["pillars"])
+            sums[pillar] += float(row["outcome"]) * multiplicity
+            counts[pillar] += multiplicity
+        if counts[2] and counts[3]:
+            estimates.append(sums[3] / counts[3] - sums[2] / counts[2])
+    alpha = (1.0 - confidence) / 2.0
+    return {
+        "method": bootstrap_spec["method"],
+        "draws": draws,
+        "valid_draws": len(estimates),
+        "seed": seed,
+        "confidence": confidence,
+        "ci95": [_percentile(estimates, alpha), _percentile(estimates, 1.0 - alpha)],
+    }
+
+
+def _omit_sensitivity(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    field: str,
+    label: str,
+    full_effect: float,
+) -> dict[str, Any]:
+    effects = []
+    for omitted in sorted({str(row[field]) for row in records}):
+        retained = [row for row in records if str(row[field]) != omitted]
+        try:
+            effect = _quality(retained)
+        except ContractError:
+            effect = None
+        effects.append({"omitted": omitted, "effect": effect})
+    finite = [float(item["effect"]) for item in effects if item["effect"] is not None]
+    reference_sign = 0 if full_effect == 0 else (1 if full_effect > 0 else -1)
+    stable = bool(finite) and all(
+        (0 if value == 0 else (1 if value > 0 else -1)) == reference_sign
+        for value in finite
+    )
+    return {
+        "method": label,
+        "omissions": len(effects),
+        "valid_omissions": len(finite),
+        "sign_stable": stable,
+        "min_effect": min(finite) if finite else None,
+        "max_effect": max(finite) if finite else None,
+        "effects": effects,
+    }
+
+
+def _walk_forward(
+    records: Sequence[Mapping[str, Any]],
+    spec: Mapping[str, Any],
+) -> dict[str, Any]:
+    days = sorted({str(row["decision_day"]) for row in records})
+    requested = int(spec["inference"]["walk_forward"]["folds"])
+    chunk_size = max(1, math.ceil(len(days) / requested))
+    chunks = [days[index:index + chunk_size] for index in range(0, len(days), chunk_size)]
+    folds = []
+    for fold_index, validation_days in enumerate(chunks[1:], start=1):
+        validation = [row for row in records if row["decision_day"] in validation_days]
+        training = [row for row in records if row["decision_day"] < validation_days[0]]
+        if not validation or not training:
+            continue
+        validation_start = min(parse_utc(row["decision_proxy_at"]) for row in validation)
+        validation_end = max(parse_utc(row["ts_exit"]) for row in validation)
+        retained, counts = purge_overlaps(
+            training,
+            validation_start=validation_start,
+            validation_end=validation_end,
+        )
+        zero_overlap = all(
+            parse_utc(row["ts_exit"]) < validation_start
+            or parse_utc(row["decision_proxy_at"]) > validation_end
+            for row in retained
+        )
+        try:
+            effect = _quality(validation)
+        except ContractError:
+            effect = None
+        folds.append({
+            "fold": fold_index,
+            "validation_days": validation_days,
+            "validation_count": len(validation),
+            "effect": effect,
+            "purge": counts,
+            "zero_overlap": zero_overlap,
+        })
+    return {
+        "method": "calendar_walk_forward_exact_overlap_purge",
+        "requested_folds": requested,
+        "purge_applied": bool(folds),
+        "folds": folds,
+    }
+
+
 def evaluate_phase_two(
     frozen: Mapping[str, Any],
     rows: Sequence[Mapping[str, Any]],
@@ -301,41 +585,65 @@ def evaluate_phase_two(
         )
     if frozen.get("spec_sha256") != spec_sha256(spec):
         raise ContractError("specification modifiee apres gel")
-    decision_ids = list(frozen.get("decision_ids") or [])
-    if len(decision_ids) != len(rows):
-        raise ContractError("masque et issues non apparies")
+    indexes = list(frozen.get("eligible_indexes") or [])
     policy_epoch = str(frozen.get("policy_epoch") or "")
-    actual_ids = [
-        "|".join((policy_epoch, str(row["symbol"]), str(row["position_ticket"])))
-        for row in rows
+    projections = [
+        _phase_one_projection(rows[index], spec, policy_epoch=policy_epoch)[0]
+        for index in indexes
     ]
-    if actual_ids != decision_ids or _sha256(actual_ids) != frozen.get("mask_sha256"):
-        raise ContractError("masque modifie apres gel")
+    if _sha256(projections) != frozen.get("projection_sha256"):
+        raise ContractError("projection phase 1 ou masque modifie apres gel")
+
+    records = []
     outcomes: list[float] = []
     pillars: list[int] = []
-    for raw in rows:
+    for index, projection in zip(indexes, projections, strict=True):
+        raw = rows[index]
         value = float(raw["pnl_r"])
-        pillar = int(raw["support_pillars"])
+        pillar = int(projection["support_pillars"])
         if not math.isfinite(value) or pillar not in (2, 3):
             raise ContractError("issue phase 2 invalide")
         outcomes.append(value)
         pillars.append(pillar)
-    three_p = [value for value, pillar in zip(outcomes, pillars, strict=True) if pillar == 2]
-    four_p = [value for value, pillar in zip(outcomes, pillars, strict=True) if pillar == 3]
-    if not three_p or not four_p:
-        raise ContractError("strate primaire vide")
-    quality = sum(four_p) / len(four_p) - sum(three_p) / len(three_p)
+        records.append({
+            "outcome": value,
+            "pillars": pillar,
+            "symbol": projection["symbol"],
+            "decision_day": parse_utc(projection["decision_proxy_at"]).date().isoformat(),
+            "decision_proxy_at": projection["decision_proxy_at"],
+            "ts_exit": projection["ts_exit"],
+        })
+    quality = _quality(records)
+    bootstrap = _bootstrap_two_way(records, spec["inference"]["bootstrap"])
     endpoints = spec["b_r"]["r_endpoints"]
     return {
         "status": EXPLORATORY_MEASURED,
         "spec_sha256": frozen["spec_sha256"],
         "cohort_id": frozen["cohort_id"],
         "mask_sha256": frozen["mask_sha256"],
-        "primary": {"name": "H_quality", "delta_mean_pnl_r": quality},
+        "primary": {
+            "name": "H_quality",
+            "status": EXPLORATORY_MEASURED,
+            "delta_mean_pnl_r": quality,
+            "mde": dict(spec["primary"]["gate"]),
+            "bootstrap": bootstrap,
+            "loso": _omit_sensitivity(
+                records, field="symbol", label="LOSO", full_effect=quality,
+            ),
+            "lodo": _omit_sensitivity(
+                records, field="decision_day", label="LODO", full_effect=quality,
+            ),
+        },
         "b_r": [
-            {"r": r, "delta_r": relative_b_delta(outcomes, pillars, r=float(r))}
+            {
+                "r": r,
+                "delta_r": relative_b_delta(outcomes, pillars, r=float(r)),
+                "monetary_status": NOT_IDENTIFIABLE,
+                "interpretation": "RELATIVE_SENSITIVITY_ONLY",
+            }
             for r in endpoints
         ],
+        "walk_forward": _walk_forward(records, spec),
         "secondary": [],
     }
 
@@ -384,25 +692,55 @@ def _write_json_atomic(path: Path, value: object) -> None:
         raise
 
 
+def _sidecar_path(output: Path, state: str) -> Path:
+    suffix = {
+        ANALYSIS_BLOCKED: "blocked",
+        NOT_IDENTIFIABLE: "not_identifiable",
+        NOT_POWERED: "not_powered",
+    }.get(state, "status")
+    output = Path(output)
+    return output.with_name(f"{output.stem}.{suffix}.json")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cohort", type=Path, required=True)
-    parser.add_argument("--identity", type=Path, required=True)
     parser.add_argument("--spec", type=Path, default=SPEC_PAR_DEFAUT)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--cutoff", required=True)
     parser.add_argument("--measure", action="store_true")
     args = parser.parse_args(argv)
 
     spec = load_spec(args.spec)
-    source = json.loads(args.cohort.read_text(encoding="utf-8"))
-    rows = source.get("cohort") if isinstance(source, dict) else source
-    if not isinstance(rows, list):
-        raise ContractError("cohorte JSON invalide")
-    identity = json.loads(args.identity.read_text(encoding="utf-8"))
-    frozen = prepare_phase_one(rows, spec, identity)
-    report = evaluate_phase_two(frozen, rows, spec) if args.measure else frozen
+    source_path = Path(spec["source"]["artifact"])
+    if source_path.is_absolute():
+        root = source_path.parent
+    else:
+        repo_candidate = (RACINE / source_path).resolve()
+        root = RACINE if repo_candidate == args.cohort.resolve() else args.spec.parent
+    try:
+        rows, identity, provenance = load_sealed_cohort(
+            spec, root=root, artifact_path=args.cohort,
+        )
+        frozen = prepare_phase_one(rows, spec, identity, cutoff=args.cutoff)
+        frozen["provenance"] = provenance
+    except (SourceSealError, json.JSONDecodeError, OSError) as exc:
+        frozen = _blocked(f"SOURCE_SEAL:{exc}")
+        frozen["spec_sha256"] = spec_sha256(spec)
+
+    state = str(frozen["state"])
+    exit_codes = spec["cli_exit_codes"]
+    if not args.measure:
+        _write_json_atomic(args.output, frozen)
+        return int(exit_codes[state])
+    if state != EXPLORATORY_MEASURED:
+        _write_json_atomic(_sidecar_path(args.output, state), frozen)
+        return int(exit_codes[state])
+    report = evaluate_phase_two(frozen, rows, spec)
+    report["provenance"] = provenance
+    report["cutoff"] = frozen["cutoff"]
     _write_json_atomic(args.output, report)
-    return 0 if report.get("state", report.get("status")) != ANALYSIS_BLOCKED else 2
+    return int(exit_codes[EXPLORATORY_MEASURED])
 
 
 if __name__ == "__main__":

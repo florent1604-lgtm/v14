@@ -88,6 +88,11 @@ de chaque trade 4p est mise à l'échelle de `1/r`. Règles :
    `conviction` et le `pct` de risque effectif à la décision. Sans cela, aucun
    banc de sizing ne sera identifiable, jamais. Tâche distincte, hors de ce lot,
    et qui touche l'écriture d'un journal — donc soumise à ton arbitrage.
+5. B(r) n'est **pas** l'hypothèse statistique sur la qualité 4p−3p. C'est une
+   analyse de sensibilité séparée, sans p-value et sans sélection d'un `r`
+   gagnant. L'enveloppe est calculée analytiquement à ses deux extrémités
+   préenregistrées ; le scénario `r = 2,25` reste illustratif et ne peut pas
+   remplacer cette enveloppe.
 
 ## 2. Embargo — RETIRÉ, remplacé par une purge par chevauchement exact
 
@@ -101,15 +106,17 @@ propre formulation en 694 : le défaut n'est pas H1, c'est l'embargo en barres.
 
 **Décision.** Un embargo scalaire est abandonné. À chaque frontière de fold, on
 applique une **purge par intervalle exact** : tout trade d'apprentissage dont
-l'intervalle `[decision_at, exit_at]` chevauche la fenêtre de validation est
-retiré.
+l'intervalle `[decision_proxy_at, exit_at]` chevauche la fenêtre de validation
+est retiré.
 
 - `exit_at = ts_exit` (vérifié identique à `closed_at` sur les 373).
-- `decision_at = min(ts_open, placed_at)`, plancher conservateur ramené à
-  l'ouverture de la barre du TF. Justification : `placed_at − ts_open` est
-  positif sur toute la cohorte, de 3 ms à 601 s ; `placed_at` est donc un
-  horodatage de journalisation postérieur à la décision et ne peut pas servir de
-  borne gauche.
+- `decision_proxy_at = min(ts_open, placed_at)`, plancher conservateur ramené à
+  l'ouverture de la barre du TF. Ce champ est explicitement un **proxy de borne
+  gauche**, jamais l'heure réelle de décision, qui n'est pas journalisée.
+  Justification : `placed_at − ts_open` est positif sur toute la cohorte, de
+  3 ms à 601 s ; `placed_at` est donc un horodatage de journalisation postérieur
+  à la décision et ne peut pas servir seul de borne gauche. Le proxy peut
+  sur-purger, jamais raccourcir l'intervalle observé.
 - Le maximum observé (65,24 h) est une **borne inférieure** : la cohorte ne
   couvre que 12,9 jours et est censurée à droite au cutoff. Aucun plafond ne
   peut donc être calibré sur l'observé. Si un plafond reste nécessaire, il vient
@@ -192,7 +199,12 @@ jour.
 
 ## 6. Plan d'inférence préenregistré
 
-- **Hypothèse primaire unique** : B(r), l'association de qualité 4p vs 3p en R.
+- **Hypothèse primaire unique `H_quality`** : association de qualité 4p vs 3p,
+  mesurée par la différence non pondérée de `pnl_r`. Elle rend `NOT_POWERED`
+  avant lecture d'issue tant que les minima du §5 ne sont pas atteints.
+- **B(r) est distincte de `H_quality`** : sensibilité de repondération toujours
+  `NOT_IDENTIFIABLE` pour une revendication monétaire, sans test d'hypothèse,
+  p-value, optimisation ou choix de scénario après lecture des issues.
 - **Secondaires** : classe d'actif, TF, sens, spread — sous **BH 5 %**, avec la
   famille d'hypothèses **déclarée avant** la mesure et son cardinal publié.
 - Incertitude par **bootstrap deux voies symbole × jour de décision**, qui est

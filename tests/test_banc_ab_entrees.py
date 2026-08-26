@@ -6,7 +6,6 @@ import pytest
 
 from tools import banc_ab_entrees as banc
 
-
 UTC = timezone.utc
 
 
@@ -206,3 +205,19 @@ def test_phase_two_has_no_secondary_outcome_path():
 
     assert result["secondary"] == []
     assert result["status"] == "EXPLORATORY_MEASURED"
+
+
+def test_phase_two_refuses_a_mask_or_spec_changed_after_freeze():
+    rows = _powered_rows()
+    spec = banc.load_spec()
+    frozen = banc.prepare_phase_one(rows, spec, _identity())
+    rows[0]["position_ticket"] = "tampered"
+
+    with pytest.raises(banc.ContractError, match="masque"):
+        banc.evaluate_phase_two(frozen, rows, spec)
+
+    rows = _powered_rows()
+    frozen = banc.prepare_phase_one(rows, spec, _identity())
+    changed = {**spec, "schema_version": "changed-after-freeze"}
+    with pytest.raises(banc.ContractError, match="specification"):
+        banc.evaluate_phase_two(frozen, rows, changed)

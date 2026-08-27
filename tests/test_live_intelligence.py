@@ -63,3 +63,45 @@ def test_demo_engine_never_moves_existing_stops():
     from tools import live_demo
 
     assert live_demo.MODIFIER_STOPS_EXISTANTS is False
+
+
+def test_fred_is_optional_and_asset_aware(monkeypatch):
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+    assert fi._fred("XAUUSD") == []
+
+    monkeypatch.setenv("FRED_API_KEY", "test-key")
+    monkeypatch.setattr("tradingagents.dataflows.fred.get_macro_data",
+                        lambda indicator, *_args: (
+                            f"## FRED: {indicator}\n**Latest:** 4.25 (2026-08-01)"))
+    sources = fi._fred("XAUUSD")
+    assert {item.source for item in sources} == {
+        "FRED:10y_treasury", "FRED:dollar_index",
+        "FRED:inflation_expectations",
+    }
+
+
+def test_eia_is_optional_and_uses_v2_series_route(monkeypatch):
+    monkeypatch.delenv("EIA_API_KEY", raising=False)
+    assert fi._eia("USOIL") == []
+
+    monkeypatch.setenv("EIA_API_KEY", "test-key")
+    seen = {}
+
+    def fake_get(url):
+        seen["url"] = url
+        return json.dumps({"response": {"data": [
+            {"period": "2026-08-26", "value": "81.2", "units": "$/b"},
+        ]}}).encode()
+
+    monkeypatch.setattr(fi, "_get", fake_get)
+    result = fi._eia("USOIL")
+    assert result[0].source == "EIA:PET.RWTC.D"
+    assert "/v2/seriesid/PET.RWTC.D?" in seen["url"]
+    assert "test-key" in seen["url"]
+
+
+def test_evidence_is_balanced_across_sources():
+    evidence = [fi.Evidence("rss", str(i)) for i in range(5)] + [
+        fi.Evidence("FRED", "macro"), fi.Evidence("EIA", "energy")]
+    chosen = fi._balanced(evidence, limit=4)
+    assert [item.source for item in chosen[:3]] == ["rss", "FRED", "EIA"]

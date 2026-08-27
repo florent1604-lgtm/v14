@@ -7,12 +7,14 @@ panne de source ou du modele rend WAIT (fail-closed), jamais une autorisation.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -96,6 +98,80 @@ def _cot(symbol: str) -> list[Evidence]:
                      str(row.get("report_date_as_yyyy_mm_dd", "")))]
 
 
+def _fred(symbol: str) -> list[Evidence]:
+    """Indicateurs macro officiels adaptes a la classe d'actif."""
+    if not os.getenv("FRED_API_KEY"):
+        return []
+    from titanium.edge import asset_class_of
+    from tradingagents.dataflows import fred
+
+    series_by_class = {
+        "fx": ("dollar_index", "10y_treasury", "fed_funds"),
+        "metaux": ("10y_treasury", "dollar_index", "inflation_expectations"),
+        "energie": ("dollar_index", "10y_treasury"),
+        "indices": ("vix", "10y_treasury", "fed_funds"),
+        "crypto": ("fed_funds", "vix", "dollar_index"),
+    }
+    indicators = series_by_class.get(asset_class_of(symbol),
+                                     ("10y_treasury", "dollar_index"))
+    out: list[Evidence] = []
+    for indicator in indicators:
+        try:
+            report = fred.get_macro_data(indicator, date.today().isoformat(), 120)
+            useful = [line.strip() for line in report.splitlines()
+                      if line.startswith("## FRED:") or "**Latest:**" in line]
+            if useful:
+                out.append(Evidence(f"FRED:{indicator}", " ".join(useful)[:500]))
+        except Exception:  # noqa: BLE001 - serie optionnelle
+            continue
+    return out
+
+
+def _eia(symbol: str) -> list[Evidence]:
+    """Prix energie EIA via la route officielle de compatibilite API v2."""
+    key = os.getenv("EIA_API_KEY")
+    if not key:
+        return []
+    upper = symbol.upper()
+    series = next((series_id for markers, series_id in (
+        (("USOIL", "WTI", "WTI.FS"), "PET.RWTC.D"),
+        (("UKOIL", "BRENT", "BRENT.FS"), "PET.RBRTE.D"),
+        (("NATGAS", "NGAS"), "NG.RNGWHHD.D"),
+    ) if any(marker in upper for marker in markers)), None)
+    if series is None:
+        return []
+    query = urllib.parse.urlencode({
+        "api_key": key, "length": 3,
+        "sort[0][column]": "period", "sort[0][direction]": "desc",
+    })
+    data = json.loads(_get(f"https://api.eia.gov/v2/seriesid/{series}?{query}"))
+    rows = data.get("response", {}).get("data", [])[:3]
+    if not rows:
+        return []
+    compact = [{k: row.get(k) for k in ("period", "value", "units",
+                "series-description") if row.get(k) is not None} for row in rows]
+    return [Evidence(f"EIA:{series}", json.dumps(compact, sort_keys=True)[:600],
+                     str(rows[0].get("period", "")))]
+
+
+def _balanced(evidence: list[Evidence], limit: int = 8) -> list[Evidence]:
+    """Evite qu'un flux RSS monopolise tout le contexte du cerveau local."""
+    chosen: list[Evidence] = []
+    seen: set[str] = set()
+    for item in evidence:
+        if item.source not in seen:
+            chosen.append(item)
+            seen.add(item.source)
+            if len(chosen) == limit:
+                return chosen
+    for item in evidence:
+        if item not in chosen:
+            chosen.append(item)
+            if len(chosen) == limit:
+                break
+    return chosen
+
+
 def collect(symbol: str) -> list[Evidence]:
     now = time.time()
     cached = _CACHE.get(symbol)
@@ -103,11 +179,13 @@ def collect(symbol: str) -> list[Evidence]:
         return cached[1]
     evidence: list[Evidence] = []
     calls = (
-        lambda: _rss("FederalReserve", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
-        lambda: _rss("ECB", "https://mid.ecb.europa.eu/rss/mid.xml"),
+        lambda: _fred(symbol),
+        lambda: _eia(symbol),
         lambda: _ecb_fx(symbol),
         lambda: _crypto(symbol),
         lambda: _cot(symbol),
+        lambda: _rss("FederalReserve", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
+        lambda: _rss("ECB", "https://mid.ecb.europa.eu/rss/mid.xml"),
     )
     for call in calls:
         try:
@@ -142,8 +220,9 @@ def analyse(symbol: str, side: int, mechanical_summary: str) -> dict:
         "symbol": symbol,
         "mechanical_side": "long" if side > 0 else "short",
         "mechanical_summary": mechanical_summary[:500],
-        "evidence": [{"source": e.source, "text": e.text[:100]}
-                     for e in evidence[:5]],
+        "evidence": [{"source": e.source, "text": e.text[:180],
+                      "observed_at": e.observed_at}
+                     for e in _balanced(evidence)],
         "schema": {"action": "ALLOW|WAIT|BLOCK", "confidence": "0..1",
                    "summary": "French, max 240 chars"},
     }

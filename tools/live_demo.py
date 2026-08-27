@@ -81,6 +81,11 @@ def univers_complet() -> list:
         return list(UNIVERS_SECOURS)
 INTERVALLE = 60.0        # s entre deux balayages
 
+# Instruction operateur du 27/08/2026 : les stops poses a l'ouverture restent
+# immuables. Le gestionnaire continue de journaliser les clotures, mais aucun
+# breakeven ni trailing ne peut modifier le SL chez le courtier.
+MODIFIER_STOPS_EXISTANTS = False
+
 #: Actifs examinés PAR TOUR. Le catalogue est parcouru par rotation.
 #:
 #: ⚠️ Sans rotation, balayer 148 actifs prend plus de deux heures — mesuré le
@@ -772,6 +777,12 @@ def _demander_fenetres(candidats) -> None:
 AVIS_DEMANDES = RACINE / "results" / "avis_demandes.ndjson"
 AVIS_RENDUS = RACINE / "results" / "avis_rendus.ndjson"
 
+try:
+    from titanium.live_memory import ReplayEdgeMemory
+    _MEMOIRE_LIVE = ReplayEdgeMemory(RACINE)
+except Exception:  # noqa: BLE001
+    _MEMOIRE_LIVE = None
+
 
 def _avis_pour(sym: str, side: int) -> tuple[float, str]:
     """Relit l'avis des analystes. NE BLOQUE JAMAIS, ne declenche aucun
@@ -782,6 +793,29 @@ def _avis_pour(sym: str, side: int) -> tuple[float, str]:
         return conviction_pour(sym, side, AVIS_RENDUS)
     except Exception:  # noqa: BLE001
         return 0.5, "avis indisponible"
+
+
+def _garde_intelligente(sym: str, side: int, feats: dict) -> tuple[bool, str]:
+    """Memoire V4 + fondamentaux; ne peut qu'admettre ou refuser l'entree."""
+    contexte = _contexte_exact(sym, feats, side)
+    if _MEMOIRE_LIVE is None:
+        return False, "memoire live indisponible"
+    verdict = _MEMOIRE_LIVE.verdict(sym, contexte)
+    _MEMOIRE_LIVE.record(sym, contexte, verdict)
+    if verdict.action != "ALLOW":
+        return False, (f"memoire {verdict.action}: {verdict.reason}; "
+                       f"n={verdict.samples}, E={verdict.expectancy_r:+.3f}R, "
+                       f"PF={verdict.profit_factor:.2f}")
+    try:
+        from titanium.avis import autorisation_pour
+        action, reason = autorisation_pour(sym, side, AVIS_RENDUS)
+    except Exception:  # noqa: BLE001
+        return False, "porte fondamentale indisponible"
+    if action != "ALLOW":
+        return False, f"fondamental {action}: {reason}"
+    return True, (f"memoire ALLOW: n={verdict.samples}, "
+                  f"E={verdict.expectancy_r:+.3f}R, PF={verdict.profit_factor:.2f}; "
+                  f"fondamental ALLOW: {reason}")
 
 
 def _sante_resumee() -> str:
@@ -1269,7 +1303,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     state_path=etat,
                     account=compte,
                     journal_path=RACINE / "results" / "trades.ndjson",
-                    manage_stops=armer and politique.enabled,
+                    manage_stops=MODIFIER_STOPS_EXISTANTS,
                 )
                 stats["journal_coverage"] = _journal_coverage(
                     r.get("history_recovery"),
@@ -1390,7 +1424,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
 
         if tracer:
             _tracer_zones(sym, feats, out, cfg)
-        _observer_prod(sym, feats, out.gate_verdict)
+        # Le flux Shadow n'est plus alimente. La memoire V4 live est consultee
+        # uniquement pour les entrees candidates, juste avant dimensionnement.
 
         if out.gate_verdict != "ENTER":
             continue
@@ -1499,6 +1534,17 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             # travailleur arrêté -> conviction neutre, la boucle continue.
             conv, motif_avis = _avis_pour(sym, out.side)
             _demander_avis(sym, feats, out, _dec, cfg)
+
+            intelligence_ok, motif_intelligence = _garde_intelligente(
+                sym, out.side, feats)
+            if not intelligence_ok:
+                _refus(stats, "INTELLIGENCE_GATE", sym, motif_intelligence,
+                       piliers=c.get("support"), side=out.side)
+                print(f"    {sym:8} ENTER differe/refuse - {motif_intelligence}",
+                      flush=True)
+                continue
+            print(f"    {sym:8} intelligence live valide - {motif_intelligence}",
+                  flush=True)
 
             conf = evaluer_confiance(
                 piliers_de(_dec),

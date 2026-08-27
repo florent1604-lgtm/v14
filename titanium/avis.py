@@ -130,6 +130,8 @@ class Avis:
     bar_time: str = ""
     rendu_a: str = ""
     source: str = ""
+    action: str = "WAIT"
+    sources: list[str] = field(default_factory=list)
 
     def frais(self, *, maintenant: float | None = None,
               peremption: int = PEREMPTION_S) -> bool:
@@ -220,6 +222,21 @@ def conviction_pour(symbole: str, side: int, chemin: Path,
         # décision déterministe restant souveraine.
         return min(a.conviction, 0.2), f"analystes en désaccord ({a.rating})"
     return a.conviction, f"analystes {a.rating or 'sans note'}"
+
+
+def autorisation_pour(symbole: str, side: int, chemin: Path,
+                      *, peremption: int = PEREMPTION_S) -> tuple[str, str]:
+    """Verdict fondamental frais; toute ambiguite attend plutot que trader."""
+    a = dernier_avis(symbole, chemin, peremption=peremption)
+    if a is None:
+        return "WAIT", "analyse fondamentale absente ou perimee"
+    if a.side and side and a.side != side:
+        return "BLOCK", "analyse fondamentale rendue pour le sens oppose"
+    action = str(a.action or "WAIT").upper()
+    if action not in {"ALLOW", "WAIT", "BLOCK"}:
+        action = "WAIT"
+    sources = ", ".join(a.sources[:4]) if a.sources else "aucune source"
+    return action, f"{a.resume or a.rating or action} [{sources}]"
 
 
 # ────────────────────────────────────────────────────────────────────────

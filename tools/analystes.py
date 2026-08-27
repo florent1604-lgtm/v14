@@ -25,6 +25,7 @@ import argparse
 import json
 import signal
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +66,7 @@ ANALYSTES_DEFAUT = ("market", "news")
 #: Quatre suffisent à passer de 31 à ~120 avis/heure, au-dessus des
 #: 54 dépôts/heure mesurés.
 PARALLELE = 4
+_QWEN_LOCK = threading.Lock()
 
 # Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de
 # trading et toute valeur explicite de configuration reste prioritaire.
@@ -243,16 +245,25 @@ def deliberateur_pour(classe: str):
 
 
 def _traiter(d):
-    """Une délibération complète. Rend (demande, avis, durée)."""
-    from titanium.edge import asset_class_of
+    from titanium.fundamental_intelligence import analyse
 
-    classe = asset_class_of(d.symbol)
-    delib, analystes = deliberateur_pour(classe)
     t0 = time.time()
-    avis = deliberer(d, delib) if delib else Avis(
-        d.symbol, d.side, NEUTRE, "", None,
-        "aucun délibérateur configuré", d.bar_time, "", "absent")
-    return d, avis, time.time() - t0, analystes
+    # Le pool conserve la publication "le plus rapide d'abord" et sa
+    # tolerance aux futures sources reseau. Le modele local CPU, lui, reste
+    # serialise pour eviter quatre generations concurrentes qui se bloquent.
+    with _QWEN_LOCK:
+        result = analyse(d.symbol, d.side, d.resume())
+    action = str(result.get("action", "WAIT")).upper()
+    confidence = float(result.get("confidence", 0.0) or 0.0)
+    avis_local = Avis(
+        symbol=d.symbol, side=d.side,
+        conviction=max(0.0, min(1.0, confidence)),
+        rating=action, accord=(action == "ALLOW"),
+        resume=str(result.get("summary", ""))[:500],
+        bar_time=d.bar_time, source="qwen-local-multisource",
+        action=action, sources=list(result.get("sources", ())),
+    )
+    return d, avis_local, time.time() - t0, ("qwen-local",)
 
 
 def passage(_inutilise=None) -> int:
@@ -312,10 +323,10 @@ def main() -> int:
     print("═" * 70)
     print(f"  demandes : {DEMANDES}")
     print(f"  avis     : {AVIS}")
-    print("\n  Les avis modulent la TAILLE de ±25 % au plus.")
-    print("  Ils n'ouvrent, ne ferment et n'empêchent aucune position.\n")
+    print("\n  Qwen local confronte les setups aux sources fondamentales.")
+    print("  Il peut autoriser, differer ou bloquer une NOUVELLE entree.\n")
 
-    deliberateur = construire_deliberateur()
+    deliberateur = None
 
     if a.une_fois:
         print(f"\n{passage(deliberateur)} demande(s) traitée(s)")

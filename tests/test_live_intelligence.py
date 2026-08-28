@@ -4,7 +4,9 @@ import hashlib
 import json
 
 from titanium import fundamental_intelligence as fi
-from titanium.live_memory import ReplayEdgeMemory
+from titanium.avis import Demande
+from titanium.live_memory import MemoryVerdict, ReplayEdgeMemory
+from titanium.organism.memory import CentralMemory
 
 
 def _canonical(value: dict) -> bytes:
@@ -105,3 +107,94 @@ def test_evidence_is_balanced_across_sources():
         fi.Evidence("FRED", "macro"), fi.Evidence("EIA", "energy")]
     chosen = fi._balanced(evidence, limit=4)
     assert [item.source for item in chosen[:3]] == ["rss", "FRED", "EIA"]
+
+
+def test_engine_gate_reads_only_exact_central_proposal(tmp_path, monkeypatch):
+    from tools import live_demo
+
+    class EdgeMemory:
+        @staticmethod
+        def verdict(_symbol, _context):
+            return MemoryVerdict("ALLOW", "edge positif", 100, 0.2, 1.4)
+
+        @staticmethod
+        def record(*_args):
+            return None
+
+    memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
+    monkeypatch.setattr(live_demo, "NOYAU_CENTRAL", memory)
+    monkeypatch.setattr(live_demo, "_MEMOIRE_LIVE", EdgeMemory())
+    monkeypatch.setattr(live_demo, "_contexte_exact",
+                        lambda *_args: "XAUUSD|long|continuation|3p")
+    identity = Demande(
+        "XAUUSD", 1, verdict="ENTER", code="OK", piliers=3,
+        famille="continuation", bar_time="2026-08-27T12:00:00+00:00",
+        engine_context="XAUUSD|long|continuation|3p",
+    ).sceller()
+    memory.record_proposal(identity, {
+        **identity.to_dict(), "evidence_digest": "e" * 64,
+        "action": "ALLOW", "confidence": 0.7, "summary": "accord",
+        "sources": ["FRED"], "rendered_at": "2026-08-27T12:01:00+00:00",
+    })
+    assert live_demo._garde_intelligente("XAUUSD", 1, {}, identity)[0] is True
+
+    next_bar = Demande(
+        "XAUUSD", 1, verdict="ENTER", code="OK", piliers=3,
+        famille="continuation", bar_time="2026-08-27T12:15:00+00:00",
+        engine_context="XAUUSD|long|continuation|3p",
+    ).sceller()
+    ok, reason = live_demo._garde_intelligente("XAUUSD", 1, {}, next_bar)
+    assert ok is False
+    assert "STALE" in reason
+
+
+def test_engine_deposits_sealed_request_in_central_memory(tmp_path, monkeypatch):
+    from tools import live_demo
+
+    memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
+    requests = tmp_path / "requests.ndjson"
+    monkeypatch.setattr(live_demo, "NOYAU_CENTRAL", memory)
+    monkeypatch.setattr(live_demo, "AVIS_DEMANDES", requests)
+    monkeypatch.setattr(live_demo, "_contexte_exact",
+                        lambda *_args: "XAUUSD|long|continuation|3p")
+    monkeypatch.setattr(live_demo, "_sante_resumee", lambda: "sain")
+    out = type("Out", (), {"side": 1, "stop_distance": 10.0})()
+    decision = type("Decision", (), {
+        "verdict": "ENTER", "code": "OK", "gates": [],
+        "setup_family": "continuation",
+    })()
+    cfg = type("Cfg", (), {"rr_ratio": 2.0})()
+    feats = {"_trace": {
+        "bar_time": "2026-08-27T12:00:00+00:00",
+        "price": 2050.0, "indicators": {"rsi": 55.0},
+    }}
+    identity = live_demo._demander_avis("XAUUSD", feats, out, decision, cfg)
+    assert identity is not None
+    row = json.loads(requests.read_text(encoding="utf-8"))
+    assert row["decision_ref"] == identity.decision_ref
+    assert row["context_digest"] == identity.context_digest
+    assert memory.health()["events"] == 1
+
+
+def test_worker_returns_proposal_to_same_central_identity(tmp_path, monkeypatch):
+    from tools import analystes
+
+    memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
+    monkeypatch.setattr(analystes, "CENTRAL_MEMORY", memory)
+    monkeypatch.setattr(fi, "analyse", lambda *_args, **kwargs: {
+        "action": "ALLOW", "confidence": 0.66, "summary": "macro neutre",
+        "sources": ["FRED"], "evidence_digest": "e" * 64,
+        "model_version": kwargs["model_version"],
+        "prompt_version": kwargs["prompt_version"],
+    })
+    demande = Demande(
+        "XAUUSD", 1, verdict="ENTER", code="OK", piliers=3,
+        famille="continuation", bar_time="2026-08-27T12:00:00+00:00",
+        engine_context="XAUUSD|long|continuation|3p",
+    )
+    identity = demande.sceller()
+    _, avis, _, _ = analystes._traiter(demande)
+    proposal, code = memory.proposal_for(identity)
+    assert code == "BRAIN_PROPOSAL_EXACT"
+    assert proposal["confidence"] == 0.66
+    assert avis.decision_ref == identity.decision_ref

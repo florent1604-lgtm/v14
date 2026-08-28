@@ -33,14 +33,22 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-from tools.console_output import configure_console_output  # noqa: E402
-
 from titanium.avis import (  # noqa: E402
-    NEUTRE, Avis, demandes_en_attente, enregistrer, purger,
+    NEUTRE,
+    Avis,
+    demandes_en_attente,
+    enregistrer,
+    purger,
 )
+from titanium.organism.memory import CentralMemory  # noqa: E402
+from tools.console_output import configure_console_output  # noqa: E402
 
 DEMANDES = RACINE / "results" / "avis_demandes.ndjson"
 AVIS = RACINE / "results" / "avis_rendus.ndjson"
+CENTRAL_MEMORY = CentralMemory(
+    RACINE / "results" / "organism_memory.sqlite3",
+    RACINE / "results" / "organism_alerts.ndjson",
+)
 
 INTERVALLE = 90.0
 
@@ -248,11 +256,18 @@ def _traiter(d):
     from titanium.fundamental_intelligence import analyse
 
     t0 = time.time()
+    identity = d.sceller()
     # Le pool conserve la publication "le plus rapide d'abord" et sa
     # tolerance aux futures sources reseau. Le modele local CPU, lui, reste
     # serialise pour eviter quatre generations concurrentes qui se bloquent.
     with _QWEN_LOCK:
-        result = analyse(d.symbol, d.side, d.resume())
+        result = analyse(
+            d.symbol, d.side, d.resume(),
+            decision_ref=identity.decision_ref,
+            context_digest=identity.context_digest,
+            model_version=identity.model_version,
+            prompt_version=identity.prompt_version,
+        )
     action = str(result.get("action", "WAIT")).upper()
     confidence = float(result.get("confidence", 0.0) or 0.0)
     avis_local = Avis(
@@ -262,7 +277,27 @@ def _traiter(d):
         resume=str(result.get("summary", ""))[:500],
         bar_time=d.bar_time, source="qwen-local-multisource",
         action=action, sources=list(result.get("sources", ())),
+        decision_ref=identity.decision_ref,
+        context_digest=identity.context_digest,
+        evidence_digest=str(result.get("evidence_digest", "")),
+        model_version=str(result.get("model_version", identity.model_version)),
+        prompt_version=str(result.get("prompt_version", identity.prompt_version)),
     )
+    avis_local.rendu_a = datetime.now(timezone.utc).isoformat()
+    proposal = {
+        **identity.to_dict(),
+        "evidence_digest": avis_local.evidence_digest,
+        "action": avis_local.action,
+        "confidence": avis_local.conviction,
+        "summary": avis_local.resume,
+        "sources": avis_local.sources,
+        "rendered_at": avis_local.rendu_a,
+    }
+    try:
+        CENTRAL_MEMORY.record_proposal(identity, proposal)
+    except Exception as exc:  # noqa: BLE001 - le moteur restera en WAIT
+        CENTRAL_MEMORY.alert("BRAIN_PROPOSAL_WRITE_FAILED", identity,
+                             type(exc).__name__)
     return d, avis_local, time.time() - t0, ("qwen-local",)
 
 

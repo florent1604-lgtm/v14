@@ -118,6 +118,42 @@ class TestLecture:
         ])
         assert dernier_avis("XAUUSD", f) is None
 
+    def test_lecture_stricte_exige_identite_et_preuves_exactes(self, tmp_path):
+        demande = Demande(**DEM)
+        identity = demande.sceller()
+        ancien = self._ecrire(tmp_path, [{
+            "symbol": "XAUUSD", "side": 1, "conviction": 0.9,
+            "bar_time": DEM["bar_time"], "rendu_a": _iso(),
+        }])
+        assert dernier_avis("XAUUSD", ancien, identity=identity) is None
+
+        exact = Avis(
+            "XAUUSD", 1, conviction=0.7, bar_time=DEM["bar_time"],
+            rendu_a=_iso(), decision_ref=identity.decision_ref,
+            context_digest=identity.context_digest,
+            evidence_digest="e" * 64,
+            model_version=identity.model_version,
+            prompt_version=identity.prompt_version,
+        )
+        fichier = tmp_path / "exact.ndjson"
+        enregistrer(exact, fichier)
+        assert dernier_avis("XAUUSD", fichier, identity=identity).conviction == 0.7
+
+    def test_autre_barre_est_rejetee_en_mode_strict(self, tmp_path):
+        demande = Demande(**DEM)
+        current = demande.sceller()
+        previous = Demande(**{**DEM, "bar_time": "2026-08-07T09:45:00"}).sceller()
+        fichier = tmp_path / "a.ndjson"
+        enregistrer(Avis(
+            "XAUUSD", 1, bar_time="2026-08-07T09:45:00", rendu_a=_iso(),
+            decision_ref=previous.decision_ref,
+            context_digest=previous.context_digest,
+            evidence_digest="e" * 64,
+            model_version=previous.model_version,
+            prompt_version=previous.prompt_version,
+        ), fichier)
+        assert dernier_avis("XAUUSD", fichier, identity=current) is None
+
 
 class TestConvictionPour:
     def _f(self, tmp_path, **kw):

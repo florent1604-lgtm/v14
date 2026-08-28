@@ -16,6 +16,12 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date
 
+from titanium.organism.contracts import (
+    MODEL_VERSION,
+    PROMPT_VERSION,
+    digest,
+)
+
 
 @dataclass(frozen=True)
 class Evidence:
@@ -25,7 +31,7 @@ class Evidence:
 
 
 _CACHE: dict[str, tuple[float, list[Evidence]]] = {}
-_ANALYSIS_CACHE: dict[tuple[str, int], tuple[float, dict]] = {}
+_ANALYSIS_CACHE: dict[str, tuple[float, dict]] = {}
 _TTL_S = 900
 
 
@@ -201,18 +207,34 @@ def _json_object(text: str) -> dict:
     return json.loads(match.group(0) if match else text)
 
 
-def analyse(symbol: str, side: int, mechanical_summary: str) -> dict:
-    cache_key = (symbol, side)
+def analyse(symbol: str, side: int, mechanical_summary: str, *,
+            decision_ref: str = "", context_digest: str = "",
+            model_version: str = MODEL_VERSION,
+            prompt_version: str = PROMPT_VERSION) -> dict:
+    cache_key = decision_ref or digest({
+        "symbol": symbol, "side": side, "context_digest": context_digest,
+        "mechanical_summary": mechanical_summary,
+        "model_version": model_version, "prompt_version": prompt_version,
+    })
     cached = _ANALYSIS_CACHE.get(cache_key)
     if cached and time.time() - cached[0] < _TTL_S:
         return dict(cached[1])
     evidence = collect(symbol)
+    evidence_payload = [
+        {"source": item.source, "text": item.text,
+         "observed_at": item.observed_at} for item in _balanced(evidence)
+    ]
+    evidence_digest = digest({"evidence": evidence_payload})
     if len(evidence) < 2:
         return {"action": "WAIT", "confidence": 0.0,
                 "summary": "preuves fondamentales insuffisantes",
-                "sources": [e.source for e in evidence]}
+                "sources": [e.source for e in evidence],
+                "evidence_digest": evidence_digest,
+                "model_version": model_version,
+                "prompt_version": prompt_version}
     prompt = {
         "role": "MT5 DEMO entry risk gate. JSON only.",
+        "prompt_version": prompt_version,
         "rules": "ALLOW when at least two fresh sources do not explicitly contradict the side. "
                  "Lack of directional news alone is neutral and means ALLOW, not WAIT. "
                  "Use WAIT/BLOCK only for an explicit conflict, stale data, or event shock. "
@@ -220,13 +242,12 @@ def analyse(symbol: str, side: int, mechanical_summary: str) -> dict:
         "symbol": symbol,
         "mechanical_side": "long" if side > 0 else "short",
         "mechanical_summary": mechanical_summary[:500],
-        "evidence": [{"source": e.source, "text": e.text[:180],
-                      "observed_at": e.observed_at}
-                     for e in _balanced(evidence)],
+        "evidence": [{**item, "text": item["text"][:180]}
+                     for item in evidence_payload],
         "schema": {"action": "ALLOW|WAIT|BLOCK", "confidence": "0..1",
                    "summary": "French, max 240 chars"},
     }
-    body = json.dumps({"model": "qwen2.5:3b", "stream": False,
+    body = json.dumps({"model": model_version, "stream": False,
                        "format": "json", "prompt": json.dumps(prompt),
                        "keep_alive": -1,
                        "options": {"temperature": 0, "num_predict": 60,
@@ -243,10 +264,16 @@ def analyse(symbol: str, side: int, mechanical_summary: str) -> dict:
         answer = {"action": action,
                   "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
                   "summary": str(result.get("summary", ""))[:240],
-                  "sources": sorted({e.source for e in evidence})}
+                  "sources": sorted({e.source for e in evidence}),
+                  "evidence_digest": evidence_digest,
+                  "model_version": model_version,
+                  "prompt_version": prompt_version}
         _ANALYSIS_CACHE[cache_key] = (time.time(), answer)
         return answer
     except Exception as exc:  # noqa: BLE001
         return {"action": "WAIT", "confidence": 0.0,
                 "summary": f"Qwen local indisponible: {type(exc).__name__}",
-                "sources": sorted({e.source for e in evidence})}
+                "sources": sorted({e.source for e in evidence}),
+                "evidence_digest": evidence_digest,
+                "model_version": model_version,
+                "prompt_version": prompt_version}

@@ -41,14 +41,15 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-from titanium.execution.policy_identity import (  # noqa: E402
-    build_policy_identity,
-    snapshot_code_identity,
-)
 from titanium.execution.decision_registry import (  # noqa: E402
     append_decision_event,
     make_decision_id,
 )
+from titanium.execution.policy_identity import (  # noqa: E402
+    build_policy_identity,
+    snapshot_code_identity,
+)
+from titanium.organism import CentralMemory, DecisionIdentity  # noqa: E402
 from tools.console_output import configure_console_output  # noqa: E402
 
 #: Univers candidat. Chaque tour filtre selon ce que l'equity peut porter.
@@ -303,6 +304,7 @@ def battre(stats: dict, *, armer: bool, equity: float = 0.0,
             "at": datetime.now(timezone.utc).isoformat(),
             "intervalle": intervalle,
             "armed": armer,
+            "manage_stops": MODIFIER_STOPS_EXISTANTS,
             "equity": equity,
             "portables": portables,
             "stats": dict(stats),
@@ -776,6 +778,10 @@ def _demander_fenetres(candidats) -> None:
 
 AVIS_DEMANDES = RACINE / "results" / "avis_demandes.ndjson"
 AVIS_RENDUS = RACINE / "results" / "avis_rendus.ndjson"
+NOYAU_CENTRAL = CentralMemory(
+    RACINE / "results" / "organism_memory.sqlite3",
+    RACINE / "results" / "organism_alerts.ndjson",
+)
 
 try:
     from titanium.live_memory import ReplayEdgeMemory
@@ -784,18 +790,24 @@ except Exception:  # noqa: BLE001
     _MEMOIRE_LIVE = None
 
 
-def _avis_pour(sym: str, side: int) -> tuple[float, str]:
+def _avis_pour(sym: str, side: int,
+               identity: DecisionIdentity) -> tuple[float, str]:
     """Relit l'avis des analystes. NE BLOQUE JAMAIS, ne declenche aucun
     appel : si le travailleur est arrete ou en panne, la boucle continue
     exactement comme si le pont n'existait pas."""
     try:
-        from titanium.avis import conviction_pour
-        return conviction_pour(sym, side, AVIS_RENDUS)
+        proposal, code = NOYAU_CENTRAL.proposal_for(identity)
+        if proposal is None:
+            return 0.5, code
+        if int(proposal.get("side", 0) or 0) != int(side):
+            return 0.2, "BRAIN_SIDE_MISMATCH"
+        return float(proposal.get("confidence", 0.5)), "avis exact du noyau"
     except Exception:  # noqa: BLE001
         return 0.5, "avis indisponible"
 
 
-def _garde_intelligente(sym: str, side: int, feats: dict) -> tuple[bool, str]:
+def _garde_intelligente(sym: str, side: int, feats: dict,
+                        identity: DecisionIdentity) -> tuple[bool, str]:
     """Memoire V4 + fondamentaux; ne peut qu'admettre ou refuser l'entree."""
     contexte = _contexte_exact(sym, feats, side)
     if _MEMOIRE_LIVE is None:
@@ -806,13 +818,27 @@ def _garde_intelligente(sym: str, side: int, feats: dict) -> tuple[bool, str]:
         return False, (f"memoire {verdict.action}: {verdict.reason}; "
                        f"n={verdict.samples}, E={verdict.expectancy_r:+.3f}R, "
                        f"PF={verdict.profit_factor:.2f}")
-    try:
-        from titanium.avis import autorisation_pour
-        action, reason = autorisation_pour(sym, side, AVIS_RENDUS)
-    except Exception:  # noqa: BLE001
-        return False, "porte fondamentale indisponible"
+    proposal, code = NOYAU_CENTRAL.proposal_for(identity)
+    if proposal is None:
+        NOYAU_CENTRAL.alert(code, identity, "aucune proposition exacte")
+        return False, f"noyau {code}: proposition exacte absente"
+    action = str(proposal.get("action", "WAIT")).upper()
+    if action not in {"ALLOW", "WAIT", "BLOCK"}:
+        NOYAU_CENTRAL.alert("BRAIN_ACTION_INVALID", identity, action)
+        return False, "noyau BRAIN_ACTION_INVALID"
+    reason = str(proposal.get("summary", ""))[:240]
     if action != "ALLOW":
+        NOYAU_CENTRAL.alert(f"BRAIN_{action}", identity, reason)
         return False, f"fondamental {action}: {reason}"
+    try:
+        NOYAU_CENTRAL.append("engine.gate", identity.decision_ref, sym, {
+            **identity.to_dict(), "action": "ALLOW",
+            "evidence_digest": proposal.get("evidence_digest", ""),
+        })
+    except Exception as exc:  # noqa: BLE001 - aucune execution sans trace
+        NOYAU_CENTRAL.alert("CENTRAL_GATE_WRITE_FAILED", identity,
+                            type(exc).__name__)
+        return False, "noyau CENTRAL_GATE_WRITE_FAILED"
     return True, (f"memoire ALLOW: n={verdict.samples}, "
                   f"E={verdict.expectancy_r:+.3f}R, PF={verdict.profit_factor:.2f}; "
                   f"fondamental ALLOW: {reason}")
@@ -828,13 +854,14 @@ def _sante_resumee() -> str:
         return ""
 
 
-def _demander_avis(sym: str, feats: dict, out, decision, cfg) -> None:
+def _demander_avis(sym: str, feats: dict, out, decision,
+                   cfg) -> DecisionIdentity | None:
     """Depose la lecture deterministe pour les analystes. Une ecriture,
     puis on continue — la deliberation se fait dans un autre processus."""
     try:
         from titanium.avis import Demande, deposer
         trace = feats.get("_trace") or {}
-        deposer(Demande(
+        demande = Demande(
             symbol=sym, side=out.side,
             verdict=decision.verdict, code=decision.code,
             piliers=sum(1 for g in (decision.gates or []) if g.passed),
@@ -843,11 +870,19 @@ def _demander_avis(sym: str, feats: dict, out, decision, cfg) -> None:
             stop_distance=float(out.stop_distance or 0.0),
             rr=cfg.rr_ratio,
             bar_time=str(trace.get("bar_time") or ""),
+            engine_context=_contexte_exact(sym, feats, out.side),
             indicateurs=dict(trace.get("indicators") or {}),
             sante=_sante_resumee(),
-        ), AVIS_DEMANDES)
+            demande_a=datetime.now(timezone.utc).isoformat(),
+        )
+        identity = demande.sceller()
+        payload = demande.to_dict()
+        if not deposer(demande, AVIS_DEMANDES):
+            NOYAU_CENTRAL.alert("BRAIN_REQUEST_FILE_FAILED", identity)
+        NOYAU_CENTRAL.record_request(identity, payload)
+        return identity
     except Exception:  # noqa: BLE001
-        pass
+        return None
 
 
 def _contexte_exact(sym: str, feats: dict, side: int) -> str:
@@ -1530,13 +1565,19 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             from titanium.confiance import (
                 evaluer as evaluer_confiance, piliers_de, total_piliers,
             )
-            # Avis des analystes : relu SANS attendre. Absent, périmé ou
-            # travailleur arrêté -> conviction neutre, la boucle continue.
-            conv, motif_avis = _avis_pour(sym, out.side)
-            _demander_avis(sym, feats, out, _dec, cfg)
+            # La demande est d'abord scellee dans le noyau. Sans proposition
+            # portant exactement cette identite, l'entree reste en WAIT.
+            identity = _demander_avis(sym, feats, out, _dec, cfg)
+            if identity is None:
+                _refus(stats, "CENTRAL_MEMORY", sym,
+                       "demande cognitive impossible a sceller",
+                       piliers=c.get("support"), side=out.side)
+                print(f"    {sym:8} ENTER differe - noyau central indisponible",
+                      flush=True)
+                continue
 
             intelligence_ok, motif_intelligence = _garde_intelligente(
-                sym, out.side, feats)
+                sym, out.side, feats, identity)
             if not intelligence_ok:
                 _refus(stats, "INTELLIGENCE_GATE", sym, motif_intelligence,
                        piliers=c.get("support"), side=out.side)
@@ -1545,6 +1586,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 continue
             print(f"    {sym:8} intelligence live valide - {motif_intelligence}",
                   flush=True)
+
+            conv, motif_avis = _avis_pour(sym, out.side, identity)
 
             conf = evaluer_confiance(
                 piliers_de(_dec),

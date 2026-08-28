@@ -168,6 +168,27 @@ def ausculter() -> Bilan:
              if attente > 8 else "",
              min(1.0, n_avis / 20)))
 
+    from titanium.organism.memory import CentralMemory
+
+    noyau = CentralMemory(
+        RESULTATS / "organism_memory.sqlite3",
+        RESULTATS / "organism_alerts.ndjson",
+    ).health()
+    etat_noyau = (SAIN if noyau.get("state") == "HEALTHY"
+                  and noyau.get("proposals", 0) > 0
+                  else BOUCHE if noyau.get("state") == "FAILED"
+                  else RALENTI)
+    O(Organe(
+        "noyau", "Noyau & memoire centrale", "decision", etat_noyau,
+        f"{noyau.get('events', 0)} faits · "
+        f"{noyau.get('proposals', 0)} propositions · "
+        f"{noyau.get('alerts', 0)} alertes",
+        (f"Derniere alerte : {noyau.get('last_alert')}"
+         if noyau.get("last_alert") else
+         "En attente du premier echange scelle."),
+        min(1.0, float(noyau.get("proposals", 0)) / 20.0),
+    ))
+
     # ═══ RISQUE ═══════════════════════════════════════════════════════
     occ = risq.get("occupation", 0) if risq.get("disponible") else 0
     O(Organe("riskgate", "RiskGate & sizing", "risque",
@@ -192,12 +213,16 @@ def ausculter() -> Bilan:
              f"{envoyes} ordre(s) · {n_pos} position(s)",
              "", min(1.0, n_pos / 8)))
 
+    stops_actifs = bool(boucle.get("manage_stops", False))
     O(Organe("gestion", "Gestion de position", "action",
              SAIN if vivante else BOUCHE,
-             f"BE +{boucle.get('breakeven_r', '—')} R · "
-             f"trail +{boucle.get('trail_start_r', '—')} R",
-             "Sans boucle vivante, aucun stop n'est déplacé."
-             if not vivante else "",
+             (f"BE +{boucle.get('breakeven_r', '—')} R · "
+              f"trail +{boucle.get('trail_start_r', '—')} R")
+             if stops_actifs else "SL existants immuables",
+             ("Sans boucle vivante, aucune position n'est suivie."
+              if not vivante else
+              "Le moteur observe et journalise sans déplacer les SL."
+              if not stops_actifs else ""),
              min(1.0, n_pos / 8)))
 
     zones = RESULTATS.parent / "results"          # placeholder de cohérence
@@ -247,8 +272,11 @@ def ausculter() -> Bilan:
     art("portes", "analystes", bool(ana.get("actif")),
         f"{ana.get('n_demandes', 0)} dépôts", "lecture déterministe",
         ralenti=attente > 8)
-    art("analystes", "riskgate", n_avis > 0, f"{n_avis} avis",
-        "conviction → taille")
+    art("analystes", "noyau", n_avis > 0, f"{n_avis} avis",
+        "propositions scellées")
+    art("noyau", "riskgate", noyau.get("proposals", 0) > 0,
+        f"{noyau.get('proposals', 0)} exactes", "identité décisionnelle",
+        ralenti=noyau.get("alerts", 0) > 0)
     art("portes", "riskgate", vivante, "verdict", "ENTER")
     art("riskgate", "mur", vivante, "budget", "lot")
     art("mur", "executeur", ouvert, mur.get("code", ""), "autorisation")

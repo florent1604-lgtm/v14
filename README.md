@@ -57,6 +57,12 @@ moteur MT5 et se lancent avec :
 docker compose -f observability\docker-compose.yml up -d
 ```
 
+Sur Windows sans Docker, utiliser :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File observability\windows\start-observability.ps1
+```
+
 Grafana est ensuite disponible sur <http://127.0.0.1:3000>. La configuration
 complète, notamment le webhook Discord, est décrite dans
 [`observability/README.md`](observability/README.md).

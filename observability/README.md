@@ -63,11 +63,25 @@ ces données ; ne l'utilise que pour une remise à zéro explicitement voulue.
 
 ## Installation sans Docker
 
-L'exporteur V14 fonctionne déjà en bare metal. Pour Prometheus/Grafana natifs :
+L'exporteur V14 fonctionne déjà en bare metal. L'installation portable Windows
+utilise `%LOCALAPPDATA%\V14-Observability` et ne touche pas au moteur MT5.
 
-1. installer les binaires officiels Windows ;
-2. démarrer Prometheus avec
-   `--config.file=observability/prometheus/prometheus-bare-metal.yml` ;
-3. copier les dossiers `grafana/provisioning` et `grafana/dashboards` vers les
-   chemins configurés par Grafana ;
-4. redémarrer Prometheus puis Grafana.
+```powershell
+powershell -ExecutionPolicy Bypass -File observability\windows\start-observability.ps1
+powershell -ExecutionPolicy Bypass -File observability\windows\status-observability.ps1
+```
+
+Pour l'enregistrer au démarrage de la session Windows :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File observability\windows\register-autostart.ps1
+```
+
+Pour arrêter uniquement la supervision, sans toucher à V14 ou MT5 :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File observability\windows\stop-observability.ps1
+```
+
+La tâche planifiée se nomme `V14-Observability`. Les données Prometheus et
+Grafana sont conservées dans `%LOCALAPPDATA%\V14-Observability\data`.

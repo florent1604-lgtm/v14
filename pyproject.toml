@@ -22,6 +22,8 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=2.0.0",
     "pandas>=2.3.0",
     "parsel>=1.10.0",
+    "prometheus-client>=0.20.0",
+    "psutil>=5.9.0",
     # Archive de barres (tools/archiveur_barres.py) et toute relecture parquet.
     # Declaree en dependance de base et non en extra : le job clean-install de la
     # CI part d'un runner neuf, et un import non declare y echoue silencieusement

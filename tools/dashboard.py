@@ -28,6 +28,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,6 +38,12 @@ from urllib.parse import parse_qs, urlparse
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
+from titanium.observability import (  # noqa: E402
+    METRICS_PORT,
+    observe_request,
+    record_error,
+    start_metrics_server,
+)
 from tools.console_output import configure_console_output  # noqa: E402
 
 PORT = 8095
@@ -72,6 +79,20 @@ TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "TitaniumV14"
+
+    def handle_one_request(self) -> None:
+        """Mesure toute réponse HTTP sans modifier le routage existant."""
+        debut = time.perf_counter()
+        self._metric_status = 500
+        try:
+            super().handle_one_request()
+        finally:
+            if hasattr(self, "path"):
+                observe_request(self._metric_status, time.perf_counter() - debut)
+
+    def send_response(self, code, message=None):
+        self._metric_status = int(code)
+        return super().send_response(code, message)
 
     # ── envoi ───────────────────────────────────────────────────────────────
 
@@ -197,6 +218,7 @@ class Handler(BaseHTTPRequestHandler):
             # chemins de fichiers et se lit comme une panne totale alors qu'il
             # s'agit souvent d'un symbole indisponible une seconde.
             print(traceback.format_exc(), file=sys.stderr, flush=True)
+            record_error(type(exc).__name__)
             self._json({"error": f"{type(exc).__name__}: {exc}"[:200]}, 500)
 
     def do_POST(self):  # noqa: N802
@@ -316,6 +338,13 @@ if __name__ == "__main__":
               f"{_r.get('faiblesses', 0)} faiblesse(s) relevée(s)")
     except Exception as _exc:  # noqa: BLE001 — l'index n'est pas vital
         print(f"Carte du code indisponible : {type(_exc).__name__}")
+
+    try:
+        start_metrics_server()
+        print(f"Métriques Prometheus — http://localhost:{METRICS_PORT}/metrics")
+    except OSError as _exc:
+        print(f"Métriques Prometheus indisponibles : {_exc}")
+        record_error("metrics_bind")
 
     print(f"Tableau de bord V14 — http://localhost:{PORT}   (Ctrl+C pour arrêter)")
     # ThreadingHTTPServer et non HTTPServer : un balayage prend plusieurs

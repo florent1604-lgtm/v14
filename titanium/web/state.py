@@ -1,17 +1,18 @@
 """Collecte de l'état de V14 — source unique pour l'interface et la CLI.
 
-Chaque fonction relit l'état RÉEL à l'appel, ne met rien en cache et **ne lève
-jamais** : une sonde qui plante ne doit pas noircir tout le tableau de bord. Un
-bloc en erreur porte sa propre clé ``error`` et les autres continuent de vivre.
+Chaque fonction relit l'état RÉEL à l'appel et **ne lève jamais** : une sonde
+qui plante ne doit pas noircir tout le tableau de bord. Le seul calcul mis en
+cache est le classement statistique lourd, invalidé avec son journal source.
+Un bloc en erreur porte sa propre clé ``error`` et les autres continuent de vivre.
 
-Rien ici ne déclenche d'ordre, ne modifie de stop, ni n'appelle de LLM. Le seul
-point coûteux est `scan()`, qui lit MT5 et calcule les features — il est donc
-explicite et jamais automatique.
+Rien ici ne déclenche d'ordre, ne modifie de stop, ni n'appelle de LLM. `scan()`
+lit MT5 et calcule les features ; il est donc explicite et jamais automatique.
 """
 
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -372,13 +373,51 @@ def loop() -> dict:
     return out
 
 
+_DISCRIMINANTS_LOCK = threading.Lock()
+_DISCRIMINANTS_CACHE: dict = {}
+_DISCRIMINANTS_BUILDING = False
+
+
+def _calculer_discriminants(ech, limite: int, signature: tuple) -> None:
+    """Construit le classement hors du chemin HTTP puis le publie atomiquement."""
+    global _DISCRIMINANTS_BUILDING, _DISCRIMINANTS_CACHE
+
+    from titanium.analysis.discriminants import MIN_PAR_GROUPE, analyser
+
+    try:
+        r = analyser(ech, n_permutations=300)
+        resultat = {
+            "suffisant": r.suffisant, "n_trades": r.n_trades,
+            "n_gagnants": r.n_gagnants, "n_perdants": r.n_perdants,
+            "min_par_groupe": MIN_PAR_GROUPE, "message": r.message,
+            "top": [d.to_dict() for d in r.discriminants[:limite]],
+            "pending": False,
+        }
+    except Exception as exc:  # noqa: BLE001 — une sonde ne tue pas le dashboard
+        resultat = {
+            "suffisant": False, "n_trades": len(ech),
+            "min_par_groupe": MIN_PAR_GROUPE, "top": [],
+            "message": f"calcul indisponible : {type(exc).__name__}",
+            "error": f"{type(exc).__name__}: {exc}", "pending": False,
+        }
+
+    with _DISCRIMINANTS_LOCK:
+        _DISCRIMINANTS_CACHE = {"signature": signature, "result": resultat}
+        _DISCRIMINANTS_BUILDING = False
+
+
 def discriminants(limite: int = 12) -> dict:
-    """Classement des indicateurs — ou pourquoi il n'y en a pas encore."""
-    from titanium.analysis.discriminants import (
-        MIN_PAR_GROUPE,
-        analyser,
-        depuis_journal,
-    )
+    """Classement des indicateurs, calculé en fond pour garder l'UI réactive.
+
+    Les 300 permutations prennent environ vingt secondes avec le journal
+    actuel. Les exécuter dans la requête ``/api/state`` laissait le poste de
+    contrôle vide et faisait croire que la boucle était arrêtée. Le journal est
+    toujours relu à chaque changement ; seul le calcul statistique part dans
+    un thread du processus dashboard.
+    """
+    global _DISCRIMINANTS_BUILDING
+
+    from titanium.analysis.discriminants import MIN_PAR_GROUPE, depuis_journal
 
     # Le panel d'indicateurs vit dans `excursions.ndjson`, pas dans le journal
     # d'edge : `ClosedTrade` ne modélise que ce dont la mesure d'edge a besoin
@@ -389,19 +428,33 @@ def discriminants(limite: int = 12) -> dict:
     ech = depuis_journal(chemin)
     if not ech:
         # Le backtest, lui, écrit son panel directement dans le journal d'edge.
-        ech = depuis_journal(base / "trades.ndjson")
+        chemin = base / "trades.ndjson"
+        ech = depuis_journal(chemin)
     if not ech:
         return {"suffisant": False, "n_trades": 0, "min_par_groupe": MIN_PAR_GROUPE,
                 "message": ("aucun trade journalisé avec panel d'indicateurs — "
                             "le classement demande des résultats, pas des opinions"),
-                "top": []}
-    # Peu de permutations ici : la page doit répondre vite. L'analyse de
-    # référence se lance hors ligne, avec le réglage complet.
-    r = analyser(ech, n_permutations=300)
-    return {"suffisant": r.suffisant, "n_trades": r.n_trades,
-            "n_gagnants": r.n_gagnants, "n_perdants": r.n_perdants,
-            "min_par_groupe": MIN_PAR_GROUPE, "message": r.message,
-            "top": [d.to_dict() for d in r.discriminants[:limite]]}
+                "top": [], "pending": False}
+
+    stat = chemin.stat()
+    signature = (str(chemin), stat.st_mtime_ns, stat.st_size, int(limite))
+    with _DISCRIMINANTS_LOCK:
+        if _DISCRIMINANTS_CACHE.get("signature") == signature:
+            return dict(_DISCRIMINANTS_CACHE["result"])
+        if not _DISCRIMINANTS_BUILDING:
+            _DISCRIMINANTS_BUILDING = True
+            threading.Thread(
+                target=_calculer_discriminants,
+                args=(ech, int(limite), signature),
+                name="v14-discriminants",
+                daemon=True,
+            ).start()
+
+    return {
+        "suffisant": False, "n_trades": len(ech),
+        "min_par_groupe": MIN_PAR_GROUPE, "top": [], "pending": True,
+        "message": "classement statistique en calcul de fond",
+    }
 
 
 def analystes() -> dict:

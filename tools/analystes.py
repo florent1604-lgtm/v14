@@ -52,7 +52,7 @@ CENTRAL_MEMORY = CentralMemory(
     RACINE / "results" / "organism_alerts.ndjson",
 )
 
-INTERVALLE = 90.0
+INTERVALLE = 5.0
 
 #: Analystes convoqués selon la classe d'actif.
 #:
@@ -71,11 +71,10 @@ ANALYSTES_PAR_CLASSE = {
 }
 ANALYSTES_DEFAUT = ("market", "news")
 
-#: Délibérations menées de front. Un appel LLM est de l'attente réseau, pas
-#: du calcul : les paralléliser multiplie le débit sans coûter de CPU.
-#: Quatre suffisent à passer de 31 à ~120 avis/heure, au-dessus des
-#: 54 dépôts/heure mesurés.
-PARALLELE = 4
+#: Candidats d'entrée regroupés dans une génération GLM. Le modèle tourne sur
+#: CPU : lancer plusieurs générations ne crée aucun débit et quadruple la
+#: latence. Un petit lot amortit le prompt tout en restant sous la péremption.
+ENTRY_BATCH_SIZE = 6
 _GLM_LOCK = threading.Lock()
 
 # Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de
@@ -157,12 +156,11 @@ def deliberer(demande, deliberateur) -> Avis:
     l'autre. C'est ce qui permet au trading de survivre à une panne du
     fournisseur sans rien changer à son comportement.
     """
-    from titanium.deliberation import conviction_from_rating
-
     # Les analystes interrogent des fournisseurs PUBLICS : ils ne
     # connaissent pas les noms du courtier. Sans traduction, Yahoo répond
     # 404 sur `NK225.FS` et l'avis se rend sans la moindre donnée.
     from titanium.data.mt5_dataflows import ticker_public
+    from titanium.deliberation import conviction_from_rating
     public = ticker_public(demande.symbol) or demande.symbol
 
     try:
@@ -211,8 +209,8 @@ def construire_deliberateur(analystes=ANALYSTES_DEFAUT):
     try:
         from datetime import date
 
-        from tradingagents.default_config import DEFAULT_CONFIG
         from titanium.deliberation import GraphDeliberator
+        from tradingagents.default_config import DEFAULT_CONFIG
         # La date de trade borne le cache du graphe : une note du jour ne
         # doit pas resservir demain.
         cfg = DEFAULT_CONFIG.copy()
@@ -303,6 +301,71 @@ def _traiter(d):
     return d, avis_local, time.time() - t0, ("glm-local",)
 
 
+def _traiter_lot(demandes):
+    """Analyse plusieurs entrées dans un seul appel GLM strictement lié."""
+    from titanium.fundamental_intelligence import analyse_batch
+
+    demandes = list(demandes)
+    if not demandes:
+        return []
+    t0 = time.time()
+    identities = [demande.sceller() for demande in demandes]
+    payloads = [
+        {
+            "symbol": demande.symbol,
+            "side": demande.side,
+            "mechanical_summary": demande.resume(),
+            "decision_ref": identity.decision_ref,
+            "context_digest": identity.context_digest,
+            "model_version": identity.model_version,
+            "prompt_version": identity.prompt_version,
+        }
+        for demande, identity in zip(demandes, identities, strict=True)
+    ]
+    with _GLM_LOCK:
+        results = analyse_batch(payloads)
+    elapsed = time.time() - t0
+    out = []
+    for demande, identity, result in zip(demandes, identities, results, strict=True):
+        action = str(result.get("action", "WAIT")).upper()
+        confidence = float(result.get("confidence", 0.0) or 0.0)
+        avis_local = Avis(
+            symbol=demande.symbol,
+            side=demande.side,
+            conviction=max(0.0, min(1.0, confidence)),
+            rating=action,
+            accord=(action == "ALLOW"),
+            resume=str(result.get("summary", ""))[:500],
+            bar_time=demande.bar_time,
+            source="glm-local-multisource",
+            action=action,
+            sources=list(result.get("sources", ())),
+            decision_ref=identity.decision_ref,
+            context_digest=identity.context_digest,
+            evidence_digest=str(result.get("evidence_digest", "")),
+            model_version=str(result.get("model_version", identity.model_version)),
+            prompt_version=str(result.get("prompt_version", identity.prompt_version)),
+        )
+        avis_local.rendu_a = datetime.now(timezone.utc).isoformat()
+        proposal = {
+            **identity.to_dict(),
+            "evidence_digest": avis_local.evidence_digest,
+            "action": avis_local.action,
+            "confidence": avis_local.conviction,
+            "summary": avis_local.resume,
+            "sources": avis_local.sources,
+            "rendered_at": avis_local.rendu_a,
+        }
+        try:
+            CENTRAL_MEMORY.record_proposal(identity, proposal)
+        except Exception as exc:  # noqa: BLE001 - le moteur restera en WAIT
+            CENTRAL_MEMORY.alert(
+                "BRAIN_PROPOSAL_WRITE_FAILED", identity, type(exc).__name__,
+            )
+        out.append((demande, avis_local, elapsed, ("glm-local-batch",)))
+    return out
+
+
 def _traiter_positions() -> int:
     """Traite en priorite un petit lot de positions dans un seul appel GLM."""
     from titanium.fundamental_intelligence import analyse_positions
@@ -342,33 +405,26 @@ def passage(_inutilise=None) -> int:
               "restent en file, aucune n'est perdue.", flush=True)
         return n_positions
 
-    en_attente = demandes_en_attente(DEMANDES, AVIS)
+    en_attente = demandes_en_attente(
+        DEMANDES, AVIS, maxi=ENTRY_BATCH_SIZE,
+    )
     if not en_attente:
         return n_positions
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     n = 0
-    # Les délibérations sont menées de front : ce sont des attentes réseau.
-    # En séquentiel, le débit plafonnait à 31/heure pour 54 dépôts.
-    with ThreadPoolExecutor(max_workers=PARALLELE) as pool:
-        futurs = {pool.submit(_traiter, d): d for d in en_attente}
-        for futur in as_completed(futurs):
-            if _stop:
-                for restant in futurs:
-                    restant.cancel()
-                break
-            d, avis, duree, analystes = futur.result()
-            enregistrer(avis, AVIS)
-            journaliser_cout(d.symbol, _classe_pour(d.symbol), analystes,
-                             duree, avis.rating, avis.source)
-            n += 1
-            accord = {True: "d'accord", False: "EN DÉSACCORD",
-                      None: "sans direction"}[avis.accord]
-            print(f"  {d.symbol:10} {d.piliers}/{d.total_piliers} piliers · "
-                  f"{'+'.join(analystes)} → {avis.rating or 'sans note'} · "
-                  f"conviction {avis.conviction:.2f} · {accord} "
-                  f"({duree:.0f} s)", flush=True)
+    for d, avis, duree, analystes in _traiter_lot(en_attente):
+        if _stop:
+            break
+        enregistrer(avis, AVIS)
+        journaliser_cout(d.symbol, _classe_pour(d.symbol), analystes,
+                         duree, avis.rating, avis.source)
+        n += 1
+        accord = {True: "d'accord", False: "EN DÉSACCORD",
+                  None: "sans direction"}[avis.accord]
+        print(f"  {d.symbol:10} {d.piliers}/{d.total_piliers} piliers · "
+              f"{'+'.join(analystes)} → {avis.rating or 'sans note'} · "
+              f"conviction {avis.conviction:.2f} · {accord} "
+              f"({duree:.0f} s pour {len(en_attente)} avis)", flush=True)
     return n + n_positions
 
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+import pytest
+
 from titanium import fundamental_intelligence as fi
 from titanium.avis import Demande
 from titanium.live_memory import MemoryVerdict, ReplayEdgeMemory
@@ -59,6 +61,112 @@ def test_replay_memory_blocks_three_recent_losses(tmp_path):
 def test_fundamental_analysis_waits_when_evidence_is_insufficient(monkeypatch):
     monkeypatch.setattr(fi, "collect", lambda _symbol: [fi.Evidence("one", "fact")])
     assert fi.analyse("EURUSD", 1, "setup")["action"] == "WAIT"
+
+
+def test_json_object_accepte_un_objet_complet_et_refuse_la_troncature():
+    assert fi._json_object('préface {"action":"ALLOW"} fin') == {
+        "action": "ALLOW",
+    }
+    assert fi._json_object('```json\n{"action":"WAIT"}\n```') == {
+        "action": "WAIT",
+    }
+    with pytest.raises(json.JSONDecodeError):
+        fi._json_object('{"action":"ALLOW"')
+
+
+def test_fundamental_batch_impose_le_schema_et_rattache_chaque_reference(
+    monkeypatch,
+):
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def read():
+            answer = {
+                "verdicts": [
+                    {"decision_ref": "ref-b", "action": "BLOCK",
+                     "confidence": 0.9, "summary": "choc"},
+                    {"decision_ref": "ref-a", "action": "ALLOW",
+                     "confidence": 0.7, "summary": "neutre"},
+                ],
+            }
+            return json.dumps({"response": json.dumps(answer)}).encode()
+
+    def fake_urlopen(request, **_kwargs):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(
+        fi, "collect",
+        lambda _symbol: [fi.Evidence("source-a", "a"), fi.Evidence("source-b", "b")],
+    )
+    monkeypatch.setattr(fi.urllib.request, "urlopen", fake_urlopen)
+    requests = [
+        {"symbol": "EURUSD", "side": 1, "mechanical_summary": "setup",
+         "decision_ref": "ref-a"},
+        {"symbol": "BTCUSD", "side": -1, "mechanical_summary": "setup",
+         "decision_ref": "ref-b"},
+    ]
+    results = fi.analyse_batch(requests)
+
+    assert [row["action"] for row in results] == ["ALLOW", "BLOCK"]
+    assert isinstance(captured["format"], dict)
+    assert captured["options"]["num_predict"] > 60
+    verdict_schema = captured["format"]["properties"]["verdicts"]
+    assert verdict_schema["minItems"] == 2
+    assert verdict_schema["maxItems"] == 2
+    enum = verdict_schema["items"][
+        "properties"
+    ]["decision_ref"]["enum"]
+    assert enum == ["ref-a", "ref-b"]
+
+
+def test_fundamental_batch_tronque_reste_wait_et_journalise(monkeypatch):
+    failures = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def read():
+            return json.dumps({
+                "response": '{"verdicts":[',
+                "done_reason": "length",
+                "eval_count": 60,
+            }).encode()
+
+    monkeypatch.setattr(
+        fi, "collect",
+        lambda _symbol: [fi.Evidence("source-a", "a"), fi.Evidence("source-b", "b")],
+    )
+    monkeypatch.setattr(fi.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(
+        fi, "_record_glm_failure",
+        lambda context, raw, outer, exc: failures.append(
+            (context, raw, outer.get("done_reason"), type(exc).__name__)
+        ),
+    )
+
+    result = fi.analyse_batch([
+        {"symbol": "EURUSD", "side": 1, "mechanical_summary": "setup",
+         "decision_ref": "truncated-ref"},
+    ])[0]
+
+    assert result["action"] == "WAIT"
+    assert "JSONDecodeError" in result["summary"]
+    assert failures == [(
+        "entry-batch:truncated-ref", '{"verdicts":[', "length", "JSONDecodeError",
+    )]
 
 
 def test_demo_engine_retablit_be_sans_trailing_et_active_sorties_adaptatives():
@@ -200,3 +308,45 @@ def test_worker_returns_proposal_to_same_central_identity(tmp_path, monkeypatch)
     assert code == "BRAIN_PROPOSAL_EXACT"
     assert proposal["confidence"] == 0.66
     assert avis.decision_ref == identity.decision_ref
+
+
+def test_worker_batch_publie_chaque_proposition_sous_sa_reference(
+    tmp_path, monkeypatch,
+):
+    from tools import analystes
+
+    memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
+    monkeypatch.setattr(analystes, "CENTRAL_MEMORY", memory)
+
+    def fake_batch(payloads):
+        return [
+            {
+                "action": "ALLOW",
+                "confidence": 0.6 + index / 10,
+                "summary": payload["symbol"],
+                "sources": ["FRED", "ECB"],
+                "evidence_digest": str(index + 1) * 64,
+                "model_version": payload["model_version"],
+                "prompt_version": payload["prompt_version"],
+            }
+            for index, payload in enumerate(payloads)
+        ]
+
+    monkeypatch.setattr(fi, "analyse_batch", fake_batch)
+    demandes = [
+        Demande(
+            symbol, 1, verdict="ENTER", code="OK", piliers=3,
+            famille="continuation", bar_time="2026-08-27T12:00:00+00:00",
+            engine_context=f"{symbol}|long|continuation|3p",
+        )
+        for symbol in ("EURUSD", "BTCUSD")
+    ]
+
+    results = analystes._traiter_lot(demandes)
+
+    assert [row[1].symbol for row in results] == ["EURUSD", "BTCUSD"]
+    assert [row[1].conviction for row in results] == [0.6, 0.7]
+    for demande in demandes:
+        proposal, code = memory.proposal_for(demande.sceller())
+        assert code == "BRAIN_PROPOSAL_EXACT"
+        assert proposal["summary"] == demande.symbol

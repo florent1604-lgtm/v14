@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -56,7 +55,7 @@ def test_timeout_env_overlay(monkeypatch):
 
 
 @pytest.mark.unit
-def test_analyst_worker_publishes_fast_result_first(monkeypatch, tmp_path):
+def test_analyst_worker_publishes_one_glm_batch(monkeypatch, tmp_path):
     import tools.analystes as worker
     from titanium.avis import Avis
 
@@ -70,17 +69,29 @@ def test_analyst_worker_publishes_fast_result_first(monkeypatch, tmp_path):
     monkeypatch.setattr(worker, "AVIS", tmp_path / "avis.ndjson")
     monkeypatch.setattr(worker, "purger", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr(worker, "quota_epuise", lambda: 0.0)
-    monkeypatch.setattr(worker, "demandes_en_attente", lambda *_args: [slow, fast])
+    monkeypatch.setattr(
+        worker, "demandes_en_attente", lambda *_args, **_kwargs: [slow, fast],
+    )
     monkeypatch.setattr(worker, "journaliser_cout", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(worker, "enregistrer", lambda avis, _path: published.append(avis.symbol))
 
-    def traiter(demande):
-        time.sleep(0.08 if demande.symbol == "SLOW" else 0.01)
-        avis = Avis(demande.symbol, 1, 0.5, "Hold", None, "",
-                    demande.bar_time, "", "graphe")
-        return demande, avis, 0.01, ("market",)
+    seen = []
 
-    monkeypatch.setattr(worker, "_traiter", traiter)
+    def traiter_lot(demandes):
+        seen.append([demande.symbol for demande in demandes])
+        return [
+            (
+                demande,
+                Avis(demande.symbol, 1, 0.5, "Hold", None, "",
+                     demande.bar_time, "", "graphe"),
+                0.01,
+                ("glm-local-batch",),
+            )
+            for demande in demandes
+        ]
+
+    monkeypatch.setattr(worker, "_traiter_lot", traiter_lot)
 
     assert worker.passage() == 2
-    assert published == ["FAST", "SLOW"]
+    assert seen == [["SLOW", "FAST"]]
+    assert published == ["SLOW", "FAST"]

@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 from titanium.organism.contracts import (
     MODEL_VERSION,
@@ -211,80 +212,303 @@ def collect(symbol: str) -> list[Evidence]:
 
 
 def _json_object(text: str) -> dict:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    return json.loads(match.group(0) if match else text)
+    """Extract the first complete JSON object without accepting truncation.
+
+    GLM4 may wrap an otherwise valid object in prose or a Markdown fence.  A
+    greedy regular expression joined several objects and hid the real parse
+    error; ``raw_decode`` stops exactly at the first complete object.
+    """
+    cleaned = str(text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    try:
+        value = json.loads(cleaned)
+        if isinstance(value, dict):
+            return value
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(cleaned):
+        if char != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(cleaned[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    raise json.JSONDecodeError("aucun objet JSON complet", cleaned, 0)
+
+
+def _record_glm_failure(context: str, raw: str, outer: dict, exc: Exception) -> None:
+    """Persist a bounded, secret-free diagnostic when local GLM is invalid."""
+    try:
+        path = Path(__file__).resolve().parent.parent / "results" / "glm_failures.ndjson"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "at": datetime_now_utc(),
+            "context": context[:160],
+            "error": type(exc).__name__,
+            "done_reason": str(outer.get("done_reason", ""))[:40],
+            "eval_count": int(outer.get("eval_count", 0) or 0),
+            "response": str(raw or "")[:1200],
+        }
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 - -- diagnostics never break the gate
+        pass
+
+
+def _ollama_json(*, prompt: str, schema: dict, model: str,
+                 num_predict: int, timeout: float, context: str) -> dict:
+    """Call local Ollama with a strict schema and return one JSON object."""
+    body = json.dumps({
+        "model": model,
+        "stream": False,
+        "format": schema,
+        "prompt": prompt,
+        "keep_alive": -1,
+        "options": {
+            "temperature": 0,
+            "num_predict": int(num_predict),
+            "num_ctx": 2048,
+        },
+    }).encode()
+    outer: dict = {}
+    raw = ""
+    try:
+        request = urllib.request.Request(
+            "http://127.0.0.1:11434/api/generate",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            outer = json.loads(response.read())
+        raw = str(outer.get("response", ""))
+        return _json_object(raw)
+    except Exception as exc:
+        _record_glm_failure(context, raw, outer, exc)
+        raise
+
+
+def _entry_answer(result: dict, *, evidence: list[Evidence],
+                  evidence_digest: str, model_version: str,
+                  prompt_version: str) -> dict:
+    action = str(result.get("action", "WAIT")).upper()
+    if action not in {"ALLOW", "WAIT", "BLOCK"}:
+        action = "WAIT"
+    try:
+        confidence = max(0.0, min(1.0, float(result.get("confidence", 0.0))))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {
+        "action": action,
+        "confidence": confidence,
+        "summary": str(result.get("summary", ""))[:240],
+        "sources": sorted({item.source for item in evidence}),
+        "evidence_digest": evidence_digest,
+        "model_version": model_version,
+        "prompt_version": prompt_version,
+    }
+
+
+def analyse_batch(requests: list[dict]) -> list[dict]:
+    """Analyse several entry candidates in one GLM generation.
+
+    Collection remains parallel and cached.  Every candidate keeps its sealed
+    reference; a missing, duplicated or malformed verdict becomes ``WAIT``.
+    """
+    if not requests:
+        return []
+
+    prepared: list[dict] = []
+    answers: dict[str, dict] = {}
+    unique_symbols = list(dict.fromkeys(str(row.get("symbol", "")) for row in requests))
+    with ThreadPoolExecutor(max_workers=min(4, len(unique_symbols) or 1)) as pool:
+        evidence_by_symbol = dict(zip(
+            unique_symbols, pool.map(collect, unique_symbols), strict=False,
+        ))
+
+    for index, row in enumerate(requests):
+        symbol = str(row.get("symbol", ""))
+        side = int(row.get("side", 0) or 0)
+        model_version = str(row.get("model_version", MODEL_VERSION) or MODEL_VERSION)
+        prompt_version = str(row.get("prompt_version", PROMPT_VERSION) or PROMPT_VERSION)
+        decision_ref = str(row.get("decision_ref", "")) or digest({
+            "index": index,
+            "symbol": symbol,
+            "side": side,
+            "context_digest": str(row.get("context_digest", "")),
+            "mechanical_summary": str(row.get("mechanical_summary", "")),
+            "model_version": model_version,
+            "prompt_version": prompt_version,
+        })
+        cached = _ANALYSIS_CACHE.get(decision_ref)
+        if cached and time.time() - cached[0] < _TTL_S:
+            answers[decision_ref] = dict(cached[1])
+            continue
+        evidence = list(evidence_by_symbol.get(symbol, []))
+        evidence_payload = [
+            {"source": item.source, "text": item.text,
+             "observed_at": item.observed_at}
+            for item in _balanced(evidence, limit=4)
+        ]
+        evidence_digest = digest({"evidence": evidence_payload})
+        common = {
+            "decision_ref": decision_ref,
+            "symbol": symbol,
+            "side": side,
+            "mechanical_summary": str(row.get("mechanical_summary", ""))[:240],
+            "model_version": model_version,
+            "prompt_version": prompt_version,
+            "evidence": evidence,
+            "evidence_payload": evidence_payload,
+            "evidence_digest": evidence_digest,
+        }
+        if len(evidence) < 2:
+            answers[decision_ref] = _entry_answer(
+                {"action": "WAIT", "confidence": 0.0,
+                 "summary": "preuves fondamentales insuffisantes"},
+                evidence=evidence,
+                evidence_digest=evidence_digest,
+                model_version=model_version,
+                prompt_version=prompt_version,
+            )
+        else:
+            prepared.append(common)
+
+    if prepared:
+        refs = [item["decision_ref"] for item in prepared]
+        schema = {
+            "type": "object",
+            "properties": {
+                "verdicts": {
+                    "type": "array",
+                    "minItems": len(refs),
+                    "maxItems": len(refs),
+                    "uniqueItems": True,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "decision_ref": {"type": "string", "enum": refs},
+                            "action": {
+                                "type": "string", "enum": ["ALLOW", "WAIT", "BLOCK"],
+                            },
+                            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                            "summary": {"type": "string"},
+                        },
+                        "required": ["decision_ref", "action", "confidence", "summary"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["verdicts"],
+            "additionalProperties": False,
+        }
+        lines = [
+            "Tu es la porte fondamentale d'un bot MT5 DEMO.",
+            "Retourne uniquement l'objet JSON conforme au schema.",
+            "Un verdict exactement par decision_ref, sans doublon.",
+            "ALLOW si au moins deux sources recentes ne contredisent pas explicitement le sens.",
+            "L'absence de nouvelle directionnelle est neutre: ALLOW, pas WAIT.",
+            "WAIT ou BLOCK seulement pour conflit explicite, donnees perimees ou choc evenementiel.",
+            "N'invente aucun fait. Resume en francais, 100 caracteres maximum.",
+        ]
+        for item in prepared:
+            direction = "long" if item["side"] > 0 else "short"
+            lines.append(
+                f"CANDIDAT {item['decision_ref']} {item['symbol']} {direction} "
+                f"MECANIQUE {item['mechanical_summary']}"
+            )
+            for fact in item["evidence_payload"]:
+                lines.append(
+                    f"FAIT {fact['source']} {fact['observed_at']} {fact['text'][:120]}"
+                )
+        try:
+            parsed = _ollama_json(
+                prompt="\n".join(lines),
+                schema=schema,
+                model=prepared[0]["model_version"],
+                num_predict=min(700, 70 + 70 * len(prepared)),
+                timeout=240,
+                context=f"entry-batch:{','.join(refs)}",
+            )
+            raw_verdicts = parsed.get("verdicts", [])
+            if not isinstance(raw_verdicts, list):
+                raw_verdicts = []
+            seen: set[str] = set()
+            by_ref: dict[str, dict] = {}
+            for row in raw_verdicts:
+                if not isinstance(row, dict):
+                    continue
+                ref = str(row.get("decision_ref", ""))
+                if ref in refs and ref not in seen:
+                    by_ref[ref] = row
+                    seen.add(ref)
+            missing = [ref for ref in refs if ref not in by_ref]
+            if missing:
+                _record_glm_failure(
+                    f"entry-batch-missing:{','.join(missing)}",
+                    json.dumps(parsed, ensure_ascii=False),
+                    {},
+                    ValueError("verdict GLM absent ou duplique"),
+                )
+            for item in prepared:
+                raw = by_ref.get(item["decision_ref"], {
+                    "action": "WAIT",
+                    "confidence": 0.0,
+                    "summary": "verdict GLM absent ou non lie",
+                })
+                answer = _entry_answer(
+                    raw,
+                    evidence=item["evidence"],
+                    evidence_digest=item["evidence_digest"],
+                    model_version=item["model_version"],
+                    prompt_version=item["prompt_version"],
+                )
+                answers[item["decision_ref"]] = answer
+                _ANALYSIS_CACHE[item["decision_ref"]] = (time.time(), answer)
+        except Exception as exc:  # noqa: BLE001 -- every candidate fails closed
+            for item in prepared:
+                answers[item["decision_ref"]] = _entry_answer(
+                    {"action": "WAIT", "confidence": 0.0,
+                     "summary": f"GLM local indisponible: {type(exc).__name__}"},
+                    evidence=item["evidence"],
+                    evidence_digest=item["evidence_digest"],
+                    model_version=item["model_version"],
+                    prompt_version=item["prompt_version"],
+                )
+
+    ordered = []
+    for index, row in enumerate(requests):
+        ref = str(row.get("decision_ref", "")) or digest({
+            "index": index,
+            "symbol": str(row.get("symbol", "")),
+            "side": int(row.get("side", 0) or 0),
+            "context_digest": str(row.get("context_digest", "")),
+            "mechanical_summary": str(row.get("mechanical_summary", "")),
+            "model_version": str(row.get("model_version", MODEL_VERSION) or MODEL_VERSION),
+            "prompt_version": str(row.get("prompt_version", PROMPT_VERSION) or PROMPT_VERSION),
+        })
+        ordered.append(dict(answers[ref]))
+    return ordered
 
 
 def analyse(symbol: str, side: int, mechanical_summary: str, *,
             decision_ref: str = "", context_digest: str = "",
             model_version: str = MODEL_VERSION,
             prompt_version: str = PROMPT_VERSION) -> dict:
-    cache_key = decision_ref or digest({
-        "symbol": symbol, "side": side, "context_digest": context_digest,
-        "mechanical_summary": mechanical_summary,
-        "model_version": model_version, "prompt_version": prompt_version,
-    })
-    cached = _ANALYSIS_CACHE.get(cache_key)
-    if cached and time.time() - cached[0] < _TTL_S:
-        return dict(cached[1])
-    evidence = collect(symbol)
-    evidence_payload = [
-        {"source": item.source, "text": item.text,
-         "observed_at": item.observed_at} for item in _balanced(evidence)
-    ]
-    evidence_digest = digest({"evidence": evidence_payload})
-    if len(evidence) < 2:
-        return {"action": "WAIT", "confidence": 0.0,
-                "summary": "preuves fondamentales insuffisantes",
-                "sources": [e.source for e in evidence],
-                "evidence_digest": evidence_digest,
-                "model_version": model_version,
-                "prompt_version": prompt_version}
-    prompt = {
-        "role": "MT5 DEMO entry risk gate. JSON only.",
-        "prompt_version": prompt_version,
-        "rules": "ALLOW when at least two fresh sources do not explicitly contradict the side. "
-                 "Lack of directional news alone is neutral and means ALLOW, not WAIT. "
-                 "Use WAIT/BLOCK only for an explicit conflict, stale data, or event shock. "
-                 "Never invent facts, create orders, or change stop-loss.",
+    return analyse_batch([{
         "symbol": symbol,
-        "mechanical_side": "long" if side > 0 else "short",
-        "mechanical_summary": mechanical_summary[:500],
-        "evidence": [{**item, "text": item["text"][:180]}
-                     for item in evidence_payload],
-        "schema": {"action": "ALLOW|WAIT|BLOCK", "confidence": "0..1",
-                   "summary": "French, max 240 chars"},
-    }
-    body = json.dumps({"model": model_version, "stream": False,
-                       "format": "json", "prompt": json.dumps(prompt),
-                       "keep_alive": -1,
-                       "options": {"temperature": 0, "num_predict": 60,
-                                   "num_ctx": 2048}}).encode()
-    try:
-        req = urllib.request.Request("http://127.0.0.1:11434/api/generate",
-                                     data=body, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=90) as response:
-            outer = json.loads(response.read())
-        result = _json_object(str(outer.get("response", "")))
-        action = str(result.get("action", "WAIT")).upper()
-        if action not in {"ALLOW", "WAIT", "BLOCK"}:
-            action = "WAIT"
-        answer = {"action": action,
-                  "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
-                  "summary": str(result.get("summary", ""))[:240],
-                  "sources": sorted({e.source for e in evidence}),
-                  "evidence_digest": evidence_digest,
-                  "model_version": model_version,
-                  "prompt_version": prompt_version}
-        _ANALYSIS_CACHE[cache_key] = (time.time(), answer)
-        return answer
-    except Exception as exc:  # noqa: BLE001
-        return {"action": "WAIT", "confidence": 0.0,
-                "summary": f"GLM local indisponible: {type(exc).__name__}",
-                "sources": sorted({e.source for e in evidence}),
-                "evidence_digest": evidence_digest,
-                "model_version": model_version,
-                "prompt_version": prompt_version}
+        "side": side,
+        "mechanical_summary": mechanical_summary,
+        "decision_ref": decision_ref,
+        "context_digest": context_digest,
+        "model_version": model_version,
+        "prompt_version": prompt_version,
+    }])[0]
 
 
 def analyse_positions(reviews: list[dict], *,

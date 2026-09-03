@@ -68,6 +68,7 @@ def test_analyst_worker_publishes_one_glm_batch(monkeypatch, tmp_path):
     monkeypatch.setattr(worker, "DEMANDES", tmp_path / "demandes.ndjson")
     monkeypatch.setattr(worker, "AVIS", tmp_path / "avis.ndjson")
     monkeypatch.setattr(worker, "purger", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(worker, "_traiter_positions", lambda: 0)
     monkeypatch.setattr(worker, "quota_epuise", lambda: 0.0)
     monkeypatch.setattr(
         worker, "demandes_en_attente", lambda *_args, **_kwargs: [slow, fast],

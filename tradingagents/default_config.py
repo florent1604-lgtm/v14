@@ -45,6 +45,10 @@ _ENV_OVERRIDES = {
     "MANAGE_BREAKEVEN_R":      "manage_breakeven_r",
     "MANAGE_TRAIL_START_R":    "manage_trail_start_r",
     "MANAGE_TRAIL_DIST_R":     "manage_trail_dist_r",
+    "MANAGE_EXIT_ARM_R":       "manage_exit_arm_r",
+    "MANAGE_EXIT_MIN_LOCK_R":  "manage_exit_min_lock_r",
+    "MANAGE_EXIT_GIVEBACK_R":  "manage_exit_max_giveback_r",
+    "MANAGE_EXIT_RETENTION":   "manage_exit_min_retention",
 }
 
 
@@ -227,6 +231,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "manage_breakeven_r": 0.8,
     "manage_trail_start_r": 1.2,
     "manage_trail_dist_r": 0.8,
+    "manage_exit_arm_r": 0.8,
+    "manage_exit_min_lock_r": 0.15,
+    "manage_exit_max_giveback_r": 0.60,
+    "manage_exit_min_retention": 0.35,
 
     "benchmark_ticker": None,
     "benchmark_map": {

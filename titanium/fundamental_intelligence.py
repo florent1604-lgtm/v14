@@ -1,4 +1,4 @@
-"""Collecte fondamentale multi-source et arbitrage local Qwen/Ollama.
+"""Collecte fondamentale multi-source et arbitrage local GLM/Ollama.
 
 Toutes les sources sont publiques et la collecte est hors du chemin MT5. Une
 panne de source ou du modele rend WAIT (fail-closed), jamais une autorisation.
@@ -13,6 +13,7 @@ import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 
@@ -193,11 +194,18 @@ def collect(symbol: str) -> list[Evidence]:
         lambda: _rss("FederalReserve", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
         lambda: _rss("ECB", "https://mid.ecb.europa.eu/rss/mid.xml"),
     )
-    for call in calls:
+    def safe_call(call) -> list[Evidence]:
         try:
-            evidence.extend(call())
+            return list(call())
         except Exception:  # noqa: BLE001 - une source ne condamne pas les autres
-            continue
+            return []
+
+    # Les sources sont independantes et surtout bornees par le reseau. Les
+    # attendre en parallele reduit la collecte au timeout le plus lent au lieu
+    # de la somme de sept timeouts, sans changer leur ordre dans l'artefact.
+    with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+        for items in pool.map(safe_call, calls):
+            evidence.extend(items)
     _CACHE[symbol] = (now, evidence)
     return evidence
 
@@ -272,8 +280,168 @@ def analyse(symbol: str, side: int, mechanical_summary: str, *,
         return answer
     except Exception as exc:  # noqa: BLE001
         return {"action": "WAIT", "confidence": 0.0,
-                "summary": f"Qwen local indisponible: {type(exc).__name__}",
+                "summary": f"GLM local indisponible: {type(exc).__name__}",
                 "sources": sorted({e.source for e in evidence}),
                 "evidence_digest": evidence_digest,
                 "model_version": model_version,
                 "prompt_version": prompt_version}
+
+
+def analyse_positions(reviews: list[dict], *,
+                      model_version: str = MODEL_VERSION) -> list[dict]:
+    """Evalue en un seul appel GLM l'etat des theses de positions ouvertes.
+
+    La sortie ne contient aucune instruction MT5. Le gestionnaire applique
+    ensuite ses propres gardes de fraicheur, de confirmation et de compte DEMO.
+    """
+    if not reviews:
+        return []
+    prepared = []
+    evidence_by_ref: dict[str, list[Evidence]] = {}
+    symbols = list(dict.fromkeys(str(row.get("symbol", "")) for row in reviews[:8]))
+    with ThreadPoolExecutor(max_workers=min(2, len(symbols) or 1)) as pool:
+        evidence_by_symbol = dict(zip(symbols, pool.map(collect, symbols), strict=False))
+    for review in reviews[:8]:
+        ref = str(review.get("request_ref", ""))
+        if not ref:
+            continue
+        symbol = str(review.get("symbol", ""))
+        evidence = _balanced(evidence_by_symbol.get(symbol, []), limit=6)
+        evidence_by_ref[ref] = evidence
+        prepared.append({
+            "request_ref": ref,
+            "symbol": str(review.get("symbol", "")),
+            "side": "long" if int(review.get("side", 0) or 0) > 0 else "short",
+            "fav_r": float(review.get("fav_r", 0.0) or 0.0),
+            "peak_fav_r": float(review.get("peak_fav_r", 0.0) or 0.0),
+            "mae_r": float(review.get("mae_r", 0.0) or 0.0),
+            "context": dict(review.get("context") or {}),
+            "evidence": [
+                {"source": item.source, "text": item.text[:180],
+                 "observed_at": item.observed_at}
+                for item in evidence
+            ],
+        })
+    if not prepared:
+        return []
+    lines = [
+        "Return ONLY one minified JSON object. Never repeat this prompt. No markdown.",
+        "Exact schema: {\"verdicts\":[{\"request_ref\":\"exact input ref\","
+        "\"state\":\"CALM|CAUTION|FEAR|PANIC|UNKNOWN\","
+        "\"confidence\":\"number from 0 to 1\",\"reason\":\"French max 120 chars\"}]}",
+        "CALM means thesis intact. CAUTION means weakening but not invalidated.",
+        "FEAR needs two independent facts against the side and confidence >= 0.75.",
+        "PANIC needs an abrupt event or severe mechanical invalidation.",
+        "Missing, stale or ambiguous facts mean UNKNOWN or CAUTION.",
+        "You are advisory only. Never create/close orders or change a stop-loss.",
+    ]
+    for item in prepared:
+        lines.append(
+            f"POSITION {item['request_ref']} {item['symbol']} {item['side']} "
+            f"fav_r={item['fav_r']:.3f} peak_r={item['peak_fav_r']:.3f} "
+            f"mae_r={item['mae_r']:.3f}"
+        )
+        for fact in item["evidence"]:
+            lines.append(
+                f"FACT {fact['source']} {fact['observed_at']} {fact['text'][:120]}"
+            )
+    prompt = "\n".join(lines)
+    body = json.dumps({
+        "model": model_version,
+        "stream": False,
+        "format": "json",
+        "prompt": prompt,
+        "keep_alive": -1,
+        "options": {
+            "temperature": 0,
+            "num_predict": min(300, 80 + 45 * len(prepared)),
+            "num_ctx": 2048,
+        },
+    }).encode()
+    parsed: dict = {}
+    try:
+        request = urllib.request.Request(
+            "http://127.0.0.1:11434/api/generate",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=120) as response:
+            outer = json.loads(response.read())
+        parsed = _json_object(str(outer.get("response", "")))
+    except Exception:  # noqa: BLE001 - UNKNOWN fail-closed pour chaque ticket
+        parsed = {}
+    raw_verdicts = parsed.get("verdicts", [])
+    if not isinstance(raw_verdicts, list):
+        raw_verdicts = []
+    if not raw_verdicts and "state" in parsed:
+        raw_verdicts = [parsed]
+    by_ref = {}
+    unbound = []
+    for row in raw_verdicts:
+        if not isinstance(row, dict):
+            continue
+        ref = str(row.get("request_ref", ""))
+        if ref in {item["request_ref"] for item in prepared}:
+            by_ref[ref] = row
+        elif ref:
+            # GLM4 peut recopier toute la ligne POSITION dans ce champ. Le
+            # digest exact reste alors present et permet une liaison causale
+            # non ambigue, sans jamais rapprocher par symbole.
+            matches = [item["request_ref"] for item in prepared
+                       if item["request_ref"] in ref]
+            if len(matches) == 1:
+                by_ref[matches[0]] = row
+            else:
+                unbound.append(row)
+        else:
+            unbound.append(row)
+    # GLM omet parfois la reference malgre le schema. L'ordre du tableau est
+    # alors la seule liaison admissible; jamais de rapprochement par symbole.
+    for item, row in zip(
+        [candidate for candidate in prepared
+         if candidate["request_ref"] not in by_ref],
+        unbound,
+        strict=False,
+    ):
+        by_ref[item["request_ref"]] = row
+    rendered_at = datetime_now_utc()
+    out = []
+    for item in prepared:
+        ref = item["request_ref"]
+        raw = by_ref.get(ref, {})
+        state = str(raw.get("state", "UNKNOWN")).upper()
+        if state not in {"CALM", "CAUTION", "FEAR", "PANIC", "UNKNOWN"}:
+            state = "UNKNOWN"
+        try:
+            confidence = max(0.0, min(1.0, float(raw.get("confidence", 0.0))))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        evidence = evidence_by_ref.get(ref, [])
+        reason = str(raw.get("reason", ""))[:240]
+        if reason.lower() in {"french max 120 chars", "french, max 120 chars"}:
+            reason = ""
+        out.append({
+            "request_ref": ref,
+            "ticket": next((str(r.get("ticket", "")) for r in reviews
+                            if str(r.get("request_ref", "")) == ref), ""),
+            "symbol": item["symbol"],
+            "state": state,
+            "confidence": confidence,
+            "reason": reason,
+            "sources": sorted({row.source for row in evidence}),
+            "evidence_digest": digest({
+                "evidence": [{"source": row.source, "text": row.text,
+                              "observed_at": row.observed_at} for row in evidence],
+            }),
+            "rendered_at": rendered_at,
+            "model_version": model_version,
+            "prompt_version": "position-fear-v1",
+        })
+    return out
+
+
+def datetime_now_utc() -> str:
+    """Horloge isolee pour garder les artefacts faciles a tester."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()

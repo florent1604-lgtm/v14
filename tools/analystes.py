@@ -45,6 +45,8 @@ from tools.console_output import configure_console_output  # noqa: E402
 
 DEMANDES = RACINE / "results" / "avis_demandes.ndjson"
 AVIS = RACINE / "results" / "avis_rendus.ndjson"
+POSITION_REQUESTS = RACINE / "results" / "position_review_requests.ndjson"
+POSITION_VERDICTS = RACINE / "results" / "position_review_verdicts.ndjson"
 CENTRAL_MEMORY = CentralMemory(
     RACINE / "results" / "organism_memory.sqlite3",
     RACINE / "results" / "organism_alerts.ndjson",
@@ -74,7 +76,7 @@ ANALYSTES_DEFAUT = ("market", "news")
 #: Quatre suffisent à passer de 31 à ~120 avis/heure, au-dessus des
 #: 54 dépôts/heure mesurés.
 PARALLELE = 4
-_QWEN_LOCK = threading.Lock()
+_GLM_LOCK = threading.Lock()
 
 # Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de
 # trading et toute valeur explicite de configuration reste prioritaire.
@@ -260,7 +262,7 @@ def _traiter(d):
     # Le pool conserve la publication "le plus rapide d'abord" et sa
     # tolerance aux futures sources reseau. Le modele local CPU, lui, reste
     # serialise pour eviter quatre generations concurrentes qui se bloquent.
-    with _QWEN_LOCK:
+    with _GLM_LOCK:
         result = analyse(
             d.symbol, d.side, d.resume(),
             decision_ref=identity.decision_ref,
@@ -275,7 +277,7 @@ def _traiter(d):
         conviction=max(0.0, min(1.0, confidence)),
         rating=action, accord=(action == "ALLOW"),
         resume=str(result.get("summary", ""))[:500],
-        bar_time=d.bar_time, source="qwen-local-multisource",
+        bar_time=d.bar_time, source="glm-local-multisource",
         action=action, sources=list(result.get("sources", ())),
         decision_ref=identity.decision_ref,
         context_digest=identity.context_digest,
@@ -298,7 +300,29 @@ def _traiter(d):
     except Exception as exc:  # noqa: BLE001 - le moteur restera en WAIT
         CENTRAL_MEMORY.alert("BRAIN_PROPOSAL_WRITE_FAILED", identity,
                              type(exc).__name__)
-    return d, avis_local, time.time() - t0, ("qwen-local",)
+    return d, avis_local, time.time() - t0, ("glm-local",)
+
+
+def _traiter_positions() -> int:
+    """Traite en priorite un petit lot de positions dans un seul appel GLM."""
+    from titanium.fundamental_intelligence import analyse_positions
+    from titanium.position_sentiment import append_record, pending_reviews
+
+    requests = pending_reviews(POSITION_REQUESTS, POSITION_VERDICTS, limit=8)
+    if not requests:
+        return 0
+    with _GLM_LOCK:
+        verdicts = analyse_positions(requests)
+    written = 0
+    for verdict in verdicts:
+        written += int(append_record(POSITION_VERDICTS, verdict))
+        print(
+            f"  position {verdict.get('symbol', '?'):10} "
+            f"#{verdict.get('ticket', '?')} -> {verdict.get('state', 'UNKNOWN')} "
+            f"({float(verdict.get('confidence', 0.0) or 0.0):.2f})",
+            flush=True,
+        )
+    return written
 
 
 def passage(_inutilise=None) -> int:
@@ -308,15 +332,19 @@ def passage(_inutilise=None) -> int:
     if jetees:
         print(f"  {jetees} demande(s) périmée(s) écartée(s)", flush=True)
 
+    # Les positions ouvertes sont prioritaires : leur fenetre de decision est
+    # plus courte qu'une nouvelle entree. Un lot unique evite de saturer GLM.
+    n_positions = _traiter_positions()
+
     reste = quota_epuise()
     if reste:
         print(f"  quota épuisé — reprise dans {reste:.0f} s. Les demandes "
               "restent en file, aucune n'est perdue.", flush=True)
-        return 0
+        return n_positions
 
     en_attente = demandes_en_attente(DEMANDES, AVIS)
     if not en_attente:
-        return 0
+        return n_positions
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -341,7 +369,7 @@ def passage(_inutilise=None) -> int:
                   f"{'+'.join(analystes)} → {avis.rating or 'sans note'} · "
                   f"conviction {avis.conviction:.2f} · {accord} "
                   f"({duree:.0f} s)", flush=True)
-    return n
+    return n + n_positions
 
 
 def main() -> int:
@@ -358,8 +386,8 @@ def main() -> int:
     print("═" * 70)
     print(f"  demandes : {DEMANDES}")
     print(f"  avis     : {AVIS}")
-    print("\n  Qwen local confronte les setups aux sources fondamentales.")
-    print("  Il peut autoriser, differer ou bloquer une NOUVELLE entree.\n")
+    print("\n  GLM local confronte les setups et positions aux sources fondamentales.")
+    print("  Il reste consultatif; les gardes deterministes controlent le DEMO.\n")
 
     deliberateur = None
 

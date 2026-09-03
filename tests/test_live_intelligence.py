@@ -61,10 +61,12 @@ def test_fundamental_analysis_waits_when_evidence_is_insufficient(monkeypatch):
     assert fi.analyse("EURUSD", 1, "setup")["action"] == "WAIT"
 
 
-def test_demo_engine_never_moves_existing_stops():
+def test_demo_engine_retablit_be_sans_trailing_et_active_sorties_adaptatives():
     from tools import live_demo
 
-    assert live_demo.MODIFIER_STOPS_EXISTANTS is False
+    assert live_demo.MODIFIER_STOPS_EXISTANTS is True
+    assert live_demo.ACTIVER_TRAILING is False
+    assert live_demo.GERER_SORTIES_ADAPTATIVES is True
 
 
 def test_fred_is_optional_and_asset_aware(monkeypatch):

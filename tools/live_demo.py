@@ -82,10 +82,12 @@ def univers_complet() -> list:
         return list(UNIVERS_SECOURS)
 INTERVALLE = 60.0        # s entre deux balayages
 
-# Instruction operateur du 27/08/2026 : les stops poses a l'ouverture restent
-# immuables. Le gestionnaire continue de journaliser les clotures, mais aucun
-# breakeven ni trailing ne peut modifier le SL chez le courtier.
-MODIFIER_STOPS_EXISTANTS = False
+# Instruction opérateur du 28/08/2026 : rétablir le breakeven, sans réactiver
+# le trailing. Le SL ne bouge qu'une fois vers l'entrée + coûts ; la protection
+# dynamique des gains passe ensuite par une clôture active propre au ticket.
+MODIFIER_STOPS_EXISTANTS = True
+ACTIVER_TRAILING = False
+GERER_SORTIES_ADAPTATIVES = True
 
 #: Actifs examinés PAR TOUR. Le catalogue est parcouru par rotation.
 #:
@@ -166,10 +168,16 @@ MAX_RISQUE_CUMULE_PCT = 6.0
 #: réel n'est plus celui qui a été validé, et le TP est souvent frôlé puis
 #: manqué. Constaté par Florent le 07/08/2026.
 DERIVE_MAX_R = 0.35
-#: Positions simultanées sur UN MÊME actif. Second garde-fou, indépendant de
-#: l'idempotence : si la clé de barre échoue pour une raison quelconque, ce
-#: plafond empêche encore d'empiler trois fois le même risque corrélé.
-MAX_PAR_SYMBOLE = 1
+#: Positions simultanées sur UN MÊME actif. Le plafond seul ne suffit pas :
+#: chaque position supplémentaire doit aussi passer `_autoriser_empilement`.
+#: Trois permet une entrée initiale, un renfort à meilleur prix et, si le
+#: marché invalide le sens, une position de retournement explicitement classée
+#: `reversal`. Le budget global et la grappe corrélée restent prioritaires.
+MAX_PAR_SYMBOLE = 3
+#: Un prix seulement meilleur de quelques ticks est du bruit, pas une nouvelle
+#: opportunité. Le renfort doit améliorer le meilleur prix ouvert d'au moins
+#: 0,10 R, R étant la distance de stop de la nouvelle décision.
+AMELIORATION_ENTREE_MIN_R = 0.10
 
 _POLICY_CODE_SOURCES = (
     "tools/live_demo.py",
@@ -198,6 +206,7 @@ def _decision_policy_identity(execution_mode: str, rr_ratio: float) -> dict[str,
             execution_mode=execution_mode,
             config={
                 "derive_max_r": DERIVE_MAX_R,
+                "amelioration_entree_min_r": AMELIORATION_ENTREE_MIN_R,
                 "htf": HTF,
                 "ltf": LTF,
                 "max_limites_en_attente": MAX_LIMITES_EN_ATTENTE,
@@ -211,6 +220,75 @@ def _decision_policy_identity(execution_mode: str, rr_ratio: float) -> dict[str,
         )
     except (OSError, TypeError, ValueError):
         return {}
+
+
+def _autoriser_empilement(
+    expositions: list[tuple[int, float]],
+    *,
+    side: int,
+    prix: float,
+    stop_distance: float,
+    setup_family: str,
+) -> tuple[bool, str]:
+    """Autorise une position supplémentaire seulement si elle apporte un edge.
+
+    * même sens : le prix doit améliorer le meilleur prix encore ouvert ;
+    * sens opposé : la porte doit avoir classé le setup `reversal` ;
+    * livre déjà mixte ou plafond atteint : refus fail-closed.
+
+    Le SL n'est ni lu ni modifié ici. Le budget global et la grappe corrélée
+    sont contrôlés plus loin, après le dimensionnement exact.
+    """
+    if not expositions:
+        return True, "ACTIF_LIBRE"
+    if len(expositions) >= MAX_PAR_SYMBOLE:
+        return False, "PLAFOND_PAR_SYMBOLE"
+    if side not in (-1, 1):
+        return False, "SENS_INVALIDE"
+    if not (math.isfinite(prix) and prix > 0.0):
+        return False, "PRIX_INVALIDE"
+    if not (math.isfinite(stop_distance) and stop_distance > 0.0):
+        return False, "STOP_DISTANCE_INVALIDE"
+
+    try:
+        valides = [
+            (int(s), float(p)) for s, p in expositions
+            if int(s) in (-1, 1) and math.isfinite(float(p)) and float(p) > 0.0
+        ]
+    except (TypeError, ValueError):
+        return False, "EXPOSITION_INVALIDE"
+    if len(valides) != len(expositions):
+        return False, "EXPOSITION_INVALIDE"
+
+    memes = [p for s, p in valides if s == side]
+    opposees = [p for s, p in valides if s == -side]
+    if memes and opposees:
+        return False, "EXPOSITION_DEJA_MIXTE"
+
+    if opposees:
+        if str(setup_family or "").strip().lower() != "reversal":
+            return False, "SENS_OPPOSE_SANS_RETOURNEMENT"
+        return True, "RETOURNEMENT_CONFIRME"
+
+    meilleur = min(memes) if side > 0 else max(memes)
+    amelioration_r = side * (meilleur - prix) / stop_distance
+    if amelioration_r + 1e-12 < AMELIORATION_ENTREE_MIN_R:
+        return False, f"ENTREE_NON_AMELIOREE_{amelioration_r:.3f}R"
+    return True, f"ENTREE_AMELIOREE_{amelioration_r:.3f}R"
+
+
+def _prix_execution_courant(symbole: str, side: int) -> float | None:
+    """Prix exécutable courant (ask pour achat, bid pour vente), sinon None."""
+    try:
+        import MetaTrader5 as mt5  # noqa: N813
+
+        tick = mt5.symbol_info_tick(symbole)
+        if tick is None:
+            return None
+        prix = float(tick.ask if side > 0 else tick.bid)
+        return prix if math.isfinite(prix) and prix > 0.0 else None
+    except Exception:  # noqa: BLE001 -- une absence de prix refuse l'empilement
+        return None
 
 #: Créneaux réservés à la strate S≥3 parmi MAX_POSITIONS.
 #:
@@ -305,6 +383,8 @@ def battre(stats: dict, *, armer: bool, equity: float = 0.0,
             "intervalle": intervalle,
             "armed": armer,
             "manage_stops": MODIFIER_STOPS_EXISTANTS,
+            "manage_trailing": ACTIVER_TRAILING,
+            "manage_adaptive_exits": GERER_SORTIES_ADAPTATIVES,
             "equity": equity,
             "portables": portables,
             "stats": dict(stats),
@@ -449,7 +529,7 @@ _ZONES: dict = {}
 def _tracer_zones(sym: str, feats: dict, out, cfg, conf=None, budget=None) -> None:
     """Exporte les zones vers MT5. Ne lève jamais — l'affichage n'est pas critique."""
     try:
-        from titanium.bridge.mt5_zones import Plan, ecrire, zones_depuis_features
+        from titanium.bridge.mt5_zones import Plan, zones_depuis_features
         from titanium.gates import confluence_gate
 
         d = confluence_gate.evaluate(feats, require_edge=cfg.require_edge)
@@ -758,7 +838,8 @@ def _demander_fenetres(candidats) -> None:
         import MetaTrader5 as mt5  # noqa: N813
 
         from titanium.bridge.mt5_charts import (
-            demander_fenetres, symboles_actifs,
+            demander_fenetres,
+            symboles_actifs,
         )
         from titanium.bridge.mt5_zones import dossier_mql5_files
 
@@ -778,6 +859,8 @@ def _demander_fenetres(candidats) -> None:
 
 AVIS_DEMANDES = RACINE / "results" / "avis_demandes.ndjson"
 AVIS_RENDUS = RACINE / "results" / "avis_rendus.ndjson"
+POSITION_REVIEW_REQUESTS = RACINE / "results" / "position_review_requests.ndjson"
+POSITION_REVIEW_VERDICTS = RACINE / "results" / "position_review_verdicts.ndjson"
 NOYAU_CENTRAL = CentralMemory(
     RACINE / "results" / "organism_memory.sqlite3",
     RACINE / "results" / "organism_alerts.ndjson",
@@ -1015,7 +1098,9 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
         from datetime import datetime, timezone
 
         from titanium.execution.position_manager import (
-            TrackedState, load_state, save_state,
+            TrackedState,
+            load_state,
+            save_state,
         )
 
         chemin = RACINE / "results" / "positions.json"
@@ -1265,6 +1350,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     ouvertes = 0
     limites_en_attente = 0
     par_symbole: dict[str, int] = {}
+    expositions_par_symbole: dict[str, list[tuple[int, float]]] = {}
     gestion_saine = True
     try:
         import MetaTrader5 as mt5  # noqa: N813
@@ -1272,86 +1358,124 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         from titanium.data.mt5_vendor import mt5_lock, mt5_session
 
         etat = Path(RACINE / "results" / "positions.json")
-        with mt5_lock:
-            with mt5_session():
-                positions_courantes = mt5.positions_get()
-                if positions_courantes is None:
-                    raise RuntimeError(f"positions MT5 indisponibles: {mt5.last_error()}")
-                for p in positions_courantes:
-                    if int(getattr(p, "magic", 0) or 0) != politique.magic:
-                        continue
-                    ouvertes += 1
-                    par_symbole[p.symbol] = par_symbole.get(p.symbol, 0) + 1
-                # Une limite en attente réserve déjà un créneau et du risque.
-                # L'ignorer permettrait d'empiler des ordres qui se
-                # transformeraient tous en positions au même mouvement.
-                ordres_courants = mt5.orders_get()
-                if ordres_courants is None and armer and politique.enabled:
-                    raise RuntimeError(f"ordres MT5 indisponibles: {mt5.last_error()}")
-                for ordre in (ordres_courants or []):
-                    if int(getattr(ordre, "magic", 0) or 0) != politique.magic:
-                        continue
-                    ouvertes += 1
-                    limites_en_attente += 1
-                    par_symbole[ordre.symbol] = par_symbole.get(ordre.symbol, 0) + 1
-                adoption = reconcile_pending_contexts(
-                    mt5, magic=politique.magic, state_path=etat,
-                    pending_path=RACINE / "results" / "pending_limits.json",
-                    lifecycle_path=RACINE / "results" / "limit_lifecycle.ndjson",
-                    positions=positions_courantes,
+        with mt5_lock, mt5_session():
+            positions_courantes = mt5.positions_get()
+            if positions_courantes is None:
+                raise RuntimeError(f"positions MT5 indisponibles: {mt5.last_error()}")
+            for p in positions_courantes:
+                if int(getattr(p, "magic", 0) or 0) != politique.magic:
+                    continue
+                ouvertes += 1
+                par_symbole[p.symbol] = par_symbole.get(p.symbol, 0) + 1
+                side = (1 if int(getattr(p, "type", -1))
+                        == mt5.POSITION_TYPE_BUY else -1)
+                expositions_par_symbole.setdefault(p.symbol, []).append(
+                    (side, float(getattr(p, "price_open", 0.0) or 0.0))
                 )
-                if adoption.get("adopted"):
-                    stats["limites_executees"] = int(
-                        stats.get("limites_executees", 0) or 0
-                    ) + int(adoption["adopted"])
-                    print(f"    limites exécutées : {adoption['adopted']} contexte(s) "
-                          "rattaché(s)", flush=True)
-                if adoption.get("expired"):
-                    stats["limites_expirees"] = int(
-                        stats.get("limites_expirees", 0) or 0
-                    ) + int(adoption["expired"])
-                    print(f"    limites expirées : {adoption['expired']} contexte(s) "
-                          "purgé(s)", flush=True)
-                if adoption.get("canceled"):
-                    stats["limites_annulees"] = int(
-                        stats.get("limites_annulees", 0) or 0
-                    ) + int(adoption["canceled"])
-                    print(f"    limites annulees : {adoption['canceled']} contexte(s) "
-                          "purge(s)", flush=True)
-                if adoption.get("unknown"):
-                    stats["limites_issue_inconnue"] = int(
-                        stats.get("limites_issue_inconnue", 0) or 0
-                    ) + int(adoption["unknown"])
-                    _compter_tunnel(
-                        stats, "limit_lifecycle_failure", "ISSUE_INCONNUE")
-                if adoption.get("events_written"):
-                    stats["limit_lifecycle_events"] = int(
-                        stats.get("limit_lifecycle_events", 0) or 0
-                    ) + int(adoption["events_written"])
-                if adoption.get("event_failures"):
-                    _compter_tunnel(
-                        stats, "limit_lifecycle_failure", "RECONCILIATION")
-                r = manage_once(
-                    mt5,
-                    policy=politique,
-                    params=ManageParams.from_config(),
-                    state_path=etat,
-                    account=compte,
-                    journal_path=RACINE / "results" / "trades.ndjson",
-                    manage_stops=MODIFIER_STOPS_EXISTANTS,
+            # Une limite en attente réserve déjà un créneau et du risque.
+            # L'ignorer permettrait d'empiler des ordres qui se
+            # transformeraient tous en positions au même mouvement.
+            ordres_courants = mt5.orders_get()
+            if ordres_courants is None and armer and politique.enabled:
+                raise RuntimeError(f"ordres MT5 indisponibles: {mt5.last_error()}")
+            for ordre in (ordres_courants or []):
+                if int(getattr(ordre, "magic", 0) or 0) != politique.magic:
+                    continue
+                ouvertes += 1
+                limites_en_attente += 1
+                par_symbole[ordre.symbol] = par_symbole.get(ordre.symbol, 0) + 1
+                achats = {
+                    mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP,
+                    mt5.ORDER_TYPE_BUY_STOP_LIMIT,
+                }
+                ventes = {
+                    mt5.ORDER_TYPE_SELL_LIMIT, mt5.ORDER_TYPE_SELL_STOP,
+                    mt5.ORDER_TYPE_SELL_STOP_LIMIT,
+                }
+                type_ordre = int(getattr(ordre, "type", -1))
+                side = (1 if type_ordre in achats
+                        else (-1 if type_ordre in ventes else 0))
+                expositions_par_symbole.setdefault(ordre.symbol, []).append(
+                    (side, float(getattr(ordre, "price_open", 0.0) or 0.0))
                 )
-                stats["journal_coverage"] = _journal_coverage(
-                    r.get("history_recovery"),
+            adoption = reconcile_pending_contexts(
+                mt5, magic=politique.magic, state_path=etat,
+                pending_path=RACINE / "results" / "pending_limits.json",
+                lifecycle_path=RACINE / "results" / "limit_lifecycle.ndjson",
+                positions=positions_courantes,
+            )
+            if adoption.get("adopted"):
+                stats["limites_executees"] = int(
+                    stats.get("limites_executees", 0) or 0
+                ) + int(adoption["adopted"])
+                print(f"    limites exécutées : {adoption['adopted']} contexte(s) "
+                      "rattaché(s)", flush=True)
+            if adoption.get("expired"):
+                stats["limites_expirees"] = int(
+                    stats.get("limites_expirees", 0) or 0
+                ) + int(adoption["expired"])
+                print(f"    limites expirées : {adoption['expired']} contexte(s) "
+                      "purgé(s)", flush=True)
+            if adoption.get("canceled"):
+                stats["limites_annulees"] = int(
+                    stats.get("limites_annulees", 0) or 0
+                ) + int(adoption["canceled"])
+                print(f"    limites annulees : {adoption['canceled']} contexte(s) "
+                      "purge(s)", flush=True)
+            if adoption.get("unknown"):
+                stats["limites_issue_inconnue"] = int(
+                    stats.get("limites_issue_inconnue", 0) or 0
+                ) + int(adoption["unknown"])
+                _compter_tunnel(
+                    stats, "limit_lifecycle_failure", "ISSUE_INCONNUE")
+            if adoption.get("events_written"):
+                stats["limit_lifecycle_events"] = int(
+                    stats.get("limit_lifecycle_events", 0) or 0
+                ) + int(adoption["events_written"])
+            if adoption.get("event_failures"):
+                _compter_tunnel(
+                    stats, "limit_lifecycle_failure", "RECONCILIATION")
+            r = manage_once(
+                mt5,
+                policy=politique,
+                params=ManageParams.from_config(),
+                state_path=etat,
+                account=compte,
+                journal_path=RACINE / "results" / "trades.ndjson",
+                manage_stops=MODIFIER_STOPS_EXISTANTS,
+                manage_trailing=ACTIVER_TRAILING,
+                manage_exits=GERER_SORTIES_ADAPTATIVES,
+                sentiment_request_path=POSITION_REVIEW_REQUESTS,
+                sentiment_verdict_path=POSITION_REVIEW_VERDICTS,
+            )
+            stats["journal_coverage"] = _journal_coverage(
+                r.get("history_recovery"),
+            )
+            deplaces = int(r.get("moved", 0) or 0)
+            sorties = int(r.get("exit_sent", 0) or 0)
+            stats["breakeven_deplaces"] = int(
+                stats.get("breakeven_deplaces", 0) or 0
+            ) + deplaces
+            stats["sorties_adaptatives"] = int(
+                stats.get("sorties_adaptatives", 0) or 0
+            ) + sorties
+            stats["sorties_peur_glm"] = int(
+                stats.get("sorties_peur_glm", 0) or 0
+            ) + int(r.get("fear_exit_sent", 0) or 0)
+            stats["sentiment_positions"] = dict(r.get("sentiment") or {})
+            if deplaces or sorties:
+                print(
+                    f"    gestion : {deplaces} BE déplacé(s), "
+                    f"{sorties} sortie(s) adaptative(s) demandée(s)",
+                    flush=True,
                 )
-                if r.get("moved"):
-                    print(f"    gestion : {r['moved']} stop(s) déplacé(s)", flush=True)
-                    for d in r.get("details", []):
-                        print(f"      {d}", flush=True)
-                if r.get("reason"):
-                    gestion_saine = False
-                    print(f"    gestion fail-closed : {r['reason']}", flush=True)
-                    for d in r.get("details", []):
-                        print(f"      {d}", flush=True)
+                for d in r.get("details", []):
+                    print(f"      {d}", flush=True)
+            if r.get("reason"):
+                gestion_saine = False
+                print(f"    gestion fail-closed : {r['reason']}", flush=True)
+                for d in r.get("details", []):
+                    print(f"      {d}", flush=True)
     except Exception as exc:  # noqa: BLE001
         gestion_saine = False
         print(f"    gestion indisponible : {type(exc).__name__}", flush=True)
@@ -1494,15 +1618,6 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             return
         sym, feats, out, _dec = c["sym"], c["feats"], c["out"], c["dec"]
 
-        # Garde-fou indépendant de l'idempotence : ne jamais empiler le même
-        # risque corrélé sur un actif déjà en position.
-        if par_symbole.get(sym, 0) >= MAX_PAR_SYMBOLE:
-            _refus(stats, "MAX_PAR_SYMBOLE", sym,
-                   f"deja {par_symbole[sym]} position(s) sur cet actif")
-            print(f"    {sym:8} ENTER ignoré — déjà {par_symbole[sym]} position(s) "
-                  f"sur cet actif", flush=True)
-            continue
-
         # ── Suspension du FX entier (voir FX_SUSPENDU). Placée AVANT la
         #    suspension des shorts : quand tout le FX est écarté, le motif
         #    rendu doit être le vrai, sinon le journal raconte une décision qui
@@ -1563,7 +1678,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         try:
             spec = ensure_symbol(sym)
             from titanium.confiance import (
-                evaluer as evaluer_confiance, piliers_de, total_piliers,
+                evaluer as evaluer_confiance,
+                piliers_de,
+                total_piliers,
             )
             # La demande est d'abord scellee dans le noyau. Sans proposition
             # portant exactement cette identite, l'entree reste en WAIT.
@@ -1605,6 +1722,31 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                       f"{derive:.2f} R depuis la décision, setup abandonné",
                       flush=True)
                 continue
+
+            # Une position supplémentaire sur le même actif n'est pas un
+            # doublon toléré : elle doit être un retournement explicite ou
+            # améliorer réellement le meilleur prix de la position existante.
+            expositions = expositions_par_symbole.get(sym, [])
+            prix_courant = _prix_execution_courant(sym, int(out.side or 0))
+            autorise, motif_empilement = _autoriser_empilement(
+                expositions,
+                side=int(out.side or 0),
+                prix=float(prix_courant or 0.0),
+                stop_distance=float(out.stop_distance or 0.0),
+                setup_family=str(getattr(_dec, "setup_family", "") or ""),
+            )
+            if not autorise:
+                _refus(
+                    stats, "MULTIPOSITION", sym, motif_empilement,
+                    deja=len(expositions), side=int(out.side or 0),
+                )
+                print(f"    {sym:8} ENTER ignoré — multi-position refusée : "
+                      f"{motif_empilement}", flush=True)
+                continue
+            if expositions:
+                _compter_tunnel(stats, "multiposition", motif_empilement)
+                print(f"    {sym:8} multi-position autorisée — "
+                      f"{motif_empilement}", flush=True)
 
             # Le filtre initial travaille sur un ATR estimé. RiskGate vient de
             # produire le stop exact : on recontrôle le coût sur CETTE distance
@@ -1731,6 +1873,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             stats["envoyes"] += 1
             ouvertes += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
+            expositions_par_symbole.setdefault(sym, []).append(
+                (int(out.side), float(res.price))
+            )
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
             _attacher_contexte(res.ticket, sym, feats, out, res,
@@ -1752,6 +1897,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             ouvertes += 1
             limites_en_attente += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
+            expositions_par_symbole.setdefault(sym, []).append(
+                (int(out.side), float(res.price))
+            )
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
             contexte_sauve, motif_contexte = _memoriser_contexte_limit(
@@ -1859,8 +2007,8 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, _arreter)
 
-    from titanium.execution.mt5_executor import ExecutionPolicy
     from titanium.data.mt5_vendor import account_snapshot, shutdown
+    from titanium.execution.mt5_executor import ExecutionPolicy
 
     politique = ExecutionPolicy.from_config()
     compte = account_snapshot()

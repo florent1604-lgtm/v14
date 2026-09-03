@@ -42,7 +42,12 @@ from pathlib import Path
 
 from titanium.data.mt5_vendor import decalage_serveur, heure_serveur_en_utc
 from titanium.edge import PNL_R_MAX
-from titanium.execution.mt5_executor import ExecutionPolicy, ExecutionRefused, assert_can_trade
+from titanium.execution.mt5_executor import (
+    ExecutionPolicy,
+    ExecutionRefused,
+    _pick_filling_mode,
+    assert_can_trade,
+)
 
 PHASE_INIT = "init"
 PHASE_BREAKEVEN = "breakeven"
@@ -59,6 +64,12 @@ class ManageParams:
     breakeven_r: float = 0.8
     trail_start_r: float = 1.2
     trail_dist_r: float = 0.8
+    # Sortie active sans toucher au SL : le plancher est un cliquet propre a
+    # chaque position, calcule depuis SON meilleur niveau observe.
+    exit_arm_r: float = 0.8
+    exit_min_lock_r: float = 0.15
+    exit_max_giveback_r: float = 0.60
+    exit_min_retention: float = 0.35
 
     @classmethod
     def from_config(cls, config: dict | None = None) -> "ManageParams":
@@ -77,6 +88,10 @@ class ManageParams:
             breakeven_r=_f("manage_breakeven_r", 0.8),
             trail_start_r=_f("manage_trail_start_r", 1.2),
             trail_dist_r=_f("manage_trail_dist_r", 0.8),
+            exit_arm_r=_f("manage_exit_arm_r", 0.8),
+            exit_min_lock_r=_f("manage_exit_min_lock_r", 0.15),
+            exit_max_giveback_r=_f("manage_exit_max_giveback_r", 0.60),
+            exit_min_retention=_f("manage_exit_min_retention", 0.35),
         )
 
 
@@ -93,6 +108,7 @@ class PositionSnapshot:
     digits: int = 5
     min_stop_distance: float = 0.0
     spread: float = 0.0
+    volume: float = 0.0
 
 
 @dataclass
@@ -196,6 +212,13 @@ class TrackedState:
     # jamais réécrite ensuite. Sans elle, la MAE terminale reste circulaire
     # (un stop touché vaut -1R par construction) et ne dit rien de l'entrée.
     horizon_excursions: dict = field(default_factory=dict)
+    # Verdict cognitif asynchrone. Deux références GLM distinctes et fraîches
+    # sont requises avant qu'une sortie de peur puisse être envisagée.
+    sentiment_ref: str = ""
+    sentiment_state: str = "UNKNOWN"
+    sentiment_confidence: float = 0.0
+    fear_streak: int = 0
+    fear_exit_sent_ref: str = ""
 
     def to_dict(self) -> dict:
         return {"r": self.r, "phase": self.phase, "peak_fav_r": self.peak_fav_r,
@@ -225,7 +248,12 @@ class TrackedState:
                 "history_missing_since": self.history_missing_since,
                 "history_missing_attempts": self.history_missing_attempts,
                 "entry_levels": self.entry_levels, "entry_atr": self.entry_atr,
-                "horizon_excursions": self.horizon_excursions}
+                "horizon_excursions": self.horizon_excursions,
+                "sentiment_ref": self.sentiment_ref,
+                "sentiment_state": self.sentiment_state,
+                "sentiment_confidence": self.sentiment_confidence,
+                "fear_streak": self.fear_streak,
+                "fear_exit_sent_ref": self.fear_exit_sent_ref}
 
     @classmethod
     def from_dict(cls, d: dict) -> "TrackedState":
@@ -282,6 +310,11 @@ class TrackedState:
             entry_levels=dict(d.get("entry_levels") or {}),
             entry_atr=float(d.get("entry_atr", 0.0) or 0.0),
             horizon_excursions=dict(d.get("horizon_excursions") or {}),
+            sentiment_ref=str(d.get("sentiment_ref", "") or ""),
+            sentiment_state=str(d.get("sentiment_state", "UNKNOWN") or "UNKNOWN"),
+            sentiment_confidence=float(d.get("sentiment_confidence", 0.0) or 0.0),
+            fear_streak=int(d.get("fear_streak", 0) or 0),
+            fear_exit_sent_ref=str(d.get("fear_exit_sent_ref", "") or ""),
         )
 
 
@@ -294,6 +327,17 @@ class SlDecision:
     peak_fav_r: float = 0.0
     reason: str = ""
     checks: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ExitDecision:
+    """Verdict de sortie active. Aucun prix de sortie statique n'est stocke."""
+    should_exit: bool = False
+    fav_r: float = 0.0
+    peak_fav_r: float = 0.0
+    floor_r: float = 0.0
+    giveback_r: float = 0.0
+    reason: str = ""
 
 
 #: Minutes par barre de la timeframe d'entrée — pour convertir un horizon EN
@@ -353,9 +397,85 @@ def _maj_horizons(state: TrackedState, fav_r: float, now: datetime) -> None:
         state.horizon_excursions[cle] = capture
 
 
+def _mettre_a_jour_excursion(
+        pos: PositionSnapshot, state: TrackedState, *,
+        now: datetime | None = None) -> tuple[float | None, str]:
+    """Met à jour la mémoire de trajectoire d'un ticket, sans ordre MT5.
+
+    Cette mesure tourne même lorsque le trailing est coupé. Le moteur connaît
+    ainsi le meilleur niveau réellement atteint par chaque position et la part
+    de cet avantage qui a ensuite été restituée.
+    """
+    if state.r <= 0 or not math.isfinite(state.r):
+        return None, "R_INVALIDE"
+    if pos.side not in (-1, 1):
+        return None, "SIDE_INVALIDE"
+    if not all(math.isfinite(v) for v in (pos.entry, pos.current)):
+        return None, "PRIX_INVALIDE"
+
+    fav_r = (pos.current - pos.entry) / state.r * pos.side
+    state.peak_fav_r = max(state.peak_fav_r, fav_r)
+    state.mae_r = min(state.mae_r, fav_r)
+    with contextlib.suppress(Exception):
+        _maj_horizons(state, fav_r, now or datetime.now(timezone.utc))
+    return fav_r, "OK"
+
+
+def decide_adaptive_exit(
+        pos: PositionSnapshot, state: TrackedState, params: ManageParams, *,
+        now: datetime | None = None) -> ExitDecision:
+    """Décide une sortie active depuis la trajectoire propre à la position.
+
+    Le plancher est le maximum de trois protections : gain minimal conservé,
+    part du pic conservée, et restitution maximale depuis le pic. Il monte
+    donc avec chaque nouveau sommet et ne dépend ni d'un TP fixe ni du prix
+    nominal de l'actif.
+    """
+    d = ExitDecision()
+    fav_r, reason = _mettre_a_jour_excursion(pos, state, now=now)
+    if fav_r is None:
+        d.reason = reason
+        return d
+
+    d.fav_r = fav_r
+    d.peak_fav_r = state.peak_fav_r
+    d.giveback_r = max(0.0, state.peak_fav_r - fav_r)
+
+    valeurs = (
+        params.exit_arm_r,
+        params.exit_min_lock_r,
+        params.exit_max_giveback_r,
+        params.exit_min_retention,
+    )
+    if (not all(math.isfinite(v) for v in valeurs)
+            or params.exit_arm_r < 0
+            or params.exit_min_lock_r < 0
+            or params.exit_max_giveback_r <= 0
+            or not 0 <= params.exit_min_retention <= 1):
+        d.reason = "PARAMS_SORTIE_INVALIDES"
+        return d
+
+    if state.peak_fav_r < params.exit_arm_r:
+        d.reason = "ATTENTE_ARMEMENT"
+        return d
+
+    d.floor_r = max(
+        params.exit_min_lock_r,
+        state.peak_fav_r * params.exit_min_retention,
+        state.peak_fav_r - params.exit_max_giveback_r,
+    )
+    if fav_r <= d.floor_r:
+        d.should_exit = True
+        d.reason = "AVANTAGE_RESTITUE"
+    else:
+        d.reason = "AVANTAGE_CONSERVE"
+    return d
+
+
 def decide_new_sl(pos: PositionSnapshot, state: TrackedState,
                   params: ManageParams, *,
-                  now: datetime | None = None) -> SlDecision:
+                  now: datetime | None = None,
+                  allow_trailing: bool = True) -> SlDecision:
     """Décide du nouveau stop. **Fonction pure** : aucun appel MT5, aucune I/O.
 
     Met à jour ``state.peak_fav_r`` et ``state.phase`` (le suivi du pic est un
@@ -368,26 +488,11 @@ def decide_new_sl(pos: PositionSnapshot, state: TrackedState,
     """
     d = SlDecision(phase=state.phase)
 
-    if state.r <= 0 or not math.isfinite(state.r):
-        d.reason = "R_INVALIDE"
+    fav_r, reason = _mettre_a_jour_excursion(pos, state, now=now)
+    if fav_r is None:
+        d.reason = reason
         return d
-    if pos.side not in (-1, 1):
-        d.reason = "SIDE_INVALIDE"
-        return d
-    for valeur in (pos.entry, pos.current):
-        if not math.isfinite(valeur):
-            d.reason = "PRIX_INVALIDE"
-            return d
-
-    fav_r = (pos.current - pos.entry) / state.r * pos.side
-    state.peak_fav_r = max(state.peak_fav_r, fav_r)
-    # La pire excursion se suit ici, au fil de l'eau : à la clôture, MT5 ne
-    # montre plus rien et il serait trop tard pour la mesurer.
-    state.mae_r = min(state.mae_r, fav_r)
     d.fav_r, d.peak_fav_r = fav_r, state.peak_fav_r
-
-    with contextlib.suppress(Exception):  # instrumentation, jamais la décision
-        _maj_horizons(state, fav_r, now or datetime.now(timezone.utc))
 
     candidat: float | None = None
 
@@ -399,7 +504,7 @@ def decide_new_sl(pos: PositionSnapshot, state: TrackedState,
         d.checks.append(f"breakeven atteint (+{fav_r:.2f}R)")
 
     # 2) TRAILING — suit le PIC, pas le prix courant. Cliquet.
-    if state.peak_fav_r >= params.trail_start_r:
+    if allow_trailing and state.peak_fav_r >= params.trail_start_r:
         trail = pos.entry + pos.side * (state.peak_fav_r - params.trail_dist_r) * state.r
         if candidat is None or pos.side * (trail - candidat) > 0:
             candidat = trail
@@ -1109,6 +1214,7 @@ def _snapshot(mt5, pos) -> PositionSnapshot:
         # ×1.2 : marge sur un spread qui bouge entre la décision et l'envoi.
         min_stop_distance=max(stops_lvl * point, spread) * 1.2,
         spread=spread,
+        volume=float(getattr(pos, "volume", 0.0) or 0.0),
     )
 
 
@@ -1167,16 +1273,57 @@ def _ouverture_iso(pos) -> str:
     return ""
 
 
+def _envoyer_sortie_adaptative(mt5, pos, snap: PositionSnapshot,
+                               policy: ExecutionPolicy, *,
+                               comment: str = "titanium-v14-adaptive-exit"):
+    """Demande la clôture complète du ticket au marché, sans toucher SL/TP."""
+    if not (snap.volume > 0 and math.isfinite(snap.volume)):
+        raise ValueError("VOLUME_INVALIDE")
+    tick = mt5.symbol_info_tick(snap.symbol)
+    if tick is None:
+        raise ValueError("PAS_DE_PRIX")
+
+    if snap.side > 0:
+        ordre = mt5.ORDER_TYPE_SELL
+        prix = float(tick.bid)
+    else:
+        ordre = mt5.ORDER_TYPE_BUY
+        prix = float(tick.ask)
+    if not (prix > 0 and math.isfinite(prix)):
+        raise ValueError("PRIX_SORTIE_INVALIDE")
+
+    requete = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "position": pos.ticket,
+        "symbol": snap.symbol,
+        "volume": snap.volume,
+        "type": ordre,
+        "price": prix,
+        "deviation": policy.deviation_points,
+        "magic": policy.magic,
+        "comment": comment,
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": _pick_filling_mode(mt5, snap.symbol),
+    }
+    return mt5.order_send(requete)
+
+
 def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                 state_path: Path, account=None,
                 journal_path: Path | None = None,
-                manage_stops: bool = True) -> dict:
+                manage_stops: bool = True,
+                manage_trailing: bool = True,
+                manage_exits: bool = False,
+                sentiment_request_path: Path | None = None,
+                sentiment_verdict_path: Path | None = None) -> dict:
     """Un passage sur toutes NOS positions. Ne lève jamais.
 
     Returns:
         ``{"managed": n, "moved": n, "reason": str, "details": [...]}``
     """
-    rapport = {"managed": 0, "moved": 0, "reason": "", "details": []}
+    rapport = {"managed": 0, "moved": 0, "exit_sent": 0,
+               "fear_exit_sent": 0, "sentiment": {},
+               "reason": "", "details": []}
 
     # Le mur complet ne protège que la branche qui MODIFIE les stops. Le mode
     # observation reste actif quand l'exécution est désarmée : il lit les
@@ -1185,7 +1332,7 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
         if account is None:
             from titanium.data.mt5_vendor import account_snapshot
             account = account_snapshot()
-        if manage_stops:
+        if manage_stops or manage_exits:
             assert_can_trade(policy, account)
         else:
             if not bool(getattr(account, "is_demo", False)):
@@ -1258,10 +1405,111 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                 st.history_missing_since = ""
                 st.history_missing_attempts = 0
 
+            sortie = decide_adaptive_exit(snap, st, params)
+            peur_confirmee = False
+            peur_ref = ""
+            if sentiment_request_path is not None:
+                from titanium.position_sentiment import (
+                    append_record,
+                    build_review,
+                    confirm_fear,
+                    latest_verdict,
+                )
+
+                review = build_review(
+                    ticket=snap.ticket,
+                    symbol=snap.symbol,
+                    side=snap.side,
+                    entry=snap.entry,
+                    current=snap.current,
+                    sl=snap.sl,
+                    tp=snap.tp,
+                    r_unit=st.r,
+                    fav_r=sortie.fav_r,
+                    peak_fav_r=st.peak_fav_r,
+                    mae_r=st.mae_r,
+                    opened_at=st.ts_open,
+                    context={
+                        "asset_class": st.asset_class,
+                        "mode": st.mode,
+                        "quorum": st.quorum,
+                        "support_pillars": st.support_pillars,
+                        "context_key": st.context_key,
+                    },
+                )
+                append_record(sentiment_request_path, review)
+                verdict = (
+                    latest_verdict(sentiment_verdict_path, snap.ticket)
+                    if sentiment_verdict_path is not None else None
+                )
+                confirmation = confirm_fear(
+                    verdict,
+                    last_ref=st.sentiment_ref,
+                    previous_streak=st.fear_streak,
+                )
+                st.sentiment_ref = confirmation.last_ref
+                st.sentiment_state = confirmation.state
+                st.sentiment_confidence = confirmation.confidence
+                st.fear_streak = confirmation.streak
+                rapport["sentiment"][confirmation.state] = (
+                    int(rapport["sentiment"].get(confirmation.state, 0)) + 1
+                )
+                peur_ref = confirmation.last_ref
+                peur_confirmee = (
+                    confirmation.should_exit
+                    and confirmation.last_ref != st.fear_exit_sent_ref
+                )
+                if confirmation.state in {"FEAR", "PANIC"}:
+                    rapport["details"].append(
+                        f"{snap.symbol} #{snap.ticket}: GLM {confirmation.state} "
+                        f"{confirmation.confidence:.2f}, serie "
+                        f"{confirmation.streak}/2 ({confirmation.reason})"
+                    )
+
+            demande_sortie = sortie.should_exit or peur_confirmee
+            if manage_exits and demande_sortie:
+                motif = "fear" if peur_confirmee else "adaptive"
+                res = _envoyer_sortie_adaptative(
+                    mt5,
+                    pos,
+                    snap,
+                    policy,
+                    comment=f"titanium-v14-{motif}-exit",
+                )
+                done = getattr(mt5, "TRADE_RETCODE_DONE", 10009)
+                done_partial = getattr(mt5, "TRADE_RETCODE_DONE_PARTIAL", 10010)
+                if res is not None and getattr(res, "retcode", None) in {
+                        done, done_partial}:
+                    rapport["exit_sent"] += 1
+                    if peur_confirmee:
+                        st.fear_exit_sent_ref = peur_ref
+                        rapport["fear_exit_sent"] += 1
+                        rapport["details"].append(
+                            f"{snap.symbol} #{snap.ticket}: sortie peur GLM demandée "
+                            f"({st.sentiment_state} {st.sentiment_confidence:.2f})"
+                        )
+                    else:
+                        rapport["details"].append(
+                            f"{snap.symbol} #{snap.ticket}: sortie adaptative demandée "
+                            f"(actuel={sortie.fav_r:.2f}R "
+                            f"pic={sortie.peak_fav_r:.2f}R "
+                            f"plancher={sortie.floor_r:.2f}R "
+                            f"restitution={sortie.giveback_r:.2f}R)"
+                        )
+                else:
+                    rapport["details"].append(
+                        f"{snap.symbol} #{snap.ticket}: sortie {motif} refusée "
+                        f"retcode={getattr(res, 'retcode', None)}")
+                # Ne jamais envoyer une modification de SL dans le même tour
+                # qu'une demande de clôture, même si le courtier la refuse.
+                continue
+
             if not manage_stops:
                 continue
 
-            d = decide_new_sl(snap, st, params)
+            d = decide_new_sl(
+                snap, st, params, allow_trailing=manage_trailing,
+            )
             if d.new_sl is None:
                 continue
 

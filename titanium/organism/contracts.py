@@ -8,8 +8,8 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
 
-MODEL_VERSION = "glm4:9b"
-PROMPT_VERSION = "fundamental-gate-v3-glm"
+MODEL_VERSION = "qwen3.5:2b"
+PROMPT_VERSION = "fundamental-gate-v4-qwen35"
 
 
 def canonical_bytes(value: Mapping[str, Any]) -> bytes:

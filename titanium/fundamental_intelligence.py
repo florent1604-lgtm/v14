@@ -267,6 +267,7 @@ def _ollama_json(*, prompt: str, schema: dict, model: str,
     body = json.dumps({
         "model": model,
         "stream": False,
+        "think": False,
         "format": schema,
         "prompt": prompt,
         "keep_alive": -1,

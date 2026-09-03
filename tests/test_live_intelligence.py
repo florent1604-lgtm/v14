@@ -116,6 +116,8 @@ def test_fundamental_batch_impose_le_schema_et_rattache_chaque_reference(
     results = fi.analyse_batch(requests)
 
     assert [row["action"] for row in results] == ["ALLOW", "BLOCK"]
+    assert captured["model"] == "qwen3.5:2b"
+    assert captured["think"] is False
     assert isinstance(captured["format"], dict)
     assert captured["options"]["num_predict"] > 60
     verdict_schema = captured["format"]["properties"]["verdicts"]

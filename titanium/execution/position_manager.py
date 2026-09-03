@@ -42,6 +42,12 @@ from pathlib import Path
 
 from titanium.data.mt5_vendor import decalage_serveur, heure_serveur_en_utc
 from titanium.edge import PNL_R_MAX
+from titanium.execution.micro_basket import (
+    BasketMember,
+    decide_basket_exit,
+    load_basket_peaks,
+    save_basket_peaks,
+)
 from titanium.execution.mt5_executor import (
     ExecutionPolicy,
     ExecutionRefused,
@@ -1322,7 +1328,7 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
         ``{"managed": n, "moved": n, "reason": str, "details": [...]}``
     """
     rapport = {"managed": 0, "moved": 0, "exit_sent": 0,
-               "fear_exit_sent": 0, "sentiment": {},
+               "fear_exit_sent": 0, "basket_exit_sent": 0, "sentiment": {},
                "reason": "", "details": []}
 
     # Le mur complet ne protège que la branche qui MODIFIE les stops. Le mode
@@ -1364,12 +1370,50 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
     etat = load_state(state_path)
     vivants: set[str] = set()
 
+    # Une photographie commune permet au panier de raisonner sur toutes ses
+    # tranches au même tick. Les positions nouvellement adoptées entrent dans
+    # ce calcul au passage suivant, après création de leur R initial scellé.
+    snapshots: dict[str, PositionSnapshot] = {}
+    membres_par_symbole: dict[str, list[BasketMember]] = {}
+    for position in positions:
+        if not _is_ours(position, policy.magic):
+            continue
+        try:
+            snap = _snapshot(mt5, position)
+            snapshots[snap.ticket] = snap
+            suivi = etat.get(snap.ticket)
+            if suivi is None or suivi.r <= 0 or not math.isfinite(suivi.r):
+                continue
+            fav_r = (snap.current - snap.entry) / suivi.r * snap.side
+            membres_par_symbole.setdefault(snap.symbol, []).append(
+                BasketMember(
+                    ticket=snap.ticket,
+                    fav_r=fav_r,
+                    risk_money=float(suivi.risque_devise or 0.0),
+                )
+            )
+        except Exception:  # noqa: BLE001 -- la boucle détaillera ensuite
+            continue
+
+    basket_state_path = state_path.with_name("micro_baskets.json")
+    anciens_pics = load_basket_peaks(basket_state_path)
+    decisions_panier = {}
+    nouveaux_pics: dict[str, float] = {}
+    for symbole, membres in membres_par_symbole.items():
+        decision_panier = decide_basket_exit(
+            membres,
+            previous_peak_r=anciens_pics.get(symbole, 0.0),
+        )
+        if len(membres) >= 2:
+            decisions_panier[symbole] = decision_panier
+            nouveaux_pics[symbole] = decision_panier.peak_r
+
     for pos in positions:
         if not _is_ours(pos, policy.magic):
             continue
         rapport["managed"] += 1
         try:
-            snap = _snapshot(mt5, pos)
+            snap = snapshots.get(str(pos.ticket)) or _snapshot(mt5, pos)
             vivants.add(snap.ticket)
 
             st = etat.get(snap.ticket)
@@ -1466,9 +1510,14 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                         f"{confirmation.streak}/2 ({confirmation.reason})"
                     )
 
-            demande_sortie = sortie.should_exit or peur_confirmee
+            panier = decisions_panier.get(snap.symbol)
+            sortie_panier = bool(panier is not None and panier.should_exit)
+            demande_sortie = sortie.should_exit or peur_confirmee or sortie_panier
             if manage_exits and demande_sortie:
-                motif = "fear" if peur_confirmee else "adaptive"
+                motif = (
+                    "fear" if peur_confirmee
+                    else ("basket" if sortie_panier else "adaptive")
+                )
                 res = _envoyer_sortie_adaptative(
                     mt5,
                     pos,
@@ -1487,6 +1536,15 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                         rapport["details"].append(
                             f"{snap.symbol} #{snap.ticket}: sortie peur GLM demandée "
                             f"({st.sentiment_state} {st.sentiment_confidence:.2f})"
+                        )
+                    elif sortie_panier and panier is not None:
+                        rapport["basket_exit_sent"] += 1
+                        rapport["details"].append(
+                            f"{snap.symbol} #{snap.ticket}: sortie micro-panier "
+                            f"demandée (tranches={panier.members} "
+                            f"actuel={panier.current_r:.2f}R "
+                            f"pic={panier.peak_r:.2f}R "
+                            f"plancher={panier.floor_r:.2f}R)"
                         )
                     else:
                         rapport["details"].append(
@@ -1653,6 +1711,10 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
         save_state(state_path, etat)
     except Exception:  # noqa: BLE001 — perdre l'état ne doit pas casser la gestion
         rapport["details"].append("sauvegarde de l'état impossible")
+    try:
+        save_basket_peaks(basket_state_path, nouveaux_pics)
+    except Exception:  # noqa: BLE001 — observabilité fail-soft
+        rapport["details"].append("sauvegarde des pics micro-panier impossible")
 
     # Filet de couverture : une position peut naître et mourir entre deux
     # tours. Son contexte est alors inconnaissable ; on conserve la preuve

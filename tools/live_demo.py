@@ -45,6 +45,7 @@ from titanium.execution.decision_registry import (  # noqa: E402
     append_decision_event,
     make_decision_id,
 )
+from titanium.execution.micro_basket import required_improvement_r  # noqa: E402
 from titanium.execution.policy_identity import (  # noqa: E402
     build_policy_identity,
     snapshot_code_identity,
@@ -178,6 +179,10 @@ MAX_PAR_SYMBOLE = 3
 #: opportunité. Le renfort doit améliorer le meilleur prix ouvert d'au moins
 #: 0,10 R, R étant la distance de stop de la nouvelle décision.
 AMELIORATION_ENTREE_MIN_R = 0.10
+ESPACEMENT_ENTREE_MIN_ATR = 0.25
+ESPACEMENT_ENTREE_MIN_SPREAD = 2.0
+#: Risque total maximal des positions et ordres d'un même symbole.
+MAX_RISQUE_PANIER_PCT = 3.0
 
 _POLICY_CODE_SOURCES = (
     "tools/live_demo.py",
@@ -207,12 +212,15 @@ def _decision_policy_identity(execution_mode: str, rr_ratio: float) -> dict[str,
             config={
                 "derive_max_r": DERIVE_MAX_R,
                 "amelioration_entree_min_r": AMELIORATION_ENTREE_MIN_R,
+                "espacement_entree_min_atr": ESPACEMENT_ENTREE_MIN_ATR,
+                "espacement_entree_min_spread": ESPACEMENT_ENTREE_MIN_SPREAD,
                 "htf": HTF,
                 "ltf": LTF,
                 "max_limites_en_attente": MAX_LIMITES_EN_ATTENTE,
                 "max_par_symbole": MAX_PAR_SYMBOLE,
                 "max_positions": MAX_POSITIONS,
                 "max_risque_cumule_pct": MAX_RISQUE_CUMULE_PCT,
+                "max_risque_panier_pct": MAX_RISQUE_PANIER_PCT,
                 "reserve_s3": RESERVE_S3,
                 "rr_ratio": float(rr_ratio),
             },
@@ -229,6 +237,8 @@ def _autoriser_empilement(
     prix: float,
     stop_distance: float,
     setup_family: str,
+    atr: float = 0.0,
+    spread: float = 0.0,
 ) -> tuple[bool, str]:
     """Autorise une position supplémentaire seulement si elle apporte un edge.
 
@@ -270,11 +280,27 @@ def _autoriser_empilement(
             return False, "SENS_OPPOSE_SANS_RETOURNEMENT"
         return True, "RETOURNEMENT_CONFIRME"
 
+    seuil_r = required_improvement_r(
+        stop_distance=stop_distance,
+        atr=atr,
+        spread=spread,
+        base_r=AMELIORATION_ENTREE_MIN_R,
+        atr_multiple=ESPACEMENT_ENTREE_MIN_ATR,
+        spread_multiple=ESPACEMENT_ENTREE_MIN_SPREAD,
+    )
+    if seuil_r is None:
+        return False, "ESPACEMENT_INVALIDE"
+
     meilleur = min(memes) if side > 0 else max(memes)
     amelioration_r = side * (meilleur - prix) / stop_distance
-    if amelioration_r + 1e-12 < AMELIORATION_ENTREE_MIN_R:
-        return False, f"ENTREE_NON_AMELIOREE_{amelioration_r:.3f}R"
-    return True, f"ENTREE_AMELIOREE_{amelioration_r:.3f}R"
+    if amelioration_r + 1e-12 < seuil_r:
+        return False, (
+            f"ENTREE_NON_AMELIOREE_{amelioration_r:.3f}R_MIN_{seuil_r:.3f}R"
+        )
+    suffixe = "" if abs(seuil_r - AMELIORATION_ENTREE_MIN_R) < 1e-12 else (
+        f"_MIN_{seuil_r:.3f}R"
+    )
+    return True, f"ENTREE_AMELIOREE_{amelioration_r:.3f}R{suffixe}"
 
 
 def _prix_execution_courant(symbole: str, side: int) -> float | None:
@@ -827,6 +853,41 @@ def _risque_engage_pct(mt5, equity: float) -> float:
     return total
 
 
+def _risque_exposition_pct(mt5, exposition, equity: float, *, side: int) -> float | None:
+    """Risque restant d'une position/limite pour le budget de son panier.
+
+    Un SL déjà au breakeven ou en gain vaut zéro risque restant. Une donnée
+    manquante rend ``None`` afin que l'appelant bloque tout nouveau renfort.
+    """
+    try:
+        if equity <= 0 or side not in (-1, 1):
+            return None
+        entry = float(getattr(exposition, "price_open", 0.0) or 0.0)
+        sl = float(getattr(exposition, "sl", 0.0) or 0.0)
+        volume = float(
+            getattr(exposition, "volume", 0.0)
+            or getattr(exposition, "volume_current", 0.0)
+            or getattr(exposition, "volume_initial", 0.0)
+            or 0.0
+        )
+        if min(entry, sl, volume) <= 0:
+            return None
+        spec = mt5.symbol_info(exposition.symbol)
+        tick_size = float(getattr(spec, "trade_tick_size", 0.0) or 0.0)
+        tick_value = float(
+            getattr(spec, "trade_tick_value_loss", 0.0)
+            or getattr(spec, "trade_tick_value", 0.0)
+            or 0.0
+        )
+        if tick_size <= 0 or tick_value <= 0:
+            return None
+        distance_risque = max(0.0, side * (entry - sl))
+        perte = distance_risque / tick_size * tick_value * volume
+        return perte / equity * 100.0
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def _demander_fenetres(candidats) -> None:
     """Demande a l'EA compagnon d'ouvrir les graphiques utiles.
 
@@ -1351,6 +1412,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     limites_en_attente = 0
     par_symbole: dict[str, int] = {}
     expositions_par_symbole: dict[str, list[tuple[int, float]]] = {}
+    risque_par_symbole: dict[str, float] = {}
     gestion_saine = True
     try:
         import MetaTrader5 as mt5  # noqa: N813
@@ -1371,6 +1433,14 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                         == mt5.POSITION_TYPE_BUY else -1)
                 expositions_par_symbole.setdefault(p.symbol, []).append(
                     (side, float(getattr(p, "price_open", 0.0) or 0.0))
+                )
+                mesure_risque = _risque_exposition_pct(
+                    mt5, p, compte.equity, side=side,
+                )
+                risque_par_symbole[p.symbol] = (
+                    MAX_RISQUE_PANIER_PCT
+                    if mesure_risque is None
+                    else risque_par_symbole.get(p.symbol, 0.0) + mesure_risque
                 )
             # Une limite en attente réserve déjà un créneau et du risque.
             # L'ignorer permettrait d'empiler des ordres qui se
@@ -1397,6 +1467,14 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                         else (-1 if type_ordre in ventes else 0))
                 expositions_par_symbole.setdefault(ordre.symbol, []).append(
                     (side, float(getattr(ordre, "price_open", 0.0) or 0.0))
+                )
+                mesure_risque = _risque_exposition_pct(
+                    mt5, ordre, compte.equity, side=side,
+                )
+                risque_par_symbole[ordre.symbol] = (
+                    MAX_RISQUE_PANIER_PCT
+                    if mesure_risque is None
+                    else risque_par_symbole.get(ordre.symbol, 0.0) + mesure_risque
                 )
             adoption = reconcile_pending_contexts(
                 mt5, magic=politique.magic, state_path=etat,
@@ -1462,6 +1540,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             stats["sorties_peur_glm"] = int(
                 stats.get("sorties_peur_glm", 0) or 0
             ) + int(r.get("fear_exit_sent", 0) or 0)
+            stats["sorties_micro_panier"] = int(
+                stats.get("sorties_micro_panier", 0) or 0
+            ) + int(r.get("basket_exit_sent", 0) or 0)
             stats["sentiment_positions"] = dict(r.get("sentiment") or {})
             if deplaces or sorties:
                 print(
@@ -1734,6 +1815,11 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 prix=float(prix_courant or 0.0),
                 stop_distance=float(out.stop_distance or 0.0),
                 setup_family=str(getattr(_dec, "setup_family", "") or ""),
+                atr=float(feats.get("atr", 0.0) or 0.0),
+                spread=(
+                    float(getattr(spec, "spread", 0.0) or 0.0)
+                    * float(getattr(spec, "point", 0.0) or 0.0)
+                ),
             )
             if not autorise:
                 _refus(
@@ -1784,6 +1870,27 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         if not budget.tradable:
             _refus(stats, "BUDGET", sym, budget.reason)
             print(f"    {sym:8} ENTER mais {budget.reason}", flush=True)
+            continue
+
+        risque_panier = float(risque_par_symbole.get(sym, 0.0) or 0.0)
+        risque_panier_apres = risque_panier + float(budget.effective_pct)
+        if (
+            not math.isfinite(risque_panier_apres)
+            or risque_panier_apres > MAX_RISQUE_PANIER_PCT + 1e-12
+        ):
+            motif_panier = (
+                f"risque panier {risque_panier_apres:.2f} % > "
+                f"{MAX_RISQUE_PANIER_PCT:.2f} %"
+            )
+            _refus(
+                stats,
+                "MICRO_PANIER_RISK",
+                sym,
+                motif_panier,
+                risque_actuel_pct=round(risque_panier, 4),
+                risque_propose_pct=round(float(budget.effective_pct), 4),
+            )
+            print(f"    {sym:8} ENTER refusé — {motif_panier}", flush=True)
             continue
 
         # Le lot minimum et l'arrondi courtier peuvent eloigner le risque de
@@ -1873,6 +1980,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             stats["envoyes"] += 1
             ouvertes += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
+            risque_par_symbole[sym] = risque_panier_apres
             expositions_par_symbole.setdefault(sym, []).append(
                 (int(out.side), float(res.price))
             )
@@ -1897,6 +2005,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             ouvertes += 1
             limites_en_attente += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
+            risque_par_symbole[sym] = risque_panier_apres
             expositions_par_symbole.setdefault(sym, []).append(
                 (int(out.side), float(res.price))
             )

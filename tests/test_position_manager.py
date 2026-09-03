@@ -414,6 +414,39 @@ def test_passage_cloture_activement_sans_modifier_sl_tp(tmp_path):
     assert "sl" not in ordre and "tp" not in ordre
 
 
+def test_passage_cloture_toutes_les_tranches_du_micro_panier(tmp_path):
+    state_path = tmp_path / "s.json"
+    save_state(state_path, {"1": etat(), "2": etat()})
+
+    sommet = FakeMt5(positions=(
+        FakePos(ticket=1, current=1.1080),
+        FakePos(ticket=2, current=1.1080),
+    ))
+    premier = manage_once(
+        sommet, policy=ARMEE, params=P, state_path=state_path,
+        account=compte_demo(), manage_stops=False, manage_exits=True,
+    )
+    assert premier["exit_sent"] == 0
+    assert json.loads(
+        (tmp_path / "micro_baskets.json").read_text(encoding="utf-8")
+    )["EURUSD"] == pytest.approx(0.8)
+
+    retour = FakeMt5(positions=(
+        FakePos(ticket=1, current=1.1020),
+        FakePos(ticket=2, current=1.1020),
+    ))
+    second = manage_once(
+        retour, policy=ARMEE, params=P, state_path=state_path,
+        account=compte_demo(), manage_stops=False, manage_exits=True,
+    )
+    assert second["exit_sent"] == 2
+    assert second["basket_exit_sent"] == 2
+    assert len(retour.envois) == 2
+    assert all(envoi["action"] == FakeMt5.TRADE_ACTION_DEAL for envoi in retour.envois)
+    assert all("basket-exit" in envoi["comment"] for envoi in retour.envois)
+    assert all("sl" not in envoi and "tp" not in envoi for envoi in retour.envois)
+
+
 def test_passage_cloture_apres_deux_peurs_glm_distinctes(tmp_path):
     from datetime import datetime, timezone
 

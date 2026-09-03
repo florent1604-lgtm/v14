@@ -574,6 +574,7 @@ def analyse_positions(reviews: list[dict], *,
     body = json.dumps({
         "model": model_version,
         "stream": False,
+        "think": False,
         "format": "json",
         "prompt": prompt,
         "keep_alive": -1,

@@ -96,6 +96,7 @@ def test_glm_singleton_sans_reference_est_rattache_sans_ambiguite(monkeypatch):
     import titanium.fundamental_intelligence as fi
 
     item = review("7", NOW)
+    captured = {}
 
     class Response:
         def __enter__(self):
@@ -120,9 +121,15 @@ def test_glm_singleton_sans_reference_est_rattache_sans_ambiguite(monkeypatch):
         "collect",
         lambda _symbol: [fi.Evidence("source-a", "a"), fi.Evidence("source-b", "b")],
     )
-    monkeypatch.setattr(fi.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+    def fake_urlopen(request, **_kwargs):
+        captured.update(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(fi.urllib.request, "urlopen", fake_urlopen)
     result = fi.analyse_positions([item])
 
     assert result[0]["request_ref"] == item["request_ref"]
     assert result[0]["state"] == "FEAR"
     assert result[0]["confidence"] == 0.88
+    assert captured["model"] == "qwen3.5:2b"
+    assert captured["think"] is False

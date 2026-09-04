@@ -261,4 +261,6 @@ results/quotes/
 desktop/node_modules/
 desktop/desktop/
 desktop/dist/
+!desktop/lib/
+!desktop/lib/runtime.js
 _stop_loop.ps1

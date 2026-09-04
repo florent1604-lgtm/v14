@@ -129,6 +129,48 @@ def test_fundamental_batch_impose_le_schema_et_rattache_chaque_reference(
     assert enum == ["ref-a", "ref-b"]
 
 
+def test_fundamental_batch_accepte_le_verdict_unitaire_aplati(monkeypatch):
+    decision_ref = "flattened-ref"
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def read():
+            answer = {
+                "decision_ref": decision_ref,
+                "action": "ALLOW",
+                "confidence": 0.8,
+                "summary": "contexte coherent",
+            }
+            return json.dumps({"response": json.dumps(answer)}).encode()
+
+    monkeypatch.setattr(
+        fi, "collect",
+        lambda _symbol: [fi.Evidence("source-a", "a"), fi.Evidence("source-b", "b")],
+    )
+    monkeypatch.setattr(fi.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+
+    result = fi.analyse_batch([{
+        "symbol": "EURUSD", "side": 1, "mechanical_summary": "setup",
+        "decision_ref": decision_ref,
+    }])[0]
+
+    assert result["action"] == "ALLOW"
+    assert result["confidence"] == 0.8
+
+
+def test_qwen_local_traite_les_entrees_et_positions_une_par_une():
+    from tools import analystes
+
+    assert analystes.ENTRY_BATCH_SIZE == 1
+    assert fi.POSITION_BATCH_SIZE == 1
+
+
 def test_fundamental_batch_tronque_reste_wait_et_journalise(monkeypatch):
     failures = []
 

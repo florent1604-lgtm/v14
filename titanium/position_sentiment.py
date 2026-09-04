@@ -15,7 +15,7 @@ from typing import Any
 
 from titanium.organism.contracts import MODEL_VERSION, digest
 
-POSITION_PROMPT_VERSION = "position-fear-v1"
+POSITION_PROMPT_VERSION = "position-fear-v2-market-context"
 FEAR_STATES = frozenset({"FEAR", "PANIC"})
 VALID_STATES = frozenset({"CALM", "CAUTION", "FEAR", "PANIC", "UNKNOWN"})
 

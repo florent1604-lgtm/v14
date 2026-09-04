@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from titanium.organism.contracts import MODEL_VERSION
 from titanium.position_sentiment import (
+    POSITION_PROMPT_VERSION,
     append_record,
     build_review,
     confirm_fear,
@@ -133,3 +134,7 @@ def test_glm_singleton_sans_reference_est_rattache_sans_ambiguite(monkeypatch):
     assert result[0]["confidence"] == 0.88
     assert captured["model"] == "qwen3.5:2b"
     assert captured["think"] is False
+    assert isinstance(captured["format"], dict)
+    assert "entry=1.1 current=1.101" in captured["prompt"]
+    assert "giveback_r=0.200" in captured["prompt"]
+    assert result[0]["prompt_version"] == POSITION_PROMPT_VERSION

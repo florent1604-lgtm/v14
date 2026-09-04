@@ -71,10 +71,11 @@ ANALYSTES_PAR_CLASSE = {
 }
 ANALYSTES_DEFAUT = ("market", "news")
 
-#: Candidats d'entrée regroupés dans une génération GLM. Le modèle tourne sur
-#: CPU : lancer plusieurs générations ne crée aucun débit et quadruple la
-#: latence. Un petit lot amortit le prompt tout en restant sous la péremption.
-ENTRY_BATCH_SIZE = 6
+#: Qwen 2B local produit de façon fiable un verdict structuré par génération.
+#: Des lots plus grands ont été mesurés à 35--48 s et le modèle ne rendait
+#: souvent que le premier candidat. Une requête unitaire reste asynchrone,
+#: diminue la latence et laisse la file faire tourner tous les actifs.
+ENTRY_BATCH_SIZE = 1
 _GLM_LOCK = threading.Lock()
 
 # Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de

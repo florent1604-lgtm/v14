@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- **Claude Fable 5.1.** `claude-fable-5-1` (released 2026-09-01) heads the
+  Anthropic deep-think list; Fable 5 stays available as the previous flagship.
+  Effort control needed no change — the `fable` family pattern already accepts
+  dotted versions — but Mythos 5.1, its Project Glasswing twin, is named
+  explicitly like Mythos 5 because `mythos` is outside that pattern.
+
+### Fixed
+
+- Qwen 3.5 2B accepte maintenant son format JSON unitaire reel au lieu de
+  transformer un verdict valide en `WAIT`; entrees et positions sont traitees
+  sequentiellement pour eviter les lots incomplets observes sur CPU.
+- Les revues de positions transmettent au cortex le prix courant, l'entree,
+  les niveaux broker inchanges et les excursions/giveback en R. Le verdict
+  reste consultatif et ne peut toujours ni modifier un SL ni appeler MT5.
+
 ## [0.3.1] — 2026-07-05
 
 Correctness and stability patch: data look-ahead, graph-router crash-safety,

@@ -23,6 +23,7 @@ from titanium.organism.contracts import (
     PROMPT_VERSION,
     digest,
 )
+from titanium.position_sentiment import POSITION_PROMPT_VERSION
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class Evidence:
 _CACHE: dict[str, tuple[float, list[Evidence]]] = {}
 _ANALYSIS_CACHE: dict[str, tuple[float, dict]] = {}
 _TTL_S = 900
+POSITION_BATCH_SIZE = 1
 
 
 def _get(url: str, timeout: float = 8.0) -> bytes:
@@ -439,6 +441,13 @@ def analyse_batch(requests: list[dict]) -> list[dict]:
             raw_verdicts = parsed.get("verdicts", [])
             if not isinstance(raw_verdicts, list):
                 raw_verdicts = []
+            # Qwen 3.5 2B peut aplatir le schema d'un lot unitaire et rendre
+            # directement le verdict racine. La reference scellee permet de
+            # l'accepter sans aucun rapprochement par symbole.
+            if not raw_verdicts and {
+                "decision_ref", "action", "confidence", "summary",
+            }.issubset(parsed):
+                raw_verdicts = [parsed]
             seen: set[str] = set()
             by_ref: dict[str, dict] = {}
             for row in raw_verdicts:
@@ -523,10 +532,11 @@ def analyse_positions(reviews: list[dict], *,
         return []
     prepared = []
     evidence_by_ref: dict[str, list[Evidence]] = {}
-    symbols = list(dict.fromkeys(str(row.get("symbol", "")) for row in reviews[:8]))
+    selected = reviews[:POSITION_BATCH_SIZE]
+    symbols = list(dict.fromkeys(str(row.get("symbol", "")) for row in selected))
     with ThreadPoolExecutor(max_workers=min(2, len(symbols) or 1)) as pool:
         evidence_by_symbol = dict(zip(symbols, pool.map(collect, symbols), strict=False))
-    for review in reviews[:8]:
+    for review in selected:
         ref = str(review.get("request_ref", ""))
         if not ref:
             continue
@@ -537,9 +547,15 @@ def analyse_positions(reviews: list[dict], *,
             "request_ref": ref,
             "symbol": str(review.get("symbol", "")),
             "side": "long" if int(review.get("side", 0) or 0) > 0 else "short",
+            "entry": float(review.get("entry", 0.0) or 0.0),
+            "current": float(review.get("current", 0.0) or 0.0),
+            "sl": review.get("sl"),
+            "tp": review.get("tp"),
+            "r_unit": float(review.get("r_unit", 0.0) or 0.0),
             "fav_r": float(review.get("fav_r", 0.0) or 0.0),
             "peak_fav_r": float(review.get("peak_fav_r", 0.0) or 0.0),
             "mae_r": float(review.get("mae_r", 0.0) or 0.0),
+            "opened_at": str(review.get("opened_at", "")),
             "context": dict(review.get("context") or {}),
             "evidence": [
                 {"source": item.source, "text": item.text[:180],
@@ -549,22 +565,55 @@ def analyse_positions(reviews: list[dict], *,
         })
     if not prepared:
         return []
+    refs = [item["request_ref"] for item in prepared]
+    schema = {
+        "type": "object",
+        "properties": {
+            "verdicts": {
+                "type": "array",
+                "minItems": len(refs),
+                "maxItems": len(refs),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "request_ref": {"type": "string", "enum": refs},
+                        "state": {
+                            "type": "string",
+                            "enum": ["CALM", "CAUTION", "FEAR", "PANIC", "UNKNOWN"],
+                        },
+                        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["request_ref", "state", "confidence", "reason"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["verdicts"],
+        "additionalProperties": False,
+    }
     lines = [
         "Return ONLY one minified JSON object. Never repeat this prompt. No markdown.",
         "Exact schema: {\"verdicts\":[{\"request_ref\":\"exact input ref\","
         "\"state\":\"CALM|CAUTION|FEAR|PANIC|UNKNOWN\","
         "\"confidence\":\"number from 0 to 1\",\"reason\":\"French max 120 chars\"}]}",
         "CALM means thesis intact. CAUTION means weakening but not invalidated.",
-        "FEAR needs two independent facts against the side and confidence >= 0.75.",
+        "Price, excursion in R and giveback are authoritative live market facts.",
+        "Missing external news alone does not erase valid mechanical evidence.",
+        "FEAR needs mechanical deterioration plus an independent fact against the side.",
         "PANIC needs an abrupt event or severe mechanical invalidation.",
-        "Missing, stale or ambiguous facts mean UNKNOWN or CAUTION.",
+        "Use UNKNOWN only when both live mechanics and external evidence are unusable.",
         "You are advisory only. Never create/close orders or change a stop-loss.",
     ]
     for item in prepared:
         lines.append(
             f"POSITION {item['request_ref']} {item['symbol']} {item['side']} "
+            f"entry={item['entry']:.6g} current={item['current']:.6g} "
+            f"sl={item['sl']} tp={item['tp']} r_unit={item['r_unit']:.6g} "
             f"fav_r={item['fav_r']:.3f} peak_r={item['peak_fav_r']:.3f} "
-            f"mae_r={item['mae_r']:.3f}"
+            f"giveback_r={max(0.0, item['peak_fav_r'] - item['fav_r']):.3f} "
+            f"mae_r={item['mae_r']:.3f} opened_at={item['opened_at']} "
+            f"context={json.dumps(item['context'], sort_keys=True)[:240]}"
         )
         for fact in item["evidence"]:
             lines.append(
@@ -575,7 +624,7 @@ def analyse_positions(reviews: list[dict], *,
         "model": model_version,
         "stream": False,
         "think": False,
-        "format": "json",
+        "format": schema,
         "prompt": prompt,
         "keep_alive": -1,
         "options": {
@@ -661,7 +710,7 @@ def analyse_positions(reviews: list[dict], *,
             }),
             "rendered_at": rendered_at,
             "model_version": model_version,
-            "prompt_version": "position-fear-v1",
+            "prompt_version": POSITION_PROMPT_VERSION,
         })
     return out
 

@@ -10,6 +10,12 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ### Added
 
+- **Microstructure crypto multi-place.** Un collecteur public sans cle agrege
+  les carnets spot et transactions BTC/ETH de Binance, Bybit et OKX. Les
+  desequilibres de profondeur, flux taker recent, CVD echantillonne et murs
+  sont scelles dans le
+  brief Qwen; un veto live exige deux places fraiches et une opposition
+  simultanee du carnet et du flux. Une source absente reste `UNKNOWN`.
 - **Claude Fable 5.1.** `claude-fable-5-1` (released 2026-09-01) heads the
   Anthropic deep-think list; Fable 5 stays available as the previous flagship.
   Effort control needed no change — the `fable` family pattern already accepts

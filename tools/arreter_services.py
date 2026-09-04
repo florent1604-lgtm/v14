@@ -31,8 +31,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 #: Ordre d'arret : le plus dangereux en premier.
-ORDRE = ("live_demo", "analystes", "dashboard")
-MOTIF = re.compile(r"tools[\\/](live_demo|dashboard|analystes)\.py")
+ORDRE = ("live_demo", "collecteur_microstructure", "analystes", "dashboard")
+MOTIF = re.compile(
+    r"tools[\\/](live_demo|dashboard|analystes|collecteur_microstructure)\.py"
+)
 
 
 def _scanner() -> list:

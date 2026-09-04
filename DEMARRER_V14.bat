@@ -2,8 +2,9 @@
 REM ==========================================================================
 REM  TITANIUM V14 - demarrage complet
 REM
-REM  Lance les trois services dans des fenetres separees :
-REM    1. tableau de bord   2. analystes LLM   3. boucle de trading (armee)
+REM  Lance les services dans des fenetres separees :
+REM    1. tableau de bord   2. analystes LLM   3. microstructure publique
+REM    4. boucle de trading (armee)
 REM
 REM  Ils sont INDEPENDANTS par conception : si les analystes tombent, la
 REM  boucle continue avec une conviction neutre ; si le tableau de bord
@@ -118,7 +119,7 @@ echo   Lancement
 echo  ----------------------------------------------------------
 
 start "V14 - tableau de bord" cmd /k ""%PY%" -X utf8 tools\dashboard.py"
-echo  [1/3] tableau de bord      http://localhost:8095
+echo  [1/4] tableau de bord      http://localhost:8095
 
 REM  Le tableau de bord precharge ses modules et indexe le code : on lui
 REM  laisse une avance pour qu'il ne se batte pas avec la boucle pour le
@@ -126,12 +127,17 @@ REM  verrou MT5 au demarrage.
 timeout /t 6 /nobreak >nul
 
 start "V14 - analystes LLM" cmd /k ""%PY%" -X utf8 tools\analystes.py"
-echo  [2/3] analystes LLM        avis hors du chemin critique
+echo  [2/4] analystes LLM        avis hors du chemin critique
+
+timeout /t 3 /nobreak >nul
+
+start "V14 - microstructure" cmd /k ""%PY%" -X utf8 tools\collecteur_microstructure.py"
+echo  [3/4] microstructure       Binance + Bybit + OKX publics
 
 timeout /t 3 /nobreak >nul
 
 start "V14 - BOUCLE ARMEE" cmd /k ""%PY%" -X utf8 tools\live_demo.py --armer"
-echo  [3/3] BOUCLE ARMEE         ordres reels sur le compte demo
+echo  [4/4] BOUCLE ARMEE         ordres reels sur le compte demo
 
 REM  Verification finale : une seule instance de chaque, sinon on le dit.
 timeout /t 12 /nobreak >nul

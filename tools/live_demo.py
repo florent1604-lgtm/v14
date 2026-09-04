@@ -1755,6 +1755,29 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                   f"strate S>=3 (setup {c['support']}/4)", flush=True)
             continue
 
+        # Microstructure crypto multi-place, lue sur disque en quelques
+        # millisecondes : aucun appel reseau ne se trouve dans la boucle.
+        # Elle est placee en tete des indicateurs AVANT le scellement pour que
+        # Qwen juge exactement le carnet qui accompagne cette decision.
+        try:
+            from titanium.microstructure import (
+                attach_live_microstructure,
+                microstructure_gate,
+            )
+
+            micro = attach_live_microstructure(sym, feats, root=RACINE)
+            micro_gate = microstructure_gate(micro, side=int(out.side or 0))
+            _compter_tunnel(stats, "microstructure", micro_gate.action)
+            if micro_gate.action == "BLOCK":
+                _refus(stats, "MICROSTRUCTURE", sym, micro_gate.reason,
+                       piliers=c.get("support"), side=int(out.side or 0))
+                print(f"    {sym:8} ENTER refuse - {micro_gate.reason}", flush=True)
+                continue
+        except Exception as exc:  # noqa: BLE001 - organe additif fail-soft
+            _compter_tunnel(
+                stats, "microstructure", f"ERROR_{type(exc).__name__.upper()}",
+            )
+
         # ── 4. Dimensionnement PAR ACTIF, puis ordre.
         try:
             spec = ensure_symbol(sym)

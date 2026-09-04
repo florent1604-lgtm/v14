@@ -185,8 +185,15 @@ class TestStructuredOutputCapabilityDispatch:
 
 
 def _has_real_deepseek_key():
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
-    return bool(key) and key != "placeholder"
+    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    lowered = key.lower()
+    return bool(key) and "placeholder" not in lowered and not lowered.endswith("test")
+
+
+@pytest.mark.parametrize("value", ["", "placeholder", "sk-test", "demo-test"])
+def test_deepseek_live_probe_rejette_les_cles_factices(monkeypatch, value):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", value)
+    assert _has_real_deepseek_key() is False
 
 
 @pytest.mark.integration

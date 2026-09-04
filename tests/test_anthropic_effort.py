@@ -59,8 +59,12 @@ class TestEffortGate:
 
     @pytest.mark.parametrize(
         "model",
-        # Claude 5 family uses single-number version IDs; all are effort-capable.
-        ["claude-sonnet-5", "claude-fable-5", "claude-mythos-5"],
+        # Claude 5 family IDs are single-number ("fable-5") or dotted
+        # ("fable-5-1"); all are effort-capable.
+        [
+            "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1",
+            "claude-mythos-5", "claude-mythos-5-1",
+        ],
     )
     def test_claude_5_family_receives_effort(self, monkeypatch, model):
         captured = _capture_kwargs(monkeypatch)

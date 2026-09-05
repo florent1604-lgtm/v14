@@ -279,7 +279,7 @@ def _publier_cortex(demande, identity, avis_local: Avis) -> None:
             confidence=avis_local.conviction,
             summary=avis_local.resume,
             evidence_digest=avis_local.evidence_digest,
-            producer=f"hermes-cortex/{identity.model_version}",
+            producer=avis_local.source or "cortex-inconnu",
             source_observed_at=str(demande.demande_a),
         )
         CENTRAL_MEMORY.record_policy(policy)
@@ -326,8 +326,13 @@ def _traiter(d):
 
 
 def _traiter_lot(demandes):
-    """Analyse plusieurs entrées dans un seul appel GLM strictement lié."""
+    """Analyse un lot via Hermès, avec repli local explicite et borné."""
     from titanium.fundamental_intelligence import analyse_batch
+    from titanium.hermes_cortex import (
+        HERMES_SOURCE,
+        HermesCortexUnavailable,
+        analyse_entries,
+    )
 
     demandes = list(demandes)
     if not demandes:
@@ -346,8 +351,14 @@ def _traiter_lot(demandes):
         }
         for demande, identity in zip(demandes, identities, strict=True)
     ]
+    source = HERMES_SOURCE
     with _GLM_LOCK:
-        results = analyse_batch(payloads)
+        try:
+            results = analyse_entries(payloads)
+        except HermesCortexUnavailable as exc:
+            source = "cortex-local-fallback"
+            print(f"  Hermes indisponible ({exc}); repli cortex local", flush=True)
+            results = analyse_batch(payloads)
     elapsed = time.time() - t0
     out = []
     for demande, identity, result in zip(demandes, identities, results, strict=True):
@@ -361,7 +372,7 @@ def _traiter_lot(demandes):
             accord=(action == "ALLOW"),
             resume=str(result.get("summary", ""))[:500],
             bar_time=demande.bar_time,
-            source="cortex-local-multisource",
+            source=str(result.get("source", source)),
             action=action,
             sources=list(result.get("sources", ())),
             decision_ref=identity.decision_ref,
@@ -372,20 +383,28 @@ def _traiter_lot(demandes):
         )
         avis_local.rendu_a = datetime.now(timezone.utc).isoformat()
         _publier_cortex(demande, identity, avis_local)
-        out.append((demande, avis_local, elapsed, ("cortex-local-batch",)))
+        out.append((demande, avis_local, elapsed, (avis_local.source,)))
     return out
 
 
 def _traiter_positions() -> int:
-    """Traite en priorite un petit lot de positions dans un seul appel GLM."""
-    from titanium.fundamental_intelligence import analyse_positions
+    """Traite toutes les positions prioritaires via Hermès en un seul appel."""
+    from titanium.fundamental_intelligence import analyse_positions as analyse_local
+    from titanium.hermes_cortex import (
+        HermesCortexUnavailable,
+        analyse_positions,
+    )
     from titanium.position_sentiment import append_record, pending_reviews
 
     requests = pending_reviews(POSITION_REQUESTS, POSITION_VERDICTS, limit=8)
     if not requests:
         return 0
     with _GLM_LOCK:
-        verdicts = analyse_positions(requests)
+        try:
+            verdicts = analyse_positions(requests)
+        except HermesCortexUnavailable as exc:
+            print(f"  Hermes positions indisponible ({exc}); repli local", flush=True)
+            verdicts = analyse_local(requests)
     written = 0
     for verdict in verdicts:
         written += int(append_record(POSITION_VERDICTS, verdict))
@@ -452,8 +471,8 @@ def main() -> int:
     print("═" * 70)
     print(f"  demandes : {DEMANDES}")
     print(f"  avis     : {AVIS}")
-    print("\n  Le cortex local confronte setups et positions aux sources fondamentales.")
-    print("  Il reste consultatif; les gardes deterministes controlent le DEMO.\n")
+    print("\n  Hermes/Claude Code est le cortex principal asynchrone.")
+    print("  Le cortex local est le repli; les gardes deterministes controlent le DEMO.\n")
 
     deliberateur = None
 

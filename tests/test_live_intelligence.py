@@ -418,6 +418,14 @@ def test_worker_batch_publie_chaque_proposition_sous_sa_reference(
         ]
 
     monkeypatch.setattr(fi, "analyse_batch", fake_batch)
+    import titanium.hermes_cortex as hermes_cortex
+    monkeypatch.setattr(
+        hermes_cortex,
+        "analyse_entries",
+        lambda _payloads: (_ for _ in ()).throw(
+            hermes_cortex.HermesCortexUnavailable("test repli local")
+        ),
+    )
     demandes = [
         Demande(
             symbol, 1, verdict="ENTER", code="OK", piliers=3,

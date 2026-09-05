@@ -610,7 +610,7 @@ def scan(symboles: list[str] | None = None, *, prod: bool = False,
     Il reste déterministe et gratuit : la délibération n'est pas invoquée.
     """
     from titanium.data.mt5_vendor import get_rates
-    from titanium.edge import EdgeBook, TradeJournal, context_from_feats
+    from titanium.edge import EdgeBook, TradeJournal, asset_class_of, context_from_feats
     from titanium.features.builder import build_feats, risk_context_from
     from titanium.gates import confluence_gate
     from titanium.orchestrator import OrchestratorConfig, run_once
@@ -632,7 +632,11 @@ def scan(symboles: list[str] | None = None, *, prod: bool = False,
     for sym in syms:
         ligne = {"symbol": sym}
         try:
-            feats = build_feats(get_rates(sym, ltf, bars), get_rates(sym, htf, bars))
+            feats = build_feats(
+                get_rates(sym, ltf, bars),
+                get_rates(sym, htf, bars),
+                marche_continu=asset_class_of(sym) == "crypto",
+            )
         except Exception as exc:  # noqa: BLE001
             ligne.update(error=f"{type(exc).__name__}", verdict="—",
                          reason="données indisponibles")

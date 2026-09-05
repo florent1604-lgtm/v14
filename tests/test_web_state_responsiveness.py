@@ -26,6 +26,46 @@ def test_meta_affiche_hermes_comme_cortex_principal(monkeypatch, tmp_path):
     assert result["fallback_model"] == "qwen2.5:7b"
 
 
+def test_scan_traite_la_crypto_comme_un_marche_continu(monkeypatch, tmp_path):
+    from titanium import edge
+    from titanium.data import mt5_vendor
+    from titanium.features import builder
+    from titanium.gates import confluence_gate
+    from titanium import orchestrator
+
+    vus = []
+    monkeypatch.setattr(state, "_config", lambda: {"results_dir": tmp_path / "runs"})
+    monkeypatch.setattr(state, "account", lambda: {"equity": 1000.0, "currency": "EUR"})
+    monkeypatch.setattr(mt5_vendor, "get_rates", lambda *_args, **_kwargs: object())
+
+    def construire(*_args, **kwargs):
+        vus.append(kwargs.get("marche_continu"))
+        return {"_trace": {}, "setup_side": 0, "setup_family": "", "trend": 0}
+
+    monkeypatch.setattr(builder, "build_feats", construire)
+    monkeypatch.setattr(builder, "risk_context_from", lambda *_a, **_k: {})
+    decision = SimpleNamespace(gates=[])
+    monkeypatch.setattr(confluence_gate, "evaluate", lambda *_a, **_k: decision)
+    sortie = SimpleNamespace(
+        gate_verdict="WAIT", gate_code="WAIT_NO_SETUP", reason="WAIT_NO_SETUP",
+        stopped_at="gates", risk_verdict="", risk_money=0.0,
+        stop_distance=None, conviction=0.0, trace=[],
+    )
+    monkeypatch.setattr(orchestrator, "run_once", lambda *_a, **_k: sortie)
+    monkeypatch.setattr(edge, "context_from_feats", lambda *_a, **_k: "ctx")
+    monkeypatch.setattr(
+        edge.EdgeBook,
+        "verdict_for",
+        lambda *_a, **_k: SimpleNamespace(
+            edge_ok=None, samples=0, expectancy_r=0.0, reason="inconnu",
+        ),
+    )
+
+    state.scan(["BTCUSD", "EURUSD"])
+
+    assert vus == [True, False]
+
+
 def test_discriminants_ne_bloque_pas_le_dashboard(tmp_path, monkeypatch):
     source = tmp_path / "excursions.ndjson"
     source.write_text("preuve\n", encoding="utf-8")

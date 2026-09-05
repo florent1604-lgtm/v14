@@ -36,11 +36,20 @@ def _safe(fn, defaut=None):
 
 def meta() -> dict:
     c = _config()
+    from titanium.hermes_cortex import HERMES_MODEL, HERMES_PROVIDER, HERMES_SOURCE
+
     return {
         "now": datetime.now(timezone.utc).isoformat(),
-        "provider": c["llm_provider"],
-        "deep_model": c["deep_think_llm"],
+        # Le worker d'analystes appelle desormais Hermes via l'authentification
+        # Claude Code. Ollama/Qwen reste un repli local; l'afficher comme
+        # fournisseur principal rendait le tableau de bord factuellement faux.
+        "provider": HERMES_PROVIDER,
+        "deep_model": HERMES_MODEL,
         "quick_model": c["quick_think_llm"],
+        "cortex_primary": HERMES_SOURCE,
+        "cortex_mode": "async_advisory",
+        "fallback_provider": c["llm_provider"],
+        "fallback_model": c["deep_think_llm"],
         "results_dir": str(c["results_dir"]),
     }
 

@@ -8,6 +8,24 @@ from titanium.analysis import discriminants as analyse_discriminants
 from titanium.web import state
 
 
+def test_meta_affiche_hermes_comme_cortex_principal(monkeypatch, tmp_path):
+    monkeypatch.setattr(state, "_config", lambda: {
+        "llm_provider": "ollama",
+        "deep_think_llm": "qwen2.5:7b",
+        "quick_think_llm": "qwen2.5:3b",
+        "results_dir": tmp_path,
+    })
+
+    result = state.meta()
+
+    assert result["provider"] == "claude-code"
+    assert result["deep_model"] == "claude-opus-5"
+    assert result["cortex_primary"] == "hermes-cortex/claude-opus-5"
+    assert result["cortex_mode"] == "async_advisory"
+    assert result["fallback_provider"] == "ollama"
+    assert result["fallback_model"] == "qwen2.5:7b"
+
+
 def test_discriminants_ne_bloque_pas_le_dashboard(tmp_path, monkeypatch):
     source = tmp_path / "excursions.ndjson"
     source.write_text("preuve\n", encoding="utf-8")

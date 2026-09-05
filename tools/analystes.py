@@ -9,7 +9,7 @@ La boucle de trading relit ces avis sans jamais attendre.
 
 Pourquoi un processus séparé
 -----------------------------
-Une délibération prend des minutes ; la boucle tourne en 60 secondes. Les
+Une délibération distante prend des secondes ; la boucle tourne en 10 secondes. Les
 mettre dans le même fil ferait attendre le trading derrière un service
 externe. Séparés, une panne des analystes — quota épuisé, fournisseur
 saturé, réseau coupé — laisse le trading intact : il retombe simplement sur
@@ -424,36 +424,37 @@ def passage(_inutilise=None) -> int:
     if jetees:
         print(f"  {jetees} demande(s) périmée(s) écartée(s)", flush=True)
 
-    # Les positions ouvertes sont prioritaires : leur fenetre de decision est
-    # plus courte qu'une nouvelle entree. Un lot unique evite de saturer GLM.
-    n_positions = _traiter_positions()
-
     reste = quota_epuise()
     if reste:
         print(f"  quota épuisé — reprise dans {reste:.0f} s. Les demandes "
               "restent en file, aucune n'est perdue.", flush=True)
-        return n_positions
+        return _traiter_positions()
 
     en_attente = demandes_en_attente(
         DEMANDES, AVIS, maxi=ENTRY_BATCH_SIZE,
     )
-    if not en_attente:
-        return n_positions
-
     n = 0
-    for d, avis, duree, analystes in _traiter_lot(en_attente):
-        if _stop:
-            break
-        enregistrer(avis, AVIS)
-        journaliser_cout(d.symbol, _classe_pour(d.symbol), analystes,
-                         duree, avis.rating, avis.source)
-        n += 1
-        accord = {True: "d'accord", False: "EN DÉSACCORD",
-                  None: "sans direction"}[avis.accord]
-        print(f"  {d.symbol:10} {d.piliers}/{d.total_piliers} piliers · "
-              f"{'+'.join(analystes)} → {avis.rating or 'sans note'} · "
-              f"conviction {avis.conviction:.2f} · {accord} "
-              f"({duree:.0f} s pour {len(en_attente)} avis)", flush=True)
+    if en_attente:
+        # Une entree crypto M1 devient vite obsolete. Elle passe avant les
+        # revues periodiques de positions, sans jamais bloquer la boucle MT5
+        # qui tourne dans un autre processus.
+        for d, avis, duree, analystes in _traiter_lot(en_attente):
+            if _stop:
+                break
+            enregistrer(avis, AVIS)
+            journaliser_cout(d.symbol, _classe_pour(d.symbol), analystes,
+                             duree, avis.rating, avis.source)
+            n += 1
+            accord = {True: "d'accord", False: "EN DÉSACCORD",
+                      None: "sans direction"}[avis.accord]
+            print(f"  {d.symbol:10} {d.piliers}/{d.total_piliers} piliers · "
+                  f"{'+'.join(analystes)} → {avis.rating or 'sans note'} · "
+                  f"conviction {avis.conviction:.2f} · {accord} "
+                  f"({duree:.0f} s pour {len(en_attente)} avis)", flush=True)
+
+    # Les positions restent revues a chaque passage, mais ne peuvent plus
+    # retarder une impulsion d'entree qui attend deja dans la file.
+    n_positions = _traiter_positions()
     return n + n_positions
 
 

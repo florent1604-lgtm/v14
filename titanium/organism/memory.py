@@ -15,6 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from titanium.organism.contracts import DecisionIdentity, digest
+from titanium.organism.cortex import (
+    ALLOWED_ACTIONS,
+    EXECUTION_FIELDS,
+    CortexPolicy,
+    policy_is_fresh,
+)
 
 SCHEMA_VERSION = 1
 PROPOSAL_FIELDS = frozenset({
@@ -22,6 +28,7 @@ PROPOSAL_FIELDS = frozenset({
     "model_version", "prompt_version", "evidence_digest", "action",
     "confidence", "summary", "sources", "rendered_at",
 })
+POLICY_FIELDS = frozenset(CortexPolicy.__dataclass_fields__)
 
 
 class CentralMemory:
@@ -104,6 +111,73 @@ class CentralMemory:
         return self.append("brain.proposal", identity.decision_ref,
                            identity.symbol, proposal)
 
+    def record_policy(self, policy: CortexPolicy) -> bool:
+        """Publie une politique Hermes sans aucune capacite d'execution."""
+        payload = policy.to_dict()
+        unknown = set(payload) - POLICY_FIELDS
+        forbidden = set(payload) & EXECUTION_FIELDS
+        if unknown or forbidden:
+            raise ValueError(
+                f"contrat de politique invalide: inconnus={sorted(unknown)}, "
+                f"execution={sorted(forbidden)}"
+            )
+        return self.append(
+            "brain.policy", policy.policy_ref, policy.symbol, payload,
+        )
+
+    def policy_for(self, identity: DecisionIdentity, context_key: str,
+                   *, now=None) -> tuple[dict | None, str]:
+        """Lit une politique fraiche pour le meme actif/sens/contexte.
+
+        La recherche reste locale et bornee. Une politique d'un autre modele,
+        prompt, sens ou contexte n'est jamais recyclee.
+        """
+        try:
+            with self._connect() as db:
+                rows = db.execute(
+                    """SELECT payload_json, payload_sha256 FROM events
+                       WHERE symbol=? AND kind='brain.policy'
+                       ORDER BY seq DESC LIMIT 32""",
+                    (identity.symbol,),
+                ).fetchall()
+            stale_seen = False
+            for raw, expected_sha in rows:
+                payload = json.loads(raw)
+                if digest(payload) != expected_sha:
+                    return None, "CORTEX_POLICY_CORRUPT"
+                if set(payload) - POLICY_FIELDS:
+                    return None, "CORTEX_POLICY_SCHEMA_INVALID"
+                if set(payload) & EXECUTION_FIELDS:
+                    return None, "CORTEX_POLICY_EXECUTION_FIELD"
+                try:
+                    policy = CortexPolicy(**payload)
+                except (TypeError, ValueError):
+                    return None, "CORTEX_POLICY_SCHEMA_INVALID"
+                sealed = dict(payload)
+                policy_ref = str(sealed.pop("policy_ref", ""))
+                if digest(sealed) != policy_ref:
+                    return None, "CORTEX_POLICY_REF_INVALID"
+                if policy.action not in ALLOWED_ACTIONS:
+                    return None, "CORTEX_POLICY_ACTION_INVALID"
+                if not policy.evidence_digest:
+                    return None, "CORTEX_POLICY_EVIDENCE_UNSEALED"
+                if (
+                    policy.side != identity.side
+                    or policy.context_key != str(context_key)
+                    or policy.model_version != identity.model_version
+                    or policy.prompt_version != identity.prompt_version
+                ):
+                    continue
+                if not policy_is_fresh(policy, now=now):
+                    stale_seen = True
+                    continue
+                return payload, "CORTEX_POLICY_EXACT"
+            return None, (
+                "CORTEX_POLICY_STALE" if stale_seen else "CORTEX_POLICY_MISSING"
+            )
+        except (OSError, sqlite3.Error, TypeError, ValueError, json.JSONDecodeError):
+            return None, "CENTRAL_MEMORY_UNAVAILABLE"
+
     def proposal_for(self, identity: DecisionIdentity) -> tuple[dict | None, str]:
         """Rend uniquement la proposition exacte, sinon un motif d'alerte."""
         try:
@@ -156,12 +230,15 @@ class CentralMemory:
         """Etat factuel du noyau pour la supervision, sans mutation metier."""
         if not self.path.exists():
             return {"state": "EMPTY", "events": 0, "alerts": 0,
-                    "proposals": 0, "last_alert": ""}
+                    "proposals": 0, "policies": 0, "last_alert": ""}
         try:
             with self._connect() as db:
                 events = int(db.execute("SELECT COUNT(*) FROM events").fetchone()[0])
                 proposals = int(db.execute(
                     "SELECT COUNT(*) FROM events WHERE kind='brain.proposal'"
+                ).fetchone()[0])
+                policies = int(db.execute(
+                    "SELECT COUNT(*) FROM events WHERE kind='brain.policy'"
                 ).fetchone()[0])
                 alerts = int(db.execute(
                     "SELECT COUNT(*) FROM events WHERE kind='system.alert'"
@@ -172,7 +249,9 @@ class CentralMemory:
                 ).fetchone()
             last = json.loads(row[0]).get("code", "") if row else ""
             return {"state": "HEALTHY", "events": events, "alerts": alerts,
-                    "proposals": proposals, "last_alert": last}
+                    "proposals": proposals, "policies": policies,
+                    "last_alert": last}
         except (OSError, sqlite3.Error, TypeError, ValueError, json.JSONDecodeError):
             return {"state": "FAILED", "events": 0, "alerts": 0,
-                    "proposals": 0, "last_alert": "CENTRAL_MEMORY_UNAVAILABLE"}
+                    "proposals": 0, "policies": 0,
+                    "last_alert": "CENTRAL_MEMORY_UNAVAILABLE"}

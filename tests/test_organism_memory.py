@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from titanium.organism.contracts import build_decision_identity
-from titanium.organism.memory import PROPOSAL_FIELDS, CentralMemory
+from titanium.organism.cortex import EXECUTION_FIELDS, build_cortex_policy
+from titanium.organism.memory import POLICY_FIELDS, PROPOSAL_FIELDS, CentralMemory
 
 
 def _identity(symbol="XAUUSD", bar_time="2026-08-27T12:00:00+00:00"):
@@ -56,6 +58,89 @@ def test_previous_bar_is_stale_not_reused(tmp_path):
     proposal, code = memory.proposal_for(current)
     assert proposal is None
     assert code == "BRAIN_PROPOSAL_STALE"
+
+
+def test_fresh_cortex_policy_reuses_only_same_context(tmp_path):
+    memory = CentralMemory(tmp_path / "core.sqlite3")
+    previous = _identity(bar_time="2026-08-27T11:45:00+00:00")
+    current = _identity(bar_time="2026-08-27T12:00:00+00:00")
+    now = datetime(2026, 8, 27, 11, 59, tzinfo=timezone.utc)
+    policy = build_cortex_policy(
+        previous,
+        context_key="XAUUSD|long|continuation|3p",
+        action="ALLOW",
+        confidence=0.71,
+        summary="regime compatible",
+        evidence_digest="e" * 64,
+        now=now,
+    )
+    assert memory.record_policy(policy)
+    result, code = memory.policy_for(
+        current, "XAUUSD|long|continuation|3p", now=now + timedelta(seconds=30),
+    )
+    assert code == "CORTEX_POLICY_EXACT"
+    assert result["source_decision_ref"] == previous.decision_ref
+    assert memory.policy_for(current, "XAUUSD|long|reversal|3p", now=now)[0] is None
+
+
+def test_cortex_policy_expires_and_has_no_execution_fields(tmp_path):
+    memory = CentralMemory(tmp_path / "core.sqlite3")
+    identity = _identity()
+    now = datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
+    policy = build_cortex_policy(
+        identity,
+        context_key="XAUUSD|long|continuation|3p",
+        action="BLOCK",
+        confidence=0.9,
+        summary="choc macro",
+        evidence_digest="f" * 64,
+        ttl_s=60,
+        now=now,
+    )
+    memory.record_policy(policy)
+    assert not (EXECUTION_FIELDS & POLICY_FIELDS)
+    assert memory.policy_for(
+        identity, policy.context_key, now=now + timedelta(seconds=61),
+    )[1] == "CORTEX_POLICY_STALE"
+
+
+def test_late_cortex_answer_does_not_refresh_old_observation(tmp_path):
+    memory = CentralMemory(tmp_path / "core.sqlite3")
+    identity = _identity()
+    observed = datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
+    completed = observed + timedelta(minutes=10)
+    policy = build_cortex_policy(
+        identity,
+        context_key="XAUUSD|long|continuation|3p",
+        action="ALLOW",
+        confidence=0.8,
+        summary="reponse tardive",
+        evidence_digest="e" * 64,
+        now=completed,
+        source_observed_at=observed.isoformat(),
+    )
+    memory.record_policy(policy)
+    assert memory.policy_for(identity, policy.context_key, now=completed)[1] == (
+        "CORTEX_POLICY_STALE"
+    )
+
+
+def test_direct_policy_tampering_is_rejected(tmp_path):
+    memory = CentralMemory(tmp_path / "core.sqlite3")
+    identity = _identity()
+    policy = build_cortex_policy(
+        identity,
+        context_key="XAUUSD|long|continuation|3p",
+        action="ALLOW",
+        confidence=0.8,
+        summary="valide",
+        evidence_digest="e" * 64,
+    ).to_dict()
+    policy["summary"] = "contenu remplace"
+    memory.append("brain.policy", policy["policy_ref"], identity.symbol, policy)
+    assert memory.policy_for(identity, policy["context_key"])[1] == (
+        "CORTEX_POLICY_REF_INVALID"
+    )
 
 
 def test_identity_mismatch_and_unsealed_evidence_fail_closed(tmp_path):

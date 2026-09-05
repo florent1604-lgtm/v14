@@ -51,6 +51,10 @@ from titanium.execution.policy_identity import (  # noqa: E402
     snapshot_code_identity,
 )
 from titanium.organism import CentralMemory, DecisionIdentity  # noqa: E402
+from titanium.organism.market_jepa import (  # noqa: E402
+    MarketJepaRuntime,
+    attach_market_jepa,
+)
 from tools.console_output import configure_console_output  # noqa: E402
 
 #: Univers candidat. Chaque tour filtre selon ce que l'equity peut porter.
@@ -926,6 +930,9 @@ NOYAU_CENTRAL = CentralMemory(
     RACINE / "results" / "organism_memory.sqlite3",
     RACINE / "results" / "organism_alerts.ndjson",
 )
+MARKET_JEPA = MarketJepaRuntime(
+    RACINE / "results" / "market_jepa" / "model.json",
+)
 
 try:
     from titanium.live_memory import ReplayEdgeMemory
@@ -935,17 +942,22 @@ except Exception:  # noqa: BLE001
 
 
 def _avis_pour(sym: str, side: int,
-               identity: DecisionIdentity) -> tuple[float, str]:
+               identity: DecisionIdentity,
+               context_key: str = "") -> tuple[float, str]:
     """Relit l'avis des analystes. NE BLOQUE JAMAIS, ne declenche aucun
     appel : si le travailleur est arrete ou en panne, la boucle continue
     exactement comme si le pont n'existait pas."""
     try:
         proposal, code = NOYAU_CENTRAL.proposal_for(identity)
+        if proposal is None and context_key:
+            proposal, policy_code = NOYAU_CENTRAL.policy_for(identity, context_key)
+            if proposal is not None:
+                code = policy_code
         if proposal is None:
             return 0.5, code
         if int(proposal.get("side", 0) or 0) != int(side):
             return 0.2, "BRAIN_SIDE_MISMATCH"
-        return float(proposal.get("confidence", 0.5)), "avis exact du noyau"
+        return float(proposal.get("confidence", 0.5)), code
     except Exception:  # noqa: BLE001
         return 0.5, "avis indisponible"
 
@@ -963,9 +975,15 @@ def _garde_intelligente(sym: str, side: int, feats: dict,
                        f"n={verdict.samples}, E={verdict.expectancy_r:+.3f}R, "
                        f"PF={verdict.profit_factor:.2f}")
     proposal, code = NOYAU_CENTRAL.proposal_for(identity)
+    gate_source = "exact"
     if proposal is None:
-        NOYAU_CENTRAL.alert(code, identity, "aucune proposition exacte")
-        return False, f"noyau {code}: proposition exacte absente"
+        policy, policy_code = NOYAU_CENTRAL.policy_for(identity, contexte)
+        if policy is None:
+            NOYAU_CENTRAL.alert(code, identity, f"{policy_code}; aucun avis frais")
+            return False, f"noyau {code}: proposition exacte absente"
+        proposal = policy
+        code = policy_code
+        gate_source = "politique Hermes"
     action = str(proposal.get("action", "WAIT")).upper()
     if action not in {"ALLOW", "WAIT", "BLOCK"}:
         NOYAU_CENTRAL.alert("BRAIN_ACTION_INVALID", identity, action)
@@ -978,6 +996,8 @@ def _garde_intelligente(sym: str, side: int, feats: dict,
         NOYAU_CENTRAL.append("engine.gate", identity.decision_ref, sym, {
             **identity.to_dict(), "action": "ALLOW",
             "evidence_digest": proposal.get("evidence_digest", ""),
+            "gate_source": gate_source,
+            "policy_ref": proposal.get("policy_ref", ""),
         })
     except Exception as exc:  # noqa: BLE001 - aucune execution sans trace
         NOYAU_CENTRAL.alert("CENTRAL_GATE_WRITE_FAILED", identity,
@@ -985,7 +1005,7 @@ def _garde_intelligente(sym: str, side: int, feats: dict,
         return False, "noyau CENTRAL_GATE_WRITE_FAILED"
     return True, (f"memoire ALLOW: n={verdict.samples}, "
                   f"E={verdict.expectancy_r:+.3f}R, PF={verdict.profit_factor:.2f}; "
-                  f"fondamental ALLOW: {reason}")
+                  f"cortex {code} ALLOW: {reason}")
 
 
 def _sante_resumee() -> str:
@@ -999,11 +1019,13 @@ def _sante_resumee() -> str:
 
 
 def _demander_avis(sym: str, feats: dict, out, decision,
-                   cfg) -> DecisionIdentity | None:
+                   cfg, ltf=None) -> DecisionIdentity | None:
     """Depose la lecture deterministe pour les analystes. Une ecriture,
     puis on continue — la deliberation se fait dans un autre processus."""
     try:
         from titanium.avis import Demande, deposer
+        if ltf is not None:
+            attach_market_jepa(sym, feats, ltf, MARKET_JEPA)
         trace = feats.get("_trace") or {}
         demande = Demande(
             symbol=sym, side=out.side,
@@ -1788,7 +1810,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             )
             # La demande est d'abord scellee dans le noyau. Sans proposition
             # portant exactement cette identite, l'entree reste en WAIT.
-            identity = _demander_avis(sym, feats, out, _dec, cfg)
+            identity = _demander_avis(sym, feats, out, _dec, cfg, ltf=ltf)
             if identity is None:
                 _refus(stats, "CENTRAL_MEMORY", sym,
                        "demande cognitive impossible a sceller",
@@ -1808,7 +1830,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             print(f"    {sym:8} intelligence live valide - {motif_intelligence}",
                   flush=True)
 
-            conv, motif_avis = _avis_pour(sym, out.side, identity)
+            conv, motif_avis = _avis_pour(
+                sym, out.side, identity, _contexte_exact(sym, feats, out.side),
+            )
 
             conf = evaluer_confiance(
                 piliers_de(_dec),

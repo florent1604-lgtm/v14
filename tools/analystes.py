@@ -40,6 +40,7 @@ from titanium.avis import (  # noqa: E402
     enregistrer,
     purger,
 )
+from titanium.organism.cortex import build_cortex_policy  # noqa: E402
 from titanium.organism.memory import CentralMemory  # noqa: E402
 from tools.console_output import configure_console_output  # noqa: E402
 
@@ -253,6 +254,41 @@ def deliberateur_pour(classe: str):
     return _DELIBERATEURS[cle], analystes
 
 
+def _publier_cortex(demande, identity, avis_local: Avis) -> None:
+    """Publie l'avis exact puis sa politique de contexte a courte duree.
+
+    La politique est la voie rapide d'Hermes : la boucle suivante peut la
+    relire localement sans attendre un nouvel appel LLM. Elle ne contient
+    volontairement aucun prix, lot, stop ou ordre.
+    """
+    proposal = {
+        **identity.to_dict(),
+        "evidence_digest": avis_local.evidence_digest,
+        "action": avis_local.action,
+        "confidence": avis_local.conviction,
+        "summary": avis_local.resume,
+        "sources": avis_local.sources,
+        "rendered_at": avis_local.rendu_a,
+    }
+    try:
+        CENTRAL_MEMORY.record_proposal(identity, proposal)
+        policy = build_cortex_policy(
+            identity,
+            context_key=str(demande.engine_context),
+            action=avis_local.action,
+            confidence=avis_local.conviction,
+            summary=avis_local.resume,
+            evidence_digest=avis_local.evidence_digest,
+            producer=f"hermes-cortex/{identity.model_version}",
+            source_observed_at=str(demande.demande_a),
+        )
+        CENTRAL_MEMORY.record_policy(policy)
+    except Exception as exc:  # noqa: BLE001 - le moteur restera en WAIT
+        CENTRAL_MEMORY.alert(
+            "BRAIN_PROPOSAL_WRITE_FAILED", identity, type(exc).__name__,
+        )
+
+
 def _traiter(d):
     from titanium.fundamental_intelligence import analyse
 
@@ -276,7 +312,7 @@ def _traiter(d):
         conviction=max(0.0, min(1.0, confidence)),
         rating=action, accord=(action == "ALLOW"),
         resume=str(result.get("summary", ""))[:500],
-        bar_time=d.bar_time, source="glm-local-multisource",
+        bar_time=d.bar_time, source="cortex-local-multisource",
         action=action, sources=list(result.get("sources", ())),
         decision_ref=identity.decision_ref,
         context_digest=identity.context_digest,
@@ -285,21 +321,8 @@ def _traiter(d):
         prompt_version=str(result.get("prompt_version", identity.prompt_version)),
     )
     avis_local.rendu_a = datetime.now(timezone.utc).isoformat()
-    proposal = {
-        **identity.to_dict(),
-        "evidence_digest": avis_local.evidence_digest,
-        "action": avis_local.action,
-        "confidence": avis_local.conviction,
-        "summary": avis_local.resume,
-        "sources": avis_local.sources,
-        "rendered_at": avis_local.rendu_a,
-    }
-    try:
-        CENTRAL_MEMORY.record_proposal(identity, proposal)
-    except Exception as exc:  # noqa: BLE001 - le moteur restera en WAIT
-        CENTRAL_MEMORY.alert("BRAIN_PROPOSAL_WRITE_FAILED", identity,
-                             type(exc).__name__)
-    return d, avis_local, time.time() - t0, ("glm-local",)
+    _publier_cortex(d, identity, avis_local)
+    return d, avis_local, time.time() - t0, ("cortex-local",)
 
 
 def _traiter_lot(demandes):
@@ -338,7 +361,7 @@ def _traiter_lot(demandes):
             accord=(action == "ALLOW"),
             resume=str(result.get("summary", ""))[:500],
             bar_time=demande.bar_time,
-            source="glm-local-multisource",
+            source="cortex-local-multisource",
             action=action,
             sources=list(result.get("sources", ())),
             decision_ref=identity.decision_ref,
@@ -348,22 +371,8 @@ def _traiter_lot(demandes):
             prompt_version=str(result.get("prompt_version", identity.prompt_version)),
         )
         avis_local.rendu_a = datetime.now(timezone.utc).isoformat()
-        proposal = {
-            **identity.to_dict(),
-            "evidence_digest": avis_local.evidence_digest,
-            "action": avis_local.action,
-            "confidence": avis_local.conviction,
-            "summary": avis_local.resume,
-            "sources": avis_local.sources,
-            "rendered_at": avis_local.rendu_a,
-        }
-        try:
-            CENTRAL_MEMORY.record_proposal(identity, proposal)
-        except Exception as exc:  # noqa: BLE001 - le moteur restera en WAIT
-            CENTRAL_MEMORY.alert(
-                "BRAIN_PROPOSAL_WRITE_FAILED", identity, type(exc).__name__,
-            )
-        out.append((demande, avis_local, elapsed, ("glm-local-batch",)))
+        _publier_cortex(demande, identity, avis_local)
+        out.append((demande, avis_local, elapsed, ("cortex-local-batch",)))
     return out
 
 
@@ -443,7 +452,7 @@ def main() -> int:
     print("═" * 70)
     print(f"  demandes : {DEMANDES}")
     print(f"  avis     : {AVIS}")
-    print("\n  GLM local confronte les setups et positions aux sources fondamentales.")
+    print("\n  Le cortex local confronte setups et positions aux sources fondamentales.")
     print("  Il reste consultatif; les gardes deterministes controlent le DEMO.\n")
 
     deliberateur = None

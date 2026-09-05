@@ -302,6 +302,47 @@ def test_engine_gate_reads_only_exact_central_proposal(tmp_path, monkeypatch):
     assert "STALE" in reason
 
 
+def test_engine_gate_accepts_fresh_context_policy_without_waiting(tmp_path, monkeypatch):
+    from titanium.organism.cortex import build_cortex_policy
+    from tools import live_demo
+
+    class EdgeMemory:
+        @staticmethod
+        def verdict(_symbol, _context):
+            return MemoryVerdict("ALLOW", "edge positif", 100, 0.2, 1.4)
+
+        @staticmethod
+        def record(*_args):
+            return None
+
+    context = "XAUUSD|long|continuation|3p"
+    memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
+    monkeypatch.setattr(live_demo, "NOYAU_CENTRAL", memory)
+    monkeypatch.setattr(live_demo, "_MEMOIRE_LIVE", EdgeMemory())
+    monkeypatch.setattr(live_demo, "_contexte_exact", lambda *_args: context)
+    previous = Demande(
+        "XAUUSD", 1, verdict="ENTER", code="OK", piliers=3,
+        famille="continuation", bar_time="2026-08-27T12:00:00+00:00",
+        engine_context=context,
+    ).sceller()
+    current = Demande(
+        "XAUUSD", 1, verdict="ENTER", code="OK", piliers=3,
+        famille="continuation", bar_time="2026-08-27T12:15:00+00:00",
+        engine_context=context,
+    ).sceller()
+    memory.record_policy(build_cortex_policy(
+        previous,
+        context_key=context,
+        action="ALLOW",
+        confidence=0.7,
+        summary="politique de regime",
+        evidence_digest="e" * 64,
+    ))
+    ok, reason = live_demo._garde_intelligente("XAUUSD", 1, {}, current)
+    assert ok is True
+    assert "CORTEX_POLICY_EXACT" in reason
+
+
 def test_engine_deposits_sealed_request_in_central_memory(tmp_path, monkeypatch):
     from tools import live_demo
 

@@ -167,7 +167,7 @@ def test_fundamental_batch_accepte_le_verdict_unitaire_aplati(monkeypatch):
 def test_qwen_local_traite_les_entrees_et_positions_une_par_une():
     from tools import analystes
 
-    assert analystes.ENTRY_BATCH_SIZE == 1
+    assert analystes.ENTRY_BATCH_SIZE == 8
     assert fi.POSITION_BATCH_SIZE == 1
 
 

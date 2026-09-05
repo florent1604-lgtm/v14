@@ -8,10 +8,16 @@ crypto. Elle n'a obtenu que 4 ordres pour 189 ENTER sur la période.
 """
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pandas as pd
 
 from titanium.features.builder import _weekend_block, build_feats
+from tools.live_demo import (
+    CRYPTO_TIMEFRAME_PAIRS,
+    _echelles_a_balayer,
+    _resoudre_candidats_multitimeframe,
+)
 
 SAMEDI = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
 VENDREDI_SOIR = datetime(2026, 8, 14, 21, 0, tzinfo=timezone.utc)
@@ -66,3 +72,45 @@ class TestCreneauxIllimites:
         from tools.live_demo import MAX_POSITIONS
         assert not any(MAX_POSITIONS > 0 and n >= MAX_POSITIONS
                        for n in range(0, 100))
+
+
+class TestBalayageCryptoMultitimeframe:
+    def test_weekend_couvre_toutes_les_echelles_operationnelles(self):
+        assert _echelles_a_balayer(
+            "BTCUSD", "H1", "H4", crypto_weekend=True,
+        ) == CRYPTO_TIMEFRAME_PAIRS
+        assert {ltf for ltf, _ in CRYPTO_TIMEFRAME_PAIRS} == {
+            "M1", "M5", "M15", "M30", "H1", "H4",
+        }
+
+    def test_semaine_et_non_crypto_conservent_le_couple_adaptatif(self):
+        assert _echelles_a_balayer(
+            "BTCUSD", "H1", "D1", crypto_weekend=False,
+        ) == (("H1", "D1"),)
+        assert _echelles_a_balayer(
+            "EURUSD", "M15", "H4", crypto_weekend=True,
+        ) == (("M15", "H4"),)
+
+    def test_contradiction_directionnelle_bloque_l_actif(self):
+        candidats = [
+            {"sym": "BTCUSD", "out": SimpleNamespace(side=1),
+             "support": 4, "rank": 1.0, "cost": 0.1, "timeframe": "M5"},
+            {"sym": "BTCUSD", "out": SimpleNamespace(side=-1),
+             "support": 4, "rank": 1.0, "cost": 0.1, "timeframe": "H1"},
+        ]
+
+        retenus, conflits = _resoudre_candidats_multitimeframe(candidats)
+
+        assert retenus == []
+        assert conflits == ["BTCUSD"]
+
+    def test_convergence_ne_garde_qu_un_candidat(self):
+        m5 = {"sym": "ETHUSD", "out": SimpleNamespace(side=1),
+              "support": 3, "rank": 2.0, "cost": 0.08, "timeframe": "M5"}
+        h1 = {"sym": "ETHUSD", "out": SimpleNamespace(side=1),
+              "support": 4, "rank": 1.0, "cost": 0.10, "timeframe": "H1"}
+
+        retenus, conflits = _resoudre_candidats_multitimeframe([m5, h1])
+
+        assert retenus == [h1]
+        assert conflits == []

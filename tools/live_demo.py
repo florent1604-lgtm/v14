@@ -85,7 +85,11 @@ def univers_complet() -> list:
         return noms or list(UNIVERS_SECOURS)
     except Exception:  # noqa: BLE001
         return list(UNIVERS_SECOURS)
-INTERVALLE = 60.0        # s entre deux balayages
+# Le chemin chaud ne contient aucun appel LLM. Sur la phase crypto du
+# week-end, 30 actifs x six horizons ont ete mesures sous cinq secondes ; un
+# passage toutes les dix secondes garde donc une marge nette sans empiler les
+# appels MT5. Les decisions Hermès restent asynchrones et mises en cache.
+INTERVALLE = 10.0        # s entre deux balayages
 
 # Instruction opérateur du 28/08/2026 : rétablir le breakeven, sans réactiver
 # le trailing. Le SL ne bouge qu'une fois vers l'entrée + coûts ; la protection
@@ -109,6 +113,21 @@ LOT_PAR_TOUR = 60
 _curseur = 0
 LTF, HTF = "M15", "H4"
 BARRES = 400
+# Phase crypto week-end : toutes les unites operationnelles de V14 sont lues.
+# D1 sert de contexte aux horizons H1/H4 ; W1/MN1 ne sont pas des horizons
+# d'execution du moteur et ne sont donc pas presentes ici.
+CRYPTO_TIMEFRAME_PAIRS = (
+    ("M1", "M15"),
+    ("M5", "H1"),
+    ("M15", "H4"),
+    ("M30", "H4"),
+    ("H1", "D1"),
+    ("H4", "D1"),
+)
+_TIMEFRAME_MINUTES = {
+    "M1": 1, "M5": 5, "M15": 15, "M30": 30,
+    "H1": 60, "H4": 240, "D1": 1440,
+}
 #: Positions simultanées, tous actifs confondus. **0 = illimité.**
 #:
 #: Porté de 8 à illimité le 17/08/2026, à la demande de Florent, pour lever le
@@ -207,7 +226,13 @@ except (OSError, ValueError):
     _BASE_CODE_SNAPSHOT = None
 
 
-def _decision_policy_identity(execution_mode: str, rr_ratio: float) -> dict[str, str]:
+def _decision_policy_identity(
+    execution_mode: str,
+    rr_ratio: float,
+    *,
+    ltf: str = LTF,
+    htf: str = HTF,
+) -> dict[str, str]:
     """Scelle la politique; une panne de télémétrie ne casse jamais l'ordre."""
     try:
         return build_policy_identity(
@@ -218,8 +243,8 @@ def _decision_policy_identity(execution_mode: str, rr_ratio: float) -> dict[str,
                 "amelioration_entree_min_r": AMELIORATION_ENTREE_MIN_R,
                 "espacement_entree_min_atr": ESPACEMENT_ENTREE_MIN_ATR,
                 "espacement_entree_min_spread": ESPACEMENT_ENTREE_MIN_SPREAD,
-                "htf": HTF,
-                "ltf": LTF,
+                "htf": str(htf),
+                "ltf": str(ltf),
                 "max_limites_en_attente": MAX_LIMITES_EN_ATTENTE,
                 "max_par_symbole": MAX_PAR_SYMBOLE,
                 "max_positions": MAX_POSITIONS,
@@ -549,6 +574,56 @@ def _marquer_echelle(feats: dict, timeframe: str, higher_timeframe: str) -> None
     trace = feats.setdefault("_trace", {})
     trace["timeframe"] = str(timeframe)
     trace["higher_timeframe"] = str(higher_timeframe)
+
+
+def _echelles_a_balayer(
+    symbole: str, unite: str, haute: str, *, crypto_weekend: bool = False,
+) -> tuple:
+    """Horizons a evaluer sans modifier le comportement des marches ouverts.
+
+    La phase multi-horizon est reservee a la crypto lorsque les autres marches
+    sont fermes. En semaine, le dimensionnement adaptatif conserve exactement
+    son couple historique afin de ne pas changer simultanement deux regimes.
+    """
+    from titanium.edge import asset_class_of
+
+    if crypto_weekend and asset_class_of(symbole) == "crypto":
+        return CRYPTO_TIMEFRAME_PAIRS
+    return ((str(unite), str(haute)),)
+
+
+def _resoudre_candidats_multitimeframe(candidats: list[dict]) -> tuple[list[dict], list[str]]:
+    """Garde au plus une these coherente par actif.
+
+    Hermès peut arbitrer la qualite d'une these, mais ne doit pas recevoir
+    deux instructions opposees pour le meme actif au meme instant. Toute
+    contradiction directionnelle est donc bloquee avant le cortex. Quand les
+    horizons convergent, on retient d'abord le plus de piliers, puis le rang,
+    le cout et enfin l'horizon le plus long.
+    """
+    groupes: dict[str, list[dict]] = {}
+    for candidat in candidats:
+        groupes.setdefault(str(candidat.get("sym", "")), []).append(candidat)
+
+    retenus: list[dict] = []
+    conflits: list[str] = []
+    for symbole, groupe in groupes.items():
+        directions = {
+            int(getattr(c.get("out"), "side", 0) or 0) for c in groupe
+        } - {0}
+        if len(directions) != 1:
+            conflits.append(symbole)
+            continue
+        retenus.append(max(
+            groupe,
+            key=lambda c: (
+                int(c.get("support", 0) or 0),
+                float(c.get("rank", 0.0) or 0.0),
+                -float(c.get("cost", math.inf) or math.inf),
+                _TIMEFRAME_MINUTES.get(str(c.get("timeframe", "")), 0),
+            ),
+        ))
+    return retenus, conflits
 
 
 #: Charges de zones du tour courant, une par symbole. Vidé à chaque tour
@@ -1373,10 +1448,12 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     vivants = marches_ouverts(catalogue)
     hors_crypto = [s for s in catalogue
                    if asset_class_of(s) != "crypto" and vivants.get(s, True)]
+    phase_crypto_weekend = False
     if len(hors_crypto) < 10:
         cryptos = [s for s in catalogue if asset_class_of(s) == "crypto"]
         if cryptos:
             catalogue = cryptos
+            phase_crypto_weekend = True
             print(f"    marchés fermés hors crypto — balayage concentré sur "
                   f"{len(cryptos)} actifs", flush=True)
 
@@ -1630,88 +1707,112 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     #    rapides. C'est le même capital, mieux placé.
     from titanium.gates import confluence_gate as _cg
     from titanium.selection import barres_pour
+    from titanium.echelle import cout_relatif_stop
 
     candidats = []
     for sym in tradables:
         if _stop:
             return
-        try:
-            # La profondeur d'historique suit le rang : un actif de rang A
-            # obtient plus de barres, donc des niveaux de structure calculés
-            # sur une histoire plus longue et moins sensibles au bruit.
-            n_barres = barres_pour(sel, sym, BARRES) if sel else BARRES
-            # ── L'unité de temps vient du DIMENSIONNEMENT, pas d'une
-            #    constante. Le week-end, la volatilité M15 s'effondre à 58 %
-            #    de la semaine : le stop devient plus petit que le spread.
-            #    `tradable_universe` a déjà choisi la plus petite unité où
-            #    l'actif redevient jouable — analyser M15 pendant que le
-            #    stop est calibré en H1 ferait décider sur des bougies qui
-            #    n'ont aucun rapport avec le risque pris.
-            unite = getattr(budgets.get(sym), "timeframe", LTF) or LTF
-            haute = "D1" if unite == "H4" else HTF
-            ltf = get_rates(sym, unite, n_barres)
-            htf = get_rates_cache(sym, haute, BARRES)
-            # ⚠️ SANS le panel d'indicateurs. Mesuré : 392 ms avec, 30 ms
-            # sans — le panel pèse 92 % du coût d'un actif. Or AUCUNE porte
-            # ne le lit : il ne sert qu'à l'affichage MT5, au brief des
-            # analystes et au contexte figé, tous sur le chemin ENTER. On le
-            # recalcule donc pour les ~10 % qui entrent, pas pour les 90 %
-            # qui sont écartés. Balayage 6× plus rapide, décision identique.
-            # La crypto cote en continu : le blocage week-end ne la vise pas
-            # (voir titanium.features.builder._weekend_block).
-            feats = build_feats(ltf, htf, with_indicators=False,
-                                marche_continu=asset_class_of(sym) == "crypto")
-            _marquer_echelle(feats, unite, haute)
-        except Exception as exc:  # noqa: BLE001
-            # ⚠️ NE JAMAIS avaler en silence. Un `continue` muet a masqué un
-            # arrêt TOTAL du balayage pendant une heure le 07/08/2026.
-            stats["illisibles"] = stats.get("illisibles", 0) + 1
-            if stats["illisibles"] <= 3 or stats["illisibles"] % 25 == 0:
-                print(f"    {sym:10} illisible : {type(exc).__name__}: "
-                      f"{str(exc)[:70]}", flush=True)
-            _compter_tunnel(stats, "features", "ILLISIBLE")
-            continue
+        # La profondeur d'historique suit le rang : un actif de rang A
+        # obtient plus de barres, donc des niveaux de structure calculés
+        # sur une histoire plus longue et moins sensibles au bruit.
+        n_barres = barres_pour(sel, sym, BARRES) if sel else BARRES
+        unite_budget = getattr(budgets.get(sym), "timeframe", LTF) or LTF
+        haute_budget = "D1" if unite_budget == "H4" else HTF
+        paires = _echelles_a_balayer(
+            sym, unite_budget, haute_budget,
+            crypto_weekend=phase_crypto_weekend,
+        )
+        for unite, haute in paires:
+            if _stop:
+                return
+            try:
+                ltf_rates = get_rates(sym, unite, n_barres)
+                htf_rates = get_rates_cache(sym, haute, BARRES)
+                # ⚠️ SANS le panel d'indicateurs. Mesuré : 392 ms avec, 30 ms
+                # sans — le panel pèse 92 % du coût d'un actif. Or AUCUNE
+                # porte ne le lit : il ne sert qu'à l'affichage MT5, au brief
+                # des analystes et au contexte figé, tous sur le chemin ENTER.
+                # On le recalcule donc seulement pour les setups qui entrent.
+                # La crypto cote en continu : pas de blocage week-end.
+                feats = build_feats(
+                    ltf_rates, htf_rates, with_indicators=False,
+                    marche_continu=asset_class_of(sym) == "crypto",
+                )
+                _marquer_echelle(feats, unite, haute)
+            except Exception as exc:  # noqa: BLE001
+                # ⚠️ NE JAMAIS avaler en silence. Un `continue` muet a masqué
+                # un arrêt TOTAL du balayage pendant une heure le 07/08/2026.
+                stats["illisibles"] = stats.get("illisibles", 0) + 1
+                if stats["illisibles"] <= 3 or stats["illisibles"] % 25 == 0:
+                    print(f"    {sym:10} {unite}/{haute} illisible : "
+                          f"{type(exc).__name__}: {str(exc)[:70]}", flush=True)
+                _compter_tunnel(stats, "features", "ILLISIBLE")
+                continue
 
-        _compter_tunnel(stats, "features", "LISIBLE")
-        ctx = risk_context_from(feats, equity=compte.equity, risk_pct=1.0)
-        out = run_once(sym, feats, ctx, config=cfg)
-        stats["evalues"] += 1
-        dec = _cg.evaluate(feats, require_edge=cfg.require_edge)
-        _compter_tunnel(stats, "support_passed", f"S{dec.support_passed}")
-        for gate in dec.gates:
-            if not gate.passed:
-                _compter_tunnel(stats, "pillar_missing", gate.code or gate.name)
-        _compter_tunnel(stats, "gate_verdict", out.gate_verdict)
-        _compter_tunnel(stats, "gate_code", out.gate_code or out.reason)
+            _compter_tunnel(stats, "features", "LISIBLE")
+            ctx = risk_context_from(feats, equity=compte.equity, risk_pct=1.0)
+            out = run_once(sym, feats, ctx, config=cfg)
+            stats["evalues"] += 1
+            dec = _cg.evaluate(feats, require_edge=cfg.require_edge)
+            _compter_tunnel(stats, "support_passed", f"S{dec.support_passed}")
+            for gate in dec.gates:
+                if not gate.passed:
+                    _compter_tunnel(stats, "pillar_missing", gate.code or gate.name)
+            _compter_tunnel(stats, "gate_verdict", out.gate_verdict)
+            _compter_tunnel(stats, "gate_code", out.gate_code or out.reason)
 
-        if tracer:
-            _tracer_zones(sym, feats, out, cfg)
-        # Le flux Shadow n'est plus alimente. La memoire V4 live est consultee
-        # uniquement pour les entrees candidates, juste avant dimensionnement.
+            if tracer and (not phase_crypto_weekend or unite == unite_budget):
+                _tracer_zones(sym, feats, out, cfg)
+            # Le flux Shadow n'est plus alimente. La memoire V4 live est
+            # consultee uniquement pour les entrees candidates.
+            if out.gate_verdict != "ENTER":
+                continue
+            stats["enter"] += 1
 
-        if out.gate_verdict != "ENTER":
-            continue
-        stats["enter"] += 1
+            # Un signal sur M1/M5 peut etre techniquement propre tout en etant
+            # mathematiquement detruit par le spread. On l'ecarte avant le
+            # cortex : Hermès ne doit pas depenser du temps sur l'injouable.
+            try:
+                spec = ensure_symbol(sym)
+                cost = cout_relatif_stop(spec, out.stop_distance or 0.0)
+            except Exception:  # noqa: BLE001
+                cost = math.inf
+            if cost > MAX_COUT_SPREAD_PCT:
+                _compter_tunnel(stats, "multitimeframe", "COUT_SPREAD")
+                continue
 
-        # Le setup entre : MAINTENANT le panel vaut son coût.
-        try:
-            feats = build_feats(ltf, htf, with_indicators=True,
-                                marche_continu=asset_class_of(sym) == "crypto")
-            _marquer_echelle(feats, unite, haute)
-        except Exception:  # noqa: BLE001 — sans panel, on trade quand même
-            pass
+            # Le setup entre : MAINTENANT le panel vaut son coût.
+            try:
+                feats = build_feats(
+                    ltf_rates, htf_rates, with_indicators=True,
+                    marche_continu=asset_class_of(sym) == "crypto",
+                )
+                _marquer_echelle(feats, unite, haute)
+            except Exception:  # noqa: BLE001 — sans panel, on trade quand même
+                pass
 
-        candidats.append({
-            "sym": sym, "feats": feats, "out": out, "dec": dec,
-            "support": int(getattr(dec, "support_passed", 0) or 0),
-            "rank": float(getattr(dec, "rank", 0.0) or 0.0),
-        })
+            candidats.append({
+                "sym": sym, "feats": feats, "out": out, "dec": dec,
+                "support": int(getattr(dec, "support_passed", 0) or 0),
+                "rank": float(getattr(dec, "rank", 0.0) or 0.0),
+                "cost": float(cost), "timeframe": unite,
+                "higher_timeframe": haute, "ltf_rates": ltf_rates,
+            })
+
+    candidats, conflits = _resoudre_candidats_multitimeframe(candidats)
+    for sym in conflits:
+        _compter_tunnel(stats, "multitimeframe", "CONFLICT")
+        _refus(stats, "MULTITIMEFRAME_CONFLICT", sym,
+               "directions opposees entre horizons; aucun ordre")
+        print(f"    {sym:8} bloque — directions opposees entre horizons", flush=True)
 
     # Les plus forts d'abord : piliers alignés, puis score de classement.
     candidats.sort(key=lambda c: (-c["support"], -c["rank"]))
     if len(candidats) > 1:
         print("    candidats : " + " > ".join(
-            f"{c['sym']}({c['support']}/4)" for c in candidats[:6]), flush=True)
+            f"{c['sym']}[{c['timeframe']}]({c['support']}/4)"
+            for c in candidats[:6]), flush=True)
 
     # ── PHASE 2 — envoyer, sous tous les garde-fous, par ordre de mérite.
     _journaliser_grappes(candidats, compte.equity)
@@ -1810,7 +1911,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             )
             # La demande est d'abord scellee dans le noyau. Sans proposition
             # portant exactement cette identite, l'entree reste en WAIT.
-            identity = _demander_avis(sym, feats, out, _dec, cfg, ltf=ltf)
+            identity = _demander_avis(
+                sym, feats, out, _dec, cfg, ltf=c.get("ltf_rates"),
+            )
             if identity is None:
                 _refus(stats, "CENTRAL_MEMORY", sym,
                        "demande cognitive impossible a sceller",
@@ -1901,7 +2004,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                                 target_pct=conf.pct)
             budget = replace(
                 budget,
-                timeframe=getattr(budgets.get(sym), "timeframe", LTF),
+                timeframe=str(c.get("timeframe") or LTF),
                 cout_spread=round(cout_actuel, 4),
             )
 
@@ -1977,6 +2080,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         decision_at = datetime.now(timezone.utc).isoformat()
         policy_identity = _decision_policy_identity(
             str(decision_stratification.get("mode", "")), cfg.rr_ratio,
+            ltf=str(c.get("timeframe") or LTF),
+            htf=str(c.get("higher_timeframe") or HTF),
         )
         res = _envoi_entree()(
             sym, out.side, budget.risk_money, out.stop_distance or 0.0,
@@ -1992,7 +2097,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     policy_identity.get("policy_epoch", ""), res.ticket,
                 )
                 ctxk = _contexte_exact(sym, feats, out.side)
-                unite_decision = getattr(budgets.get(sym), "timeframe", LTF)
+                unite_decision = str(c.get("timeframe") or LTF)
                 written, reason = append_decision_event(
                     RACINE / "results" / "decision_registry.ndjson",
                     {
@@ -2039,7 +2144,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                                policy_identity=policy_identity,
                                decision_id=decision_id,
                                decision_at=decision_at)
-            unite_b = getattr(budgets.get(sym), "timeframe", LTF)
+            unite_b = str(c.get("timeframe") or LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             ctxk = _contexte_exact(sym, feats, out.side)
             print(f"    {sym:8} ORDRE ENVOYÉ {sens}{marque} #{res.ticket} "
@@ -2075,7 +2180,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     stats, "pending_context_save_failure", motif_contexte)
                 print(f"    ALERTE contexte limite non sauvegarde : "
                       f"{motif_contexte}", flush=True)
-            unite_b = getattr(budgets.get(sym), "timeframe", LTF)
+            unite_b = str(c.get("timeframe") or LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             economie_r = res.spread_saved_price / (out.stop_distance or 1.0)
             ctxk = _contexte_exact(sym, feats, out.side)

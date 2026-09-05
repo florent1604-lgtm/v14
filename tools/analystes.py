@@ -72,11 +72,11 @@ ANALYSTES_PAR_CLASSE = {
 }
 ANALYSTES_DEFAUT = ("market", "news")
 
-#: Qwen 2B local produit de façon fiable un verdict structuré par génération.
-#: Des lots plus grands ont été mesurés à 35--48 s et le modèle ne rendait
-#: souvent que le premier candidat. Une requête unitaire reste asynchrone,
-#: diminue la latence et laisse la file faire tourner tous les actifs.
-ENTRY_BATCH_SIZE = 1
+#: Hermès/Claude Code rattache chaque réponse à sa ``decision_ref`` et sait
+#: arbitrer plusieurs candidats dans un seul contexte. Un lot de huit amortit
+#: le démarrage du CLI et lui donne une vue transversale sans exposer MT5.
+#: Le repli local conserve son schéma strict et publie WAIT s'il tronque.
+ENTRY_BATCH_SIZE = 8
 _GLM_LOCK = threading.Lock()
 
 # Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de

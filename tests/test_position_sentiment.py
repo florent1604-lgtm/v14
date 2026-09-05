@@ -93,6 +93,28 @@ def test_la_file_ne_rend_que_le_dernier_snapshot_non_traite(tmp_path):
     assert [row["request_ref"] for row in pending] == [recent["request_ref"]]
 
 
+def test_la_file_fait_tourner_les_tickets_selon_leur_dernier_verdict(tmp_path):
+    requests = tmp_path / "requests.ndjson"
+    verdicts = tmp_path / "verdicts.ndjson"
+    first = review("1", NOW - timedelta(seconds=30))
+    second = review("2", NOW - timedelta(seconds=20))
+    third = review("3", NOW - timedelta(seconds=10))
+    for item in (first, second, third):
+        assert append_record(requests, item)
+
+    # Le ticket 1 vient d'etre servi mais possede deja un nouvel instantane.
+    assert append_record(verdicts, {
+        **verdict(first["request_ref"], state="CALM", rendered_at=NOW),
+        "ticket": "1",
+    })
+    first_fresh = review("1", NOW - timedelta(seconds=5))
+    assert append_record(requests, first_fresh)
+
+    pending = pending_reviews(requests, verdicts, limit=3, now=NOW)
+    assert [row["ticket"] for row in pending] == ["2", "3", "1"]
+    assert pending[-1]["request_ref"] == first_fresh["request_ref"]
+
+
 def test_glm_singleton_sans_reference_est_rattache_sans_ambiguite(monkeypatch):
     import titanium.fundamental_intelligence as fi
 

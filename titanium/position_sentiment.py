@@ -90,11 +90,34 @@ def _records(path: Path) -> list[dict[str, Any]]:
 def pending_reviews(request_path: Path, verdict_path: Path, *, limit: int = 8,
                     max_age_s: float = 600.0,
                     now: datetime | None = None) -> list[dict[str, Any]]:
-    """Rend le dernier instantane non traite de chaque ticket."""
-    rendered = {str(row.get("request_ref", "")) for row in _records(verdict_path)}
+    """Rend un instantane frais par ticket, en priorisant les moins servis.
+
+    Le producteur publie un nouvel instantane a chaque tour alors que le LLM
+    peut n'en traiter qu'un. Trier uniquement par ``observed_at`` affamait
+    alors toujours les tickets situes plus loin dans le snapshot MT5. La date
+    du dernier verdict impose ici une rotation equitable entre positions.
+    """
+    request_rows = _records(request_path)
+    verdict_rows = _records(verdict_path)
+    rendered = {str(row.get("request_ref", "")) for row in verdict_rows}
     current = now or datetime.now(timezone.utc)
+    ticket_by_ref = {
+        str(row.get("request_ref", "")): str(row.get("ticket", ""))
+        for row in request_rows
+        if row.get("request_ref") and row.get("ticket")
+    }
+    last_verdict_at: dict[str, datetime] = {}
+    for row in verdict_rows:
+        ticket = str(row.get("ticket", "")) or ticket_by_ref.get(
+            str(row.get("request_ref", "")), "",
+        )
+        rendered_at = _utc(str(row.get("rendered_at", "")))
+        if ticket and rendered_at is not None:
+            previous = last_verdict_at.get(ticket)
+            if previous is None or rendered_at > previous:
+                last_verdict_at[ticket] = rendered_at
     latest: dict[str, dict[str, Any]] = {}
-    for row in _records(request_path):
+    for row in request_rows:
         ref = str(row.get("request_ref", ""))
         ticket = str(row.get("ticket", ""))
         observed = _utc(str(row.get("observed_at", "")))
@@ -103,7 +126,14 @@ def pending_reviews(request_path: Path, verdict_path: Path, *, limit: int = 8,
         if (current - observed).total_seconds() > max_age_s:
             continue
         latest[ticket] = row
-    return sorted(latest.values(), key=lambda row: str(row.get("observed_at", "")))[:limit]
+    never = datetime.min.replace(tzinfo=timezone.utc)
+    return sorted(
+        latest.values(),
+        key=lambda row: (
+            last_verdict_at.get(str(row.get("ticket", "")), never),
+            str(row.get("observed_at", "")),
+        ),
+    )[:limit]
 
 
 def latest_verdict(path: Path, ticket: str) -> dict[str, Any] | None:

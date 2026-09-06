@@ -7,11 +7,13 @@ opportunité, un envoi, un remplissage et un résultat attribuable à une politi
 La perte historique est confirmée. Une nouvelle politique rentable n'est pas démontrée.
 Ce lot corrige des mesures et la chaîne de développement, pas les seuils de trading.
 
-**Risque d'intégration : CRITICAL au contrôle GitNexus final** pour les trois lots
-(285 parcours annoncés chacun, avec des rattachements larges aux symboles
-`tour`/`main`, et même au test isolé du lanceur). Ce signal n'est pas assimilé à une preuve de
-285 régressions ; il n'est pas non plus ignoré. Diff relu, suite complète verte,
-imports d'analyse hors MT5 et activation métier différée.
+**Risque d'intégration final : MEDIUM, quatre parcours affectés**, après
+reconstruction complète de GitNexus et comparaison avec `43bf65f` (17 fichiers,
+52 symboles). Les premières analyses annonçaient CRITICAL/285 parcours, même
+pour un test isolé. La synchronisation a ensuite révélé l'incohérence de
+`file_fts` ; l'index a été reconstruit, puis la synchronisation incrémentale
+a réussi. Le contrôle sur cet index sain remplace ces premières estimations.
+Diff relu, suite complète verte, imports d'analyse hors MT5 et activation métier différée.
 
 État relevé le 06/09 à 11:10 UTC : boucle active, equity publiée 1 971,83,
 6 531 ENTER bruts, zéro envoi depuis ce démarrage. Les 4 698 exclusions de coût
@@ -119,6 +121,8 @@ hors exécution. Risque retourné LOW, mais la télémétrie touche une boucle
 critique et exige ses tests. PowerShell `Sync-TeamIndex` non indexé : risque
 UNKNOWN, contrôlé par lecture du lanceur et test structurel. Aucun des fichiers
 moteur scellés n'a été modifié : aucun rejeu invalidé par ce lot.
+Le contrôle agrégé après réparation indique MEDIUM : `Main → _mt5`,
+`Main → _int`, `Main → _f`, `Main → Univers_complet`, via `tour`.
 
 ## Répertoire d'Hermès et architecture choisie
 
@@ -253,6 +257,19 @@ répond ; le frontal 8097 est inaccessible au contrôle. Le relais est publié
 directement sur le hub, sans créer un nouveau canal ni démarrer son interface.
 Les fichiers de consigne non suivis et `.vscode/` appartiennent à l'utilisateur
 et restent hors des commits de ce lot.
+
+Incident d'index résolu sans supprimer de données métier :
+
+```powershell
+node .gitnexus/run.cjs analyze --force --skip-skills --index-only
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/gitnexus_team.ps1 sync
+```
+
+Reconstruction réussie en 25,2 s, synchronisation suivante réussie avec zéro
+fichier de code changé ; index 11 369 nœuds / 22 407 relations / 300 flux.
+Cette réparation restaure l'index courant, elle ne prétend pas corriger le
+défaut interne du moteur GitNexus. Si l'incohérence FTS revient, ne pas exploiter
+ses nombres de parcours avant reconstruction. Le catalogue reste à 49 skills.
 
 **Prochain point humain :** programmer le chargement des corrections et la remise
 en service des collecteurs en DEMO. Pas d'armement ni d'ordre de démonstration

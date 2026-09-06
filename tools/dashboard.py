@@ -70,6 +70,7 @@ BRIQUES = [
     ("Pont MQL5 · zones", "titanium/bridge/mt5_zones.py", "test_bridge_mt5_zones.py"),
     ("Idempotence par barre", "tools/live_demo.py", "test_idempotence_barre.py"),
     ("Command Center + tâches", "titanium/web/command_center.py", "test_command_center.py"),
+    ("IRM — flux vivant", "tools/irm.py", "test_irm.py"),
 ]
 
 TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",

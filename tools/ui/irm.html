@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRM V14 — flux vivant</title>
+<link rel="stylesheet" href="/irm.css">
+</head>
+<body>
+
+<header class="vital" id="vital">
+  <div class="vital-id">
+    <span class="marque">IRM</span>
+    <span class="marque-sub">Titanium V14</span>
+  </div>
+
+  <div class="vital-etat" id="etat">
+    <span class="pastille" id="pastille" aria-hidden="true"></span>
+    <div>
+      <div class="etat-nom" id="etat-nom">connexion…</div>
+      <div class="etat-detail" id="etat-detail">en attente du flux</div>
+    </div>
+  </div>
+
+  <dl class="vital-chiffres">
+    <div><dt>capital</dt><dd id="v-capital">—</dd></div>
+    <div><dt>armement</dt><dd id="v-arme">—</dd></div>
+    <div><dt>tour</dt><dd id="v-tours">—</dd></div>
+    <div><dt>ordres envoyés</dt><dd id="v-envoyes">—</dd></div>
+    <div><dt>positions</dt><dd id="v-positions">—</dd></div>
+  </dl>
+</header>
+
+<main>
+
+  <section class="bloc" aria-labelledby="t-chaine">
+    <div class="bloc-tete">
+      <h2 id="t-chaine">La chaîne</h2>
+      <p class="bloc-note">
+        Débit cumulé depuis le démarrage de la boucle. Chaque organe montre ce
+        qui entre, ce qui sort, et ce qu'il retient. Une case vide signifie que
+        la boucle ne compte pas cet étage — pas qu'il n'a rien fait.
+      </p>
+    </div>
+    <ol class="chaine" id="chaine"></ol>
+  </section>
+
+  <!-- ── Le raisonnement d'Hermès ─────────────────────────────────────── -->
+  <section class="bloc" aria-labelledby="t-cortex">
+    <div class="bloc-tete">
+      <div class="tete-ligne">
+        <h2 id="t-cortex">Réflexion du cortex</h2>
+        <span class="etiquette" id="cortex-sante">—</span>
+      </div>
+      <p class="bloc-note">
+        Ce qu'Hermès a réellement jugé, avec son raisonnement mot pour mot et
+        les sources de faits qu'il a citées. Il ne peut que refuser une entrée
+        ou nuancer sa taille de ±25 % — jamais créer un sens, un prix ou un
+        stop.
+      </p>
+    </div>
+    <ul class="verdicts" id="cortex-verdicts"></ul>
+  </section>
+
+  <div class="deux-colonnes">
+
+    <section class="bloc" aria-labelledby="t-flux">
+      <div class="bloc-tete">
+        <h2 id="t-flux">Flux vivant</h2>
+        <div class="filtres" id="filtres" role="group" aria-label="Filtrer par organe"></div>
+      </div>
+      <ul class="flux" id="flux" aria-live="polite" aria-relevant="additions"></ul>
+    </section>
+
+    <div class="colonne-droite">
+
+      <section class="bloc" aria-labelledby="t-positions">
+        <div class="bloc-tete">
+          <h2 id="t-positions">Positions ouvertes</h2>
+          <p class="bloc-note">
+            <code>pic</code> est la meilleure excursion atteinte, en unités de
+            risque — un cliquet, il ne redescend jamais. Le résultat courant
+            n'est pas affiché : il demanderait le prix vivant, donc le verrou
+            MT5 que la boucle armée utilise pour trader.
+          </p>
+        </div>
+        <ul class="positions" id="positions"></ul>
+      </section>
+
+      <section class="bloc" aria-labelledby="t-revues">
+        <div class="bloc-tete">
+          <h2 id="t-revues">Revue des positions ouvertes</h2>
+          <p class="bloc-note">
+            Le cortex réévalue chaque position déjà ouverte : la thèse
+            tient-elle encore ? Il n'a aucun pouvoir de clôture.
+          </p>
+        </div>
+        <ul class="revues" id="revues"></ul>
+      </section>
+
+    </div>
+  </div>
+
+  <div class="deux-colonnes">
+
+    <!-- ── L'histoire exploitée ────────────────────────────────────────── -->
+    <section class="bloc" aria-labelledby="t-memoire">
+      <div class="bloc-tete">
+        <div class="tete-ligne">
+          <h2 id="t-memoire">Mémoire — ce que l'histoire dit du contexte</h2>
+          <span class="etiquette" id="memoire-compte">—</span>
+        </div>
+        <p class="bloc-note">
+          Pour chaque contexte évalué en ce moment, ce que les trades clos du
+          passé en disent. <code>n</code> est le nombre de clôtures réelles qui
+          fondent la ligne, <code>E</code> l'espérance en unités de risque nette
+          de coûts, <code>PF</code> le facteur de profit. Un contexte ne passe
+          que si son espérance mesurée est positive — trié du plus rentable au
+          moins rentable.
+        </p>
+      </div>
+      <ul class="memoire" id="memoire"></ul>
+    </section>
+
+    <!-- ── Les données injectées ───────────────────────────────────────── -->
+    <section class="bloc" aria-labelledby="t-injections">
+      <div class="bloc-tete">
+        <h2 id="t-injections">Données réellement injectées</h2>
+        <p class="bloc-note">
+          Sources de faits citées dans les verdicts récents. Une source connue
+          mais tombée reste affichée <strong>à zéro</strong> : c'est la seule
+          façon de voir qu'un fournisseur ne répond plus.
+        </p>
+      </div>
+      <ul class="injections" id="injections"></ul>
+
+      <div class="bloc-tete" style="margin-top:18px">
+        <h2>Piliers de support atteints</h2>
+        <p class="bloc-note">
+          Combien d'évaluations ont franchi 0, 1, 2, 3 ou 4 piliers de
+          micro-structure. Le quorum EXPLORE est à 2, PROD à 3.
+        </p>
+      </div>
+      <ul class="supports" id="supports"></ul>
+    </section>
+
+  </div>
+</main>
+
+<footer class="pied">
+  Lecture seule — aucune route ne passe d'ordre, ne déplace un stop ni n'appelle
+  un LLM. L'IRM lit les journaux que la boucle et le cortex écrivent ; elle ne
+  rejoue jamais la chaîne, pour ne pas disputer le verrou MT5 à la boucle armée.
+</footer>
+
+<script src="/irm.js"></script>
+</body>
+</html>

@@ -98,16 +98,19 @@ données MT5 (prioritaire) / yfinance (secours)
 
 ## Les trois règles non négociables
 
-1. **Le LLM n'a jamais l'autorité d'exécution.** Il module la taille et le plan
-   d'entrée d'un setup *déjà validé*. Les portes gardent le droit de véto.
-2. **Aucun appel LLM dans le chemin critique temps réel.** L'intraday ne
-   supporte pas 30 appels réseau. La délibération sert le swing et le
-   dimensionnement, jamais le déclenchement.
-3. **Fail-closed conservé.** LLM indisponible, lent ou incohérent ⇒ on retombe
-   sur le comportement déterministe, jamais sur un pari.
+1. **Hermès est le pilote décisionnel DEMO.** Il choisit parmi les candidats
+   scellés et publie `ALLOW/WAIT/BLOCK`; il n'appelle jamais MT5 directement.
+   RiskGate, sizing, identité du compte et idempotence restent les murs
+   techniques qui peuvent refuser une exécution invalide.
+2. **Aucun appel LLM dans le chemin critique temps réel.** Le worker Hermès
+   prépare des politiques hors ligne; la boucle lit localement leur décision
+   exacte et fraîche en quelques millisecondes.
+3. **Fail-closed conservé.** Hermès indisponible, lent, périmé ou incohérent ⇒
+   `WAIT` pour toute nouvelle entrée. La protection déterministe des positions
+   ouvertes continue, sans inventer une autorisation.
 
-Corollaire de coût : délibérer sur 149 actifs est intenable. On ne délibère que
-sur ce que les portes ont déjà validé — quelques décisions par jour.
+Corollaire de coût : les 149 actifs restent observés, mais seuls les candidats
+quantifiés sont soumis au cortex, par lots courts et sans top-N fixe.
 
 ## Style de réponse attendu
 
@@ -393,6 +396,7 @@ Constatés en lisant le code (cf. `V13/docs/DIAGNOSTIC_V12_V13.md`) :
 | `scan_v14.py [SYMBOLES…]` | **la chaîne complète** sur données MT5 : features → portes → RiskGate → décision. `--deliberer` ajoute le LLM, `--prod` durcit le quorum. N'exécute jamais. |
 | `python tools/dashboard.py --tests` | relève la suite et alimente la page |
 | `PRIME_V14.bat` | **harnais de développement Prime Agent** — écrit du code, ne trade pas |
+| `IRM_V14.bat` | **flux vivant** `http://localhost:8099` — la chaîne organe par organe, en temps réel |
 
 Port 8095 choisi pour ne heurter ni V12 (8090), ni JARVIS (8080/8765), ni
 Open WebUI (3000).
@@ -464,6 +468,57 @@ Rejouer la vérification : installer `playwright` dans le venv puis piloter
 `http://localhost:8095`. ⚠️ Ne pas attendre `networkidle` : la page interroge
 l'API toutes les 10 s, elle n'est jamais « au repos ». Attendre
 `domcontentloaded` puis le sélecteur `#wall .verdict`.
+
+## L'IRM — le flux vivant (05/09/2026)
+
+`tools/irm.py` (port **8099**) + `tools/ui/irm.{html,css,js}`. Le tableau de bord
+répond « où en est le système » ; l'IRM répond « qu'est-il en train de faire ».
+
+**C'est un lecteur, jamais un ré-exécuteur.** Rejouer la chaîne pour l'observer
+demanderait le verrou MT5 — celui que la boucle armée utilise pour trader. Un
+observateur qui affame l'observé ne mesure plus rien. L'IRM lit donc uniquement
+les journaux que la boucle écrit déjà. Conséquence assumée : boucle arrêtée ⇒
+l'IRM le dit, elle n'invente aucune activité.
+
+Dix organes, dans l'ordre du flux, avec leur débit relevé dans `stats.tunnel` :
+
+```
+catalogue → portabilité → détecteurs → portes ET → mémoire d'edge
+→ politique → grappes → microstructure → avis LLM → exécution
+```
+
+Aucun chiffre n'est calculé par la page — tous sont relevés. Un étage que la
+boucle ne compte pas affiche **« non compté »**, jamais `0` : confondre « rien
+laissé passer » et « pas mesuré » ferait conclure faux.
+
+Complétée le 05/09 : **onze organes** (le cortex Hermès a le sien, il était
+fondu dans « Mémoire d'edge » alors que c'est lui qui raisonne) et quatre
+panneaux cognitifs — **Réflexion du cortex** (le raisonnement d'Hermès mot pour
+mot, ses sources citées, le producteur réel de chaque verdict), **Mémoire**
+(n, espérance R, PF par contexte, le rentable en tête), **Données réellement
+injectées** (une source tombée reste affichée à zéro, sinon elle disparaît en
+silence) et **Revue des positions ouvertes**.
+
+Cinq pièges rencontrés en construisant, tous trouvés à la mesure :
+
+1. **Les décalages de lecture sont un état partagé.** Un client SSE qui draine
+   lui-même les journaux vole les octets au suivant : deux onglets montraient
+   deux vérités différentes, et un rechargement donnait une page vide. Un seul
+   collecteur remplit désormais un tampon commun.
+2. **`positions.json` n'a pas de résultat courant.** Le champ `r` est le
+   multiplicateur R→prix (`|entrée − SL|`, cf. `position_manager.py:514`), pas
+   un P&L. Affiché comme un résultat, il donnait « UK100 +34.36 R » là où le
+   pic réel est +0.17 R — et les sommer additionnait des dollars d'argent avec
+   des points d'indice. Seul `peak_fav_r` est en R.
+3. **Une grille 12 colonnes ne se replie pas toute seule.** À 420 px, ses onze
+   gouttières de 18 px dépassaient à elles seules la largeur disponible.
+4. **Un sélecteur trop précis casse en silence.** `.deux-colonnes > .bloc`
+   n'attrapait plus la colonne de droite devenue un `div` de regroupement :
+   elle héritait d'une piste de quelques pixels et son texte se cassait à un
+   caractère par ligne. Invisible en lisant le CSS, évident à la capture.
+5. **Une lecture de queue ne jette la première ligne que si elle a sauté.**
+   La jeter systématiquement perdait un enregistrement dans tout journal plus
+   court que la fenêtre — invisible en production où tous la dépassent.
 
 ## Environnement
 
@@ -1118,7 +1173,7 @@ lot backfill et de la réparation contrôlée du journal :
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (10780 symbols, 21274 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (11209 symbols, 22109 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

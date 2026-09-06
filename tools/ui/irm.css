@@ -1,0 +1,502 @@
+/* IRM V14 — Modern Dark.
+ *
+ * Fond #020617 et jamais #000 : le noir pur bave sur les dalles OLED et fait
+ * vibrer le texte fin. Aucune ressource distante — un poste de trading doit
+ * rester utilisable hors ligne, y compris son interface de diagnostic.
+ *
+ * Contraste : --txt-faint est mesuré à 5.92:1 sur --fond. La valeur naturelle
+ * (#6b7a90) tombait à 4.24:1, sous le minimum AA de 4.5. Vérifié au navigateur,
+ * pas à l'oeil.
+ */
+
+:root {
+  --fond:        #020617;
+  --fond-carte:  #0b1220;
+  --fond-creux:  #060d1a;
+  --bord:        #1c2740;
+  --bord-vif:    #2b3a5c;
+
+  --txt:         #e6edf7;
+  --txt-doux:    #aab8ce;
+  --txt-faint:   #7d8ca4;   /* 5.92:1 — ne pas assombrir */
+
+  --accent:      #22c55e;
+  --accent-doux: #14532d;
+  --alerte:      #f87171;
+  --alerte-doux: #4c1d1d;
+  --veille:      #fbbf24;
+  --veille-doux: #4a3410;
+  --info:        #60a5fa;
+
+  --r:           10px;
+  --pas:         14px;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html { scrollbar-color: var(--bord-vif) var(--fond); }
+
+body {
+  margin: 0;
+  background: var(--fond);
+  color: var(--txt);
+  font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, .mono, .chiffre {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+               "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--txt-doux);
+}
+
+/* ── Bandeau vital ─────────────────────────────────────────────────────── */
+
+.vital {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 28px;
+  padding: 12px 20px;
+  background: rgba(2, 6, 23, .93);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--bord);
+}
+
+.vital-id { display: flex; align-items: baseline; gap: 8px; }
+.marque { font-size: 17px; font-weight: 700; letter-spacing: .14em; }
+.marque-sub { font-size: 11px; color: var(--txt-faint); letter-spacing: .06em; }
+
+.vital-etat { display: flex; align-items: center; gap: 10px; }
+
+/* La pastille porte une FORME en plus de sa couleur (anneau plein, anneau
+ * creux, barre) : un daltonien doit pouvoir lire l'état sans la teinte. */
+.pastille {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--txt-faint); flex: none;
+}
+.pastille.en_cours {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-doux);
+  animation: battre 2s ease-in-out infinite;
+}
+.pastille.figee {
+  background: transparent;
+  border: 3px solid var(--veille);
+  box-shadow: 0 0 0 3px var(--veille-doux);
+}
+.pastille.arretee {
+  border-radius: 2px;
+  background: var(--alerte);
+  box-shadow: 0 0 0 3px var(--alerte-doux);
+}
+
+@keyframes battre {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pastille.en_cours { animation: none; }
+  .flux li.neuf { animation: none; }
+}
+
+.etat-nom { font-size: 13px; font-weight: 650; letter-spacing: .04em; }
+.etat-detail { font-size: 11px; color: var(--txt-faint); }
+
+.vital-chiffres {
+  display: flex; flex-wrap: wrap; gap: 26px;
+  justify-content: flex-end; margin: 0;
+}
+.vital-chiffres > div { text-align: right; }
+.vital-chiffres dt {
+  font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--txt-faint);
+}
+.vital-chiffres dd {
+  margin: 1px 0 0; font-size: 15px; font-weight: 650;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Structure ─────────────────────────────────────────────────────────── */
+
+main { padding: 18px 20px 8px; display: grid; gap: 18px; }
+
+.bloc {
+  background: var(--fond-carte);
+  border: 1px solid var(--bord);
+  border-radius: var(--r);
+  padding: 14px 16px 16px;
+}
+
+.bloc-tete { margin-bottom: 12px; }
+.bloc-note {
+  margin: 5px 0 0; font-size: 11.5px; line-height: 1.55;
+  color: var(--txt-faint); max-width: 78ch;
+}
+.bloc-note code {
+  color: var(--txt-doux); background: var(--fond-creux);
+  padding: 0 4px; border-radius: 3px;
+}
+
+/* Grille 12 colonnes explicite. `auto-fit` produisait une piste vide quand le
+ * nombre de cartes ne divisait pas la largeur — défaut trouvé au navigateur. */
+.deux-colonnes {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 18px;
+}
+/* Cible les ENFANTS DIRECTS, pas seulement `.bloc` : la colonne de droite est
+ * devenue un conteneur `div` groupant plusieurs blocs, et la regle ne
+ * l'attrapait plus. Elle heritait alors d'une piste implicite de quelques
+ * pixels et son texte se cassait a un caractere par ligne. Trouve au
+ * navigateur le 05/09/2026 — invisible en lisant le CSS. */
+.deux-colonnes > :first-child { grid-column: span 7; }
+.deux-colonnes > :last-child  { grid-column: span 5; }
+
+/* Les enfants de grille ont `min-width: auto` : sans ce 0, une valeur longue
+ * (un contexte, un ticket) pousse sa piste et fait deborder toute la page. */
+.deux-colonnes > .bloc, .flux li > *, .positions li > * { min-width: 0; }
+
+/* En dessous de 1100 px on REPLIE la grille sur une colonne au lieu de garder
+ * 12 pistes. Un `span 12` sur 12 pistes de 1fr exige encore ses 11 gouttieres
+ * de 18 px : a 420 px, 198 px de gouttiere depassaient a eux seuls la largeur
+ * disponible, et la page defilait horizontalement. Trouve au navigateur. */
+@media (max-width: 1100px) {
+  .deux-colonnes { grid-template-columns: 1fr; }
+  .deux-colonnes > :first-child,
+  .deux-colonnes > :last-child { grid-column: auto; }
+  .vital { grid-template-columns: 1fr; gap: 12px; }
+  .vital-chiffres { justify-content: flex-start; gap: 18px; }
+}
+
+/* Sur telephone, la ligne de flux perd ses colonnes fixes : 62 + 104 px de
+ * gabarit ne laissaient plus rien au texte. */
+@media (max-width: 560px) {
+  .flux li { grid-template-columns: 58px 1fr; }
+  .flux li .f-corps { grid-column: 1 / -1; }
+  .positions li { grid-template-columns: 1fr auto; }
+  .p-meta { overflow-wrap: anywhere; }
+}
+
+/* ── La chaîne d'organes ───────────────────────────────────────────────── */
+
+.chaine {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+}
+@media (max-width: 1400px) { .chaine { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 1100px) { .chaine { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 780px)  { .chaine { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px)  { .chaine { grid-template-columns: 1fr; } }
+
+.organe {
+  position: relative;
+  background: var(--fond-creux);
+  border: 1px solid var(--bord);
+  border-radius: 8px;
+  padding: 10px 11px 11px;
+  display: flex; flex-direction: column; gap: 7px;
+  transition: border-color .35s ease, box-shadow .35s ease;
+}
+.organe.actif {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-doux), 0 0 18px -6px var(--accent);
+}
+
+.organe-rang {
+  position: absolute; top: 8px; right: 9px;
+  font-size: 10px; color: var(--txt-faint);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.organe-nom { font-size: 12.5px; font-weight: 650; letter-spacing: .02em; }
+.organe-sous { font-size: 10.5px; color: var(--txt-faint); line-height: 1.4; }
+
+.organe-debit {
+  display: flex; align-items: baseline; gap: 6px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.debit-entre { font-size: 12px; color: var(--txt-doux); }
+.debit-fleche { color: var(--txt-faint); font-size: 11px; }
+.debit-sort { font-size: 15px; font-weight: 650; color: var(--accent); }
+.debit-vide { font-size: 11px; color: var(--txt-faint); font-style: italic; }
+
+/* Barre d'attrition : part retenue par l'organe, en rouge, sur la part
+ * transmise, en vert. La proportion est lisible sans lire les chiffres. */
+.attrition {
+  height: 4px; border-radius: 2px; overflow: hidden;
+  background: var(--accent); display: flex;
+}
+.attrition span { background: var(--alerte); display: block; height: 100%; }
+
+.organe-detail { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.organe-detail li {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 10.5px; color: var(--txt-faint);
+}
+.organe-detail b {
+  font-weight: 600; color: var(--txt-doux);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+/* ── Flux vivant ───────────────────────────────────────────────────────── */
+
+.filtres { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.filtres button {
+  font: inherit; font-size: 10.5px; letter-spacing: .03em;
+  padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  background: var(--fond-creux); color: var(--txt-faint);
+  border: 1px solid var(--bord);
+}
+.filtres button:hover { color: var(--txt-doux); border-color: var(--bord-vif); }
+.filtres button[aria-pressed="true"] {
+  background: var(--accent-doux); color: var(--txt);
+  border-color: var(--accent);
+}
+.filtres button:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+.flux {
+  list-style: none; margin: 0; padding: 0;
+  max-height: 62vh; overflow-y: auto;
+  display: flex; flex-direction: column-reverse; gap: 1px;
+}
+.flux li {
+  display: grid;
+  grid-template-columns: 62px 104px 1fr;
+  gap: 10px; align-items: baseline;
+  padding: 6px 8px; border-radius: 5px;
+  border-left: 3px solid var(--bord-vif);
+}
+.flux li:nth-child(even) { background: rgba(255, 255, 255, .017); }
+.flux li.neuf { animation: surligner 1.4s ease-out; }
+
+@keyframes surligner {
+  from { background: var(--accent-doux); }
+  to   { background: transparent; }
+}
+
+.f-heure {
+  font-size: 11px; color: var(--txt-faint);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.f-sym {
+  font-size: 11.5px; font-weight: 650;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.f-corps { min-width: 0; }
+.f-titre { font-size: 11.5px; color: var(--txt); }
+.f-detail {
+  font-size: 10.5px; color: var(--txt-faint); line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* L'organe est nommé EN TOUTES LETTRES sur chaque ligne. La couleur du liseré
+ * double l'information, elle ne la porte jamais seule. */
+.f-organe {
+  display: inline-block; margin-right: 6px;
+  font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--txt-faint);
+}
+.f-sens { font-size: 10px; font-weight: 700; }
+.f-sens.long  { color: var(--accent); }
+.f-sens.short { color: var(--alerte); }
+
+.flux li[data-organe="memoire"]        { border-left-color: #a78bfa; }
+.flux li[data-organe="avis"]           { border-left-color: var(--info); }
+.flux li[data-organe="grappes"]        { border-left-color: var(--veille); }
+.flux li[data-organe="portabilite"]    { border-left-color: #fb923c; }
+.flux li[data-organe="politique"]      { border-left-color: #f472b6; }
+.flux li[data-organe="microstructure"] { border-left-color: #2dd4bf; }
+.flux li[data-organe="execution"]      { border-left-color: var(--alerte); }
+
+/* ── Positions et supports ─────────────────────────────────────────────── */
+
+.positions, .supports { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+
+.positions li {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px;
+  padding: 9px 11px; border-radius: 7px;
+  background: var(--fond-creux); border: 1px solid var(--bord);
+}
+.p-tete { display: flex; align-items: baseline; gap: 8px; }
+.p-sym { font-size: 13px; font-weight: 650; }
+.p-r {
+  font-size: 15px; font-weight: 700; text-align: right;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.p-r.gain { color: var(--accent); }
+.p-r.perte { color: var(--alerte); }
+.p-meta { font-size: 10.5px; color: var(--txt-faint); grid-column: 1 / -1; }
+.p-pic { font-size: 10.5px; color: var(--txt-faint); text-align: right; }
+
+.supports li {
+  display: grid; grid-template-columns: 34px 1fr 64px;
+  gap: 9px; align-items: center; font-size: 11.5px;
+}
+.s-nom {
+  font-weight: 650; font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.s-barre { height: 8px; border-radius: 4px; background: var(--fond-creux); overflow: hidden; }
+.s-barre span { display: block; height: 100%; background: var(--bord-vif); }
+.s-barre span.quorum { background: var(--accent); }
+.s-n {
+  text-align: right; color: var(--txt-faint);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.vide {
+  padding: 14px; text-align: center; font-size: 11.5px;
+  color: var(--txt-faint); font-style: italic;
+}
+
+.pied {
+  padding: 14px 20px 22px; font-size: 10.5px; line-height: 1.6;
+  color: var(--txt-faint); max-width: 96ch;
+}
+
+/* ── Réflexion du cortex ───────────────────────────────────────────────── */
+
+.tete-ligne { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+
+.etiquette {
+  font-size: 10px; letter-spacing: .05em; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid var(--bord-vif);
+  color: var(--txt-faint); font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.etiquette.hermes { color: var(--accent); border-color: var(--accent); background: var(--accent-doux); }
+.etiquette.repli  { color: var(--veille); border-color: var(--veille); background: var(--veille-doux); }
+.etiquette.muet   { color: var(--alerte); border-color: var(--alerte); background: var(--alerte-doux); }
+
+.verdicts { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.verdicts li {
+  display: grid; grid-template-columns: 96px 92px 1fr; gap: 12px;
+  padding: 10px 12px; border-radius: 7px;
+  background: var(--fond-creux); border: 1px solid var(--bord);
+  border-left: 3px solid var(--bord-vif);
+}
+.verdicts li[data-verdict="ALLOW"] { border-left-color: var(--accent); }
+.verdicts li[data-verdict="BLOCK"] { border-left-color: var(--alerte); }
+.verdicts li[data-verdict="WAIT"]  { border-left-color: var(--veille); }
+
+.v-tete { display: flex; flex-direction: column; gap: 2px; }
+.v-sym { font-size: 13px; font-weight: 650; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.v-heure { font-size: 10px; color: var(--txt-faint); font-family: ui-monospace, Menlo, Consolas, monospace; }
+.v-note { display: flex; flex-direction: column; gap: 3px; }
+.v-verdict { font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+.v-verdict.ALLOW { color: var(--accent); }
+.v-verdict.BLOCK { color: var(--alerte); }
+.v-verdict.WAIT  { color: var(--veille); }
+.v-conv {
+  font-size: 10.5px; color: var(--txt-faint);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.v-corps { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.v-raison { font-size: 11.5px; line-height: 1.5; color: var(--txt); overflow-wrap: anywhere; }
+.v-preuves { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.puce {
+  font-size: 9.5px; letter-spacing: .04em; padding: 1px 6px; border-radius: 3px;
+  background: var(--fond); border: 1px solid var(--bord-vif); color: var(--txt-doux);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.puce.modele { color: var(--info); border-color: var(--info); }
+
+/* ── Mémoire historique ────────────────────────────────────────────────── */
+
+.memoire { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.memoire li {
+  display: grid; grid-template-columns: 1fr 62px 74px 62px 58px; gap: 10px;
+  align-items: baseline; padding: 7px 10px; border-radius: 6px;
+  background: var(--fond-creux); border: 1px solid var(--bord);
+  border-left: 3px solid var(--alerte);
+}
+.memoire li.rentable { border-left-color: var(--accent); }
+.m-ctx {
+  font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.m-act { font-size: 10.5px; font-weight: 700; letter-spacing: .03em; }
+.m-act.ALLOW { color: var(--accent); }
+.m-act.BLOCK { color: var(--alerte); }
+.m-act.WAIT  { color: var(--veille); }
+.m-chiffre {
+  font-size: 11.5px; text-align: right;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.m-chiffre.gain { color: var(--accent); }
+.m-chiffre.perte { color: var(--alerte); }
+.m-chiffre small { color: var(--txt-faint); font-size: 9.5px; }
+
+.memoire-entete {
+  display: grid; grid-template-columns: 1fr 62px 74px 62px 58px; gap: 10px;
+  padding: 0 10px 4px; font-size: 9.5px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--txt-faint);
+}
+.memoire-entete span:not(:first-child) { text-align: right; }
+
+/* ── Injections de données ─────────────────────────────────────────────── */
+
+.injections { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.injections li {
+  display: grid; grid-template-columns: 108px 1fr 52px; gap: 10px;
+  align-items: center; font-size: 11.5px;
+}
+.i-nom { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 600; }
+.i-nom.morte { color: var(--alerte); }
+.i-barre { height: 8px; border-radius: 4px; background: var(--fond-creux); overflow: hidden; }
+.i-barre span { display: block; height: 100%; background: var(--info); }
+.i-barre span.vide { background: var(--alerte); width: 3px !important; }
+.i-n {
+  text-align: right; color: var(--txt-faint);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Revue des positions ───────────────────────────────────────────────── */
+
+.revues { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.revues li {
+  padding: 9px 11px; border-radius: 7px; background: var(--fond-creux);
+  border: 1px solid var(--bord); border-left: 3px solid var(--bord-vif);
+  display: grid; gap: 4px;
+}
+.revues li[data-etat="CALM"]    { border-left-color: var(--accent); }
+.revues li[data-etat="CAUTION"] { border-left-color: var(--veille); }
+.revues li[data-etat="FEAR"]    { border-left-color: var(--alerte); }
+.r-tete { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.r-sym { font-size: 12.5px; font-weight: 650; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.r-etat { font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.r-etat.CALM { color: var(--accent); }
+.r-etat.CAUTION { color: var(--veille); }
+.r-etat.FEAR { color: var(--alerte); }
+.r-conf { font-size: 10.5px; color: var(--txt-faint); font-family: ui-monospace, Menlo, Consolas, monospace; }
+.r-raison { font-size: 11px; line-height: 1.5; color: var(--txt-doux); overflow-wrap: anywhere; }
+
+.colonne-droite { display: grid; gap: 18px; align-content: start; }
+
+@media (max-width: 900px) {
+  .verdicts li { grid-template-columns: 1fr; gap: 6px; }
+  .v-note { flex-direction: row; align-items: baseline; gap: 10px; }
+  .memoire li, .memoire-entete { grid-template-columns: 1fr 54px 62px 54px; }
+  .memoire li > :nth-child(5), .memoire-entete > :nth-child(5) { display: none; }
+  .injections li { grid-template-columns: 92px 1fr 44px; }
+}

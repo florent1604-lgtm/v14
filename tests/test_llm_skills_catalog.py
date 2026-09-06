@@ -39,6 +39,13 @@ def test_catalog_contains_all_v12_skills_with_valid_frontmatter() -> None:
     # 49 depuis l'ajout de `v14-research-verifier` (Hermes, 13/08/2026). Le
     # nombre est verrouille volontairement : un skill qui apparait ou disparait
     # sans decision explicite doit faire echouer la suite, pas passer inapercu.
+    #
+    # Il a fait son travail le 05/09/2026 : `gitnexus setup` avait reinstalle
+    # SES sept skills sous `.claude/skills/gitnexus/`, alors que le catalogue
+    # les porte deja a plat (`gitnexus-cli`, `gitnexus-guide`, ...). Deux copies
+    # divergentes du meme skill, soit exactement le defaut qui a tue V12. Le
+    # dossier imbrique a ete supprime des quatre emplacements. Si `gitnexus
+    # setup` est relance un jour, ce test rechouera : c'est voulu.
     assert len(documents) == 49
     assert len(names) == 49
     assert {"trading-team", "collab-discipline", "v14-research-verifier"} <= names

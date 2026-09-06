@@ -43,7 +43,8 @@ def _scanner() -> list:
             ["powershell", "-NoProfile", "-Command",
              "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
              "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"],
-            capture_output=True, text=True, timeout=60).stdout.strip()
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=60).stdout.strip()
         d = json.loads(out) if out else []
         return [d] if isinstance(d, dict) else d
     except Exception:  # noqa: BLE001

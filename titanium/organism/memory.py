@@ -27,6 +27,7 @@ PROPOSAL_FIELDS = frozenset({
     "decision_ref", "context_digest", "symbol", "side", "bar_time",
     "model_version", "prompt_version", "evidence_digest", "action",
     "confidence", "summary", "sources", "rendered_at",
+    "decision_model_version", "producer",
 })
 POLICY_FIELDS = frozenset(CortexPolicy.__dataclass_fields__)
 
@@ -126,7 +127,8 @@ class CentralMemory:
         )
 
     def policy_for(self, identity: DecisionIdentity, context_key: str,
-                   *, now=None) -> tuple[dict | None, str]:
+                   *, now=None, expected_decision_model: str = "",
+                   expected_producer: str = "") -> tuple[dict | None, str]:
         """Lit une politique fraiche pour le meme actif/sens/contexte.
 
         La recherche reste locale et bornee. Une politique d'un autre modele,
@@ -140,7 +142,6 @@ class CentralMemory:
                        ORDER BY seq DESC LIMIT 32""",
                     (identity.symbol,),
                 ).fetchall()
-            stale_seen = False
             for raw, expected_sha in rows:
                 payload = json.loads(raw)
                 if digest(payload) != expected_sha:
@@ -168,13 +169,18 @@ class CentralMemory:
                     or policy.prompt_version != identity.prompt_version
                 ):
                     continue
+                if expected_decision_model and (
+                    policy.decision_model_version != expected_decision_model
+                ):
+                    return None, "CORTEX_POLICY_MODEL_INVALID"
+                if expected_producer and policy.producer != expected_producer:
+                    return None, "CORTEX_POLICY_PRODUCER_INVALID"
                 if not policy_is_fresh(policy, now=now):
-                    stale_seen = True
-                    continue
+                    # A newer WAIT/BLOCK revokes earlier ALLOW policies, even
+                    # after its expiry. Never resurrect an older permission.
+                    return None, "CORTEX_POLICY_STALE"
                 return payload, "CORTEX_POLICY_EXACT"
-            return None, (
-                "CORTEX_POLICY_STALE" if stale_seen else "CORTEX_POLICY_MISSING"
-            )
+            return None, "CORTEX_POLICY_MISSING"
         except (OSError, sqlite3.Error, TypeError, ValueError, json.JSONDecodeError):
             return None, "CENTRAL_MEMORY_UNAVAILABLE"
 

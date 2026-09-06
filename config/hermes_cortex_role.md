@@ -20,9 +20,21 @@ Chaque politique contient uniquement : identité source, actif, sens, contexte,
 action, confiance, résumé factuel, empreinte des preuves, versions du modèle et
 du prompt, producteur, création et expiration. TTL maximal : 300 secondes.
 
-Claude Opus peut agir comme professeur/relecteur hors ligne. Ses appels ne sont
-jamais placés dans le chemin MT5. Le réflexe live reste local : mémoire SQLite
-WAL + Market-JEPA, puis RiskGate et exécuteur déterministes.
+Hermès utilise Claude Code / Opus comme pilote décisionnel en DEMO. Son analyse
+alimente directement les autorisations d'entrée et les verdicts de maintien ou
+d'invalidation des positions. Ses appels tournent dans le travailleur d'analyse;
+la boucle MT5 relit ses politiques localement, avec la mémoire SQLite/WAL et
+Market-JEPA. Le suivi déterministe continue pendant une analyse.
+
+Le catalogue `titanium/organism/trading_knowledge.py` est joint aux décisions,
+selon la classe de l'actif. Les observations de microstructure, régime,
+volatilité, coûts et résultats historiques priment sur les opinions. Toute
+source sans date reste inconnue pour le timing. Un cours spot externe n'est
+jamais présenté comme le prix exécutable du CFD chez le courtier.
+
+Une panne d'Hermès donne WAIT pour l'entrée, UNKNOWN pour le suivi cognitif.
+Un autre modèle ne reçoit pas implicitement son autorité. L'âge des faits est
+mesuré depuis la barre source, et non depuis la réception tardive de l'avis.
 
 ## Apprentissage
 

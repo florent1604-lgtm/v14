@@ -3,17 +3,17 @@
     .venv\\Scripts\\python.exe tools\\analystes.py            # boucle continue
     .venv\\Scripts\\python.exe tools\\analystes.py --une-fois # un passage
 
-Il consomme les demandes déposées par `tools/live_demo.py`, soumet la
-lecture déterministe de Titanium aux analystes de V13, et écrit leur avis.
-La boucle de trading relit ces avis sans jamais attendre.
+Il consomme les candidats déposés par `tools/live_demo.py`, les soumet à
+Hermès, puis publie sa décision scellée. La boucle de trading relit cette
+décision sans jamais attendre.
 
 Pourquoi un processus séparé
 -----------------------------
 Une délibération distante prend des secondes ; la boucle tourne en 10 secondes. Les
 mettre dans le même fil ferait attendre le trading derrière un service
 externe. Séparés, une panne des analystes — quota épuisé, fournisseur
-saturé, réseau coupé — laisse le trading intact : il retombe simplement sur
-une conviction neutre.
+saturé, réseau coupé — bloque les nouvelles entrées sans bloquer la boucle.
+La protection déterministe des positions ouvertes continue normalement.
 
 C'est aussi ce qui permet de couper les coûts d'un geste : arrêter ce
 processus n'arrête rien d'autre.
@@ -27,7 +27,7 @@ import signal
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -40,8 +40,14 @@ from titanium.avis import (  # noqa: E402
     enregistrer,
     purger,
 )
-from titanium.organism.cortex import build_cortex_policy  # noqa: E402
+from titanium.organism.contracts import digest  # noqa: E402
+from titanium.organism.cortex import (  # noqa: E402
+    build_cortex_policy,
+    market_observed_at,
+    policy_ttl_s,
+)
 from titanium.organism.memory import CentralMemory  # noqa: E402
+from titanium.organism.trading_knowledge import compact_observations  # noqa: E402
 from tools.console_output import configure_console_output  # noqa: E402
 
 DEMANDES = RACINE / "results" / "avis_demandes.ndjson"
@@ -72,11 +78,10 @@ ANALYSTES_PAR_CLASSE = {
 }
 ANALYSTES_DEFAUT = ("market", "news")
 
-#: Hermès/Claude Code rattache chaque réponse à sa ``decision_ref`` et sait
-#: arbitrer plusieurs candidats dans un seul contexte. Un lot de huit amortit
-#: le démarrage du CLI et lui donne une vue transversale sans exposer MT5.
-#: Le repli local conserve son schéma strict et publie WAIT s'il tronque.
-ENTRY_BATCH_SIZE = 8
+#: Deux candidats par appel bornent le temps de réponse mesuré d'Opus tout en
+#: lui laissant un arbitrage transversal. Ce plafond est une taille de lot,
+#: jamais un top-N de l'univers : toute la file est consommée par vagues.
+ENTRY_BATCH_SIZE = 2
 _GLM_LOCK = threading.Lock()
 
 # Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de
@@ -269,18 +274,25 @@ def _publier_cortex(demande, identity, avis_local: Avis) -> None:
         "summary": avis_local.resume,
         "sources": avis_local.sources,
         "rendered_at": avis_local.rendu_a,
+        "decision_model_version": avis_local.model_version,
+        "producer": avis_local.source,
     }
     try:
         CENTRAL_MEMORY.record_proposal(identity, proposal)
+        context_key = str(demande.engine_context)
+        ttl_s = policy_ttl_s(context_key)
+        observed = market_observed_at(demande.bar_time, context_key, demande.demande_a)
         policy = build_cortex_policy(
             identity,
-            context_key=str(demande.engine_context),
+            context_key=context_key,
             action=avis_local.action,
             confidence=avis_local.conviction,
             summary=avis_local.resume,
             evidence_digest=avis_local.evidence_digest,
             producer=avis_local.source or "cortex-inconnu",
-            source_observed_at=str(demande.demande_a),
+            source_observed_at=observed.isoformat(),
+            ttl_s=ttl_s,
+            decision_model_version=avis_local.model_version,
         )
         CENTRAL_MEMORY.record_policy(policy)
     except Exception as exc:  # noqa: BLE001 - le moteur restera en WAIT
@@ -326,8 +338,7 @@ def _traiter(d):
 
 
 def _traiter_lot(demandes):
-    """Analyse un lot via Hermès, avec repli local explicite et borné."""
-    from titanium.fundamental_intelligence import analyse_batch
+    """Fait arbitrer un lot par Hermès; toute panne publie uniquement WAIT."""
     from titanium.hermes_cortex import (
         HERMES_SOURCE,
         HermesCortexUnavailable,
@@ -348,17 +359,61 @@ def _traiter_lot(demandes):
             "context_digest": identity.context_digest,
             "model_version": identity.model_version,
             "prompt_version": identity.prompt_version,
+            "context_key": demande.engine_context,
+            "bar_time": demande.bar_time,
+            "requested_at": demande.demande_a,
+            "piliers": demande.piliers,
+            "total_piliers": demande.total_piliers,
+            "observations": compact_observations(demande.indicateurs),
+            "asset_class": _classe_pour(demande.symbol),
         }
         for demande, identity in zip(demandes, identities, strict=True)
     ]
-    source = HERMES_SOURCE
+    results = []
+    active_indices = []
+    now = datetime.now(timezone.utc)
+    for index, demande in enumerate(demandes):
+        try:
+            observed = market_observed_at(
+                demande.bar_time, demande.engine_context, demande.demande_a,
+            )
+            fresh = now <= observed + timedelta(seconds=policy_ttl_s(demande.engine_context))
+        except (TypeError, ValueError):
+            fresh = False
+        results.append({
+            "action": "WAIT", "confidence": 0.0,
+            "summary": "CORTEX_REQUEST_STALE: source ou timeframe inexploitable",
+            "sources": [], "model_version": "none", "source": "cortex-request-guard",
+            "evidence_digest": digest({"decision_ref": identities[index].decision_ref,
+                                       "state": "CORTEX_REQUEST_STALE"}),
+            "prompt_version": identities[index].prompt_version,
+        })
+        if fresh:
+            active_indices.append(index)
+    selected_payloads = [payloads[index] for index in active_indices]
     with _GLM_LOCK:
         try:
-            results = analyse_entries(payloads)
+            active_results = analyse_entries(selected_payloads) if selected_payloads else []
         except HermesCortexUnavailable as exc:
-            source = "cortex-local-fallback"
-            print(f"  Hermes indisponible ({exc}); repli cortex local", flush=True)
-            results = analyse_batch(payloads)
+            print(f"  Hermes indisponible ({exc}); nouvelles entrees en WAIT", flush=True)
+            active_results = [
+                {
+                    "action": "WAIT",
+                    "confidence": 0.0,
+                    "summary": f"Hermes indisponible: {type(exc).__name__}",
+                    "sources": [],
+                    "evidence_digest": digest({
+                        "decision_ref": payload["decision_ref"],
+                        "state": "HERMES_UNAVAILABLE",
+                    }),
+                    "model_version": "none",
+                    "prompt_version": payload["prompt_version"],
+                    "source": "hermes-unavailable",
+                }
+                for payload in selected_payloads
+            ]
+    for index, result in zip(active_indices, active_results, strict=True):
+        results[index] = result
     elapsed = time.time() - t0
     out = []
     for demande, identity, result in zip(demandes, identities, results, strict=True):
@@ -372,7 +427,7 @@ def _traiter_lot(demandes):
             accord=(action == "ALLOW"),
             resume=str(result.get("summary", ""))[:500],
             bar_time=demande.bar_time,
-            source=str(result.get("source", source)),
+            source=str(result.get("source", HERMES_SOURCE)),
             action=action,
             sources=list(result.get("sources", ())),
             decision_ref=identity.decision_ref,
@@ -389,7 +444,6 @@ def _traiter_lot(demandes):
 
 def _traiter_positions() -> int:
     """Traite toutes les positions prioritaires via Hermès en un seul appel."""
-    from titanium.fundamental_intelligence import analyse_positions as analyse_local
     from titanium.hermes_cortex import (
         HermesCortexUnavailable,
         analyse_positions,
@@ -403,8 +457,15 @@ def _traiter_positions() -> int:
         try:
             verdicts = analyse_positions(requests)
         except HermesCortexUnavailable as exc:
-            print(f"  Hermes positions indisponible ({exc}); repli local", flush=True)
-            verdicts = analyse_local(requests)
+            print(f"  Hermes positions indisponible ({exc}); protections locales actives", flush=True)
+            verdicts = [{
+                "request_ref": request["request_ref"],
+                "ticket": request["ticket"], "symbol": request["symbol"],
+                "state": "UNKNOWN", "confidence": 0.0,
+                "reason": "HERMES_UNAVAILABLE", "model_version": "none",
+                "source": "hermes-unavailable",
+                "rendered_at": datetime.now(timezone.utc).isoformat(),
+            } for request in requests]
     written = 0
     for verdict in verdicts:
         written += int(append_record(POSITION_VERDICTS, verdict))
@@ -473,7 +534,7 @@ def main() -> int:
     print(f"  demandes : {DEMANDES}")
     print(f"  avis     : {AVIS}")
     print("\n  Hermes/Claude Code est le cortex principal asynchrone.")
-    print("  Le cortex local est le repli; les gardes deterministes controlent le DEMO.\n")
+    print("  Hermes decide; indisponibilite = WAIT/UNKNOWN; protections DEMO actives.\n")
 
     deliberateur = None
 

@@ -450,7 +450,7 @@ def test_passage_cloture_toutes_les_tranches_du_micro_panier(tmp_path):
 def test_passage_cloture_apres_deux_peurs_glm_distinctes(tmp_path):
     from datetime import datetime, timezone
 
-    from titanium.organism.contracts import MODEL_VERSION
+    from titanium.organism.contracts import CORTEX_DECISION_MODEL_VERSION
 
     state_path = tmp_path / "s.json"
     request_path = tmp_path / "position_requests.ndjson"
@@ -465,7 +465,7 @@ def test_passage_cloture_apres_deux_peurs_glm_distinctes(tmp_path):
         "state": "FEAR",
         "confidence": 0.91,
         "rendered_at": datetime.now(timezone.utc).isoformat(),
-        "model_version": MODEL_VERSION,
+        "model_version": CORTEX_DECISION_MODEL_VERSION,
     }) + "\n", encoding="utf-8")
     m = FakeMt5(positions=(FakePos(current=1.0950),))
 

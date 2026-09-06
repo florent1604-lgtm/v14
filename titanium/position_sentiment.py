@@ -8,12 +8,13 @@ qu'une sortie puisse etre proposee au gestionnaire DEMO.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from titanium.organism.contracts import MODEL_VERSION, digest
+from titanium.organism.contracts import CORTEX_DECISION_MODEL_VERSION, MODEL_VERSION, digest
 
 POSITION_PROMPT_VERSION = "position-fear-v2-market-context"
 FEAR_STATES = frozenset({"FEAR", "PANIC"})
@@ -171,12 +172,17 @@ def confirm_fear(verdict: dict[str, Any] | None, *, last_ref: str,
         confidence = max(0.0, min(1.0, float(verdict.get("confidence", 0.0))))
     except (TypeError, ValueError):
         confidence = 0.0
+    try:
+        if not math.isfinite(float(verdict.get("confidence", 0.0))):
+            confidence = 0.0
+    except (TypeError, ValueError):
+        confidence = 0.0
     rendered = _utc(str(verdict.get("rendered_at", "")))
     current = now or datetime.now(timezone.utc)
     if rendered is None or abs((current - rendered).total_seconds()) > max_age_s:
         return FearConfirmation(state=state, confidence=confidence, streak=0,
                                 last_ref=ref, reason="VERDICT_PERIME")
-    if str(verdict.get("model_version", "")) != MODEL_VERSION:
+    if str(verdict.get("model_version", "")) != CORTEX_DECISION_MODEL_VERSION:
         return FearConfirmation(state=state, confidence=confidence, streak=0,
                                 last_ref=ref, reason="MODELE_INATTENDU")
     if ref == last_ref:

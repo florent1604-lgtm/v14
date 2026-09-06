@@ -22,12 +22,12 @@ Deux flux découplés par une file et une mémoire centrale scellée.
 3. La boucle relit uniquement cette proposition exacte, sans attendre.
    Absence, autre barre ou empreinte différente → `WAIT` et alerte.
 
-L'avis ne crée aucune décision
-------------------------------
-Il peut admettre, différer ou opposer un veto à une entrée déjà produite par
-les moteurs déterministes, puis moduler sa conviction. Il ne peut créer un
-sens, fixer une taille, appeler MT5, fermer une position ou modifier un SL.
-Toute proposition reste soumise à la mémoire V4, au RiskGate et au mur DEMO.
+Autorité cognitive, exécution séparée
+-------------------------------------
+Hermès choisit ALLOW, WAIT ou BLOCK parmi les candidats produits par les
+organes et peut moduler sa conviction. Il ne peut inventer un sens, fixer une
+taille, appeler MT5, fermer une position ou modifier un SL. Toute autorisation
+reste soumise aux gardes techniques de mémoire, risque, coût et compte DEMO.
 
 Un avis périmé est traité comme une absence d'avis. Sans cette péremption,
 une analyse d'il y a six heures continuerait à peser sur une décision prise

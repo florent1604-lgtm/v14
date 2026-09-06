@@ -72,6 +72,7 @@ def test_fresh_cortex_policy_reuses_only_same_context(tmp_path):
         confidence=0.71,
         summary="regime compatible",
         evidence_digest="e" * 64,
+        decision_model_version="hermes:claude-opus-5",
         now=now,
     )
     assert memory.record_policy(policy)
@@ -80,6 +81,7 @@ def test_fresh_cortex_policy_reuses_only_same_context(tmp_path):
     )
     assert code == "CORTEX_POLICY_EXACT"
     assert result["source_decision_ref"] == previous.decision_ref
+    assert result["decision_model_version"] == "hermes:claude-opus-5"
     assert memory.policy_for(current, "XAUUSD|long|reversal|3p", now=now)[0] is None
 
 

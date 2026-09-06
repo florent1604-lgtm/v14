@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from titanium.organism.contracts import MODEL_VERSION
+from titanium.organism.contracts import CORTEX_DECISION_MODEL_VERSION
 from titanium.position_sentiment import (
     POSITION_PROMPT_VERSION,
     append_record,
@@ -22,7 +22,7 @@ def verdict(ref: str, state: str = "FEAR", confidence: float = 0.9,
         "state": state,
         "confidence": confidence,
         "rendered_at": rendered_at.isoformat(),
-        "model_version": MODEL_VERSION,
+        "model_version": CORTEX_DECISION_MODEL_VERSION,
     }
 
 

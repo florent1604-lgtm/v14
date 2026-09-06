@@ -32,8 +32,8 @@ Target Python 3.10+, use four-space indentation, type hints for public APIs,
 and a 100-character line target. Ruff enforces Pyflakes, pycodestyle, isort,
 BugBear, pyupgrade, comprehensions, and simplification rules. Use
 `snake_case` for modules/functions, `PascalCase` for classes, and
-`UPPER_SNAKE_CASE` for constants. Keep deterministic decisions separate from
-LLM advice and make persisted artifacts reproducible.
+`UPPER_SNAKE_CASE` for constants. Keep Hermes decisions separate from
+deterministic execution guards and make persisted artifacts reproducible.
 
 ## Testing Guidelines
 
@@ -59,14 +59,16 @@ de `.env`, l'armement, le redemarrage d'un service, ou une promotion de seuil
 ou de configuration sans validation humaine explicite. Before agent
 collaboration, read `collab/HERMES_BRIDGE.md`. Run
 `tools/gitnexus_team.ps1 sync`, inspect impact before editing code, and run
-GitNexus `detect-changes` before committing. Prime is the technical lead; use
-`.agents/skills` as the canonical local skill catalog and publish handoffs via
-the CollabHub documented in the bridge. Preserve unrelated dirty-worktree changes.
+GitNexus `detect-changes` before committing. Hermes is V14's cognitive decision
+pilot in DEMO; Prime remains code owner. Hermes publishes sealed, fresh
+`ALLOW/WAIT/BLOCK` policies but never calls MT5 directly. Use `.agents/skills`
+as the canonical local skill catalog and publish handoffs via the CollabHub
+documented in the bridge. Preserve unrelated dirty-worktree changes.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (10780 symbols, 21274 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (11209 symbols, 22109 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

@@ -1,22 +1,57 @@
-"""Contrat de politique du cortex Hermes, sans dependance d'execution.
+"""Contrat d'autorite decisionnelle du cortex Hermes, sans execution directe.
 
-Le cortex travaille hors du chemin critique. Il peut publier un veto ou une
-autorisation temporaire pour un contexte deja produit par Titanium, mais il ne
-peut ni creer un trade, ni choisir une taille, ni toucher au SL/TP.
+Le cortex travaille hors du chemin critique. Il choisit parmi les candidats
+scelles et publie une autorisation temporaire ALLOW/WAIT/BLOCK. Il ne peut ni
+inventer un candidat, ni choisir une taille, ni toucher au SL/TP, ni appeler
+MT5. Les murs d'execution valident ensuite la faisabilite technique.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from math import isfinite
 from typing import Any
 
 from titanium.organism.contracts import DecisionIdentity, digest
 
 CORTEX_ROLE = "hermes-cortex"
-CORTEX_POLICY_VERSION = "hermes-policy-v1"
+CORTEX_POLICY_VERSION = "hermes-policy-v2"
 CORTEX_POLICY_TTL_S = 300
 ALLOWED_ACTIONS = frozenset({"ALLOW", "WAIT", "BLOCK"})
+
+
+def policy_ttl_s(context_key: str) -> int:
+    """Exact horizon matching: M15 is not M1, M5 is not M30."""
+    horizon = context_key.rsplit("|tf=", 1)[-1].split(">", 1)[0]
+    if "|tf=" not in context_key or not horizon:
+        raise ValueError("timeframe cortex manquante")
+    return {"M1": 60, "M5": 120}.get(horizon, CORTEX_POLICY_TTL_S)
+
+
+def market_observed_at(bar_time: str, context_key: str, requested_at: str) -> datetime:
+    """Date of source bar close, never refreshed by queueing or LLM latency."""
+    horizon = context_key.rsplit("|tf=", 1)[-1].split(">", 1)[0]
+    minutes = {**{f"M{n}": n for n in (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30)},
+               **{f"H{n}": 60 * n for n in (1, 2, 3, 4, 6, 8, 12)},
+               "D1": 1440, "W1": 10080}
+    opened = datetime.fromisoformat(bar_time.replace("Z", "+00:00"))
+    requested = datetime.fromisoformat(requested_at.replace("Z", "+00:00"))
+    if opened.tzinfo is None or requested.tzinfo is None:
+        raise ValueError("observation sans fuseau")
+    if opened > requested:
+        raise ValueError("barre future")
+    if "|tf=" not in context_key:
+        raise ValueError("timeframe cortex manquante")
+    if horizon == "MN1":
+        closed = opened.replace(day=1, month=opened.month % 12 + 1,
+                                year=opened.year + int(opened.month == 12))
+    elif horizon in minutes:
+        closed = opened + timedelta(minutes=minutes[horizon])
+    else:
+        raise ValueError("timeframe cortex inconnue")
+    # The request timestamp bounds availability, including a partial source bar.
+    return min(closed, requested).astimezone(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -33,6 +68,7 @@ class CortexPolicy:
     summary: str
     evidence_digest: str
     model_version: str
+    decision_model_version: str
     prompt_version: str
     policy_version: str
     producer: str
@@ -56,6 +92,7 @@ def build_cortex_policy(
     now: datetime | None = None,
     producer: str = CORTEX_ROLE,
     source_observed_at: str = "",
+    decision_model_version: str = "",
 ) -> CortexPolicy:
     """Construit une politique scellee; rejette tout contrat ambigu."""
     normalized_action = str(action).upper()
@@ -65,6 +102,8 @@ def build_cortex_policy(
         raise ValueError("context_key cortex vide")
     if not evidence_digest:
         raise ValueError("evidence cortex non scellee")
+    if not isfinite(float(confidence)):
+        raise ValueError("confiance cortex non finie")
     ttl = int(ttl_s)
     if ttl < 1 or ttl > CORTEX_POLICY_TTL_S:
         raise ValueError(f"TTL cortex hors borne: {ttl}")
@@ -95,6 +134,7 @@ def build_cortex_policy(
         "summary": str(summary)[:240],
         "evidence_digest": str(evidence_digest),
         "model_version": identity.model_version,
+        "decision_model_version": str(decision_model_version or identity.model_version),
         "prompt_version": identity.prompt_version,
         "policy_version": CORTEX_POLICY_VERSION,
         "producer": str(producer),
@@ -112,13 +152,20 @@ def policy_is_fresh(policy: CortexPolicy, *, now: datetime | None = None) -> boo
         observed = datetime.fromisoformat(policy.source_observed_at)
         if expiry.tzinfo is None or created.tzinfo is None or observed.tzinfo is None:
             return False
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        if policy.policy_version != CORTEX_POLICY_VERSION:
+            return False
+        if created > current + timedelta(seconds=5):
+            return False
+        if not isfinite(policy.confidence) or not 0.0 <= policy.confidence <= 1.0:
+            return False
         if observed > created + timedelta(seconds=5):
             return False
         if expiry > created + timedelta(seconds=CORTEX_POLICY_TTL_S):
             return False
         if expiry > observed + timedelta(seconds=CORTEX_POLICY_TTL_S):
             return False
-        return (now or datetime.now(timezone.utc)).astimezone(timezone.utc) <= expiry
+        return current <= expiry
     except (TypeError, ValueError):
         return False
 

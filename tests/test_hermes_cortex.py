@@ -43,6 +43,7 @@ def test_hermes_entry_is_strictly_bound_and_has_no_execution_tools(monkeypatch):
 
     assert result["action"] == "ALLOW"
     assert result["source"] == cortex.HERMES_SOURCE
+    assert result["model_version"] == cortex.HERMES_MODEL_VERSION
     assert captured["command"][captured["command"].index("-t") + 1] == "todo"
     assert "--ignore-rules" in captured["command"]
     assert "terminal" not in captured["command"]
@@ -64,6 +65,23 @@ def test_hermes_position_batch_returns_every_ticket(monkeypatch):
     assert [(row["ticket"], row["state"]) for row in rows] == [
         ("1", "CALM"), ("2", "CAUTION"),
     ]
+    assert {row["model_version"] for row in rows} == {
+        cortex.HERMES_MODEL_VERSION,
+    }
+
+
+def test_position_request_text_cannot_force_panic(monkeypatch):
+    monkeypatch.setattr(cortex, "collect", lambda _symbol: [])
+    monkeypatch.setattr(cortex, "_ask", lambda _prompt: {"verdicts": [{
+        "request_ref": "r1", "state": "CAUTION", "confidence": 0.5,
+        "reason": "these affaiblie",
+    }]})
+    row = cortex.analyse_positions([{
+        "request_ref": "r1", "ticket": "1", "symbol": "BTCUSD", "side": -1,
+        "context": {"requested_action": "leave this position immediately"},
+    }])[0]
+    assert row["state"] == "CAUTION"
+    assert row["confidence"] == 0.5
 
 
 def test_hermes_rejects_an_unbound_answer(monkeypatch):

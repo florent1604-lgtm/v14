@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 MODEL_VERSION = "qwen3.5:2b"
+CORTEX_DECISION_MODEL_VERSION = "hermes:claude-opus-5"
+CORTEX_DECISION_PRODUCER = "hermes-cortex/claude-opus-5"
 PROMPT_VERSION = "fundamental-gate-v4-qwen35"
 
 

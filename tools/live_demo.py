@@ -1019,15 +1019,20 @@ except Exception:  # noqa: BLE001
 def _avis_pour(sym: str, side: int,
                identity: DecisionIdentity,
                context_key: str = "") -> tuple[float, str]:
-    """Relit l'avis des analystes. NE BLOQUE JAMAIS, ne declenche aucun
-    appel : si le travailleur est arrete ou en panne, la boucle continue
-    exactement comme si le pont n'existait pas."""
+    """Relit uniquement une politique Hermes fraiche, sans appel reseau."""
+    from titanium.organism.contracts import (
+        CORTEX_DECISION_MODEL_VERSION,
+        CORTEX_DECISION_PRODUCER,
+    )
+
+    if not context_key:
+        return 0.5, "CORTEX_CONTEXT_MISSING"
     try:
-        proposal, code = NOYAU_CENTRAL.proposal_for(identity)
-        if proposal is None and context_key:
-            proposal, policy_code = NOYAU_CENTRAL.policy_for(identity, context_key)
-            if proposal is not None:
-                code = policy_code
+        proposal, code = NOYAU_CENTRAL.policy_for(
+            identity, context_key,
+            expected_decision_model=CORTEX_DECISION_MODEL_VERSION,
+            expected_producer=CORTEX_DECISION_PRODUCER,
+        )
         if proposal is None:
             return 0.5, code
         if int(proposal.get("side", 0) or 0) != int(side):
@@ -1037,10 +1042,34 @@ def _avis_pour(sym: str, side: int,
         return 0.5, "avis indisponible"
 
 
+def _contexte_cortex(sym: str, feats: dict, side: int) -> str:
+    """Contexte de politique Hermès, borné à l'horizon réellement analysé."""
+    base = _contexte_exact(sym, feats, side)
+    trace = feats.get("_trace") or {}
+    timeframe = str(trace.get("timeframe") or "").upper()
+    if not timeframe:
+        return ""
+    higher = str(trace.get("higher_timeframe") or HTF).upper()
+    return f"{base}|tf={timeframe}>{higher}"
+
+
 def _garde_intelligente(sym: str, side: int, feats: dict,
                         identity: DecisionIdentity) -> tuple[bool, str]:
-    """Memoire V4 + fondamentaux; ne peut qu'admettre ou refuser l'entree."""
+    """Autorite Hermes locale et scellee, puis gardes de mesure V4.
+
+    Aucun appel LLM n'est effectue ici. Seule une
+    politique Hermès fraîche pour le même contexte permet de poursuivre.
+    ``WAIT``, ``BLOCK``, absence, panne ou incohérence restent fail-closed.
+    """
+    from titanium.organism.contracts import (
+        CORTEX_DECISION_MODEL_VERSION,
+        CORTEX_DECISION_PRODUCER,
+    )
+
     contexte = _contexte_exact(sym, feats, side)
+    contexte_cortex = _contexte_cortex(sym, feats, side)
+    if not contexte_cortex:
+        return False, "CORTEX_CONTEXT_MISSING"
     if _MEMOIRE_LIVE is None:
         return False, "memoire live indisponible"
     verdict = _MEMOIRE_LIVE.verdict(sym, contexte)
@@ -1049,16 +1078,15 @@ def _garde_intelligente(sym: str, side: int, feats: dict,
         return False, (f"memoire {verdict.action}: {verdict.reason}; "
                        f"n={verdict.samples}, E={verdict.expectancy_r:+.3f}R, "
                        f"PF={verdict.profit_factor:.2f}")
-    proposal, code = NOYAU_CENTRAL.proposal_for(identity)
-    gate_source = "exact"
+    proposal, code = NOYAU_CENTRAL.policy_for(
+        identity, contexte_cortex,
+        expected_decision_model=CORTEX_DECISION_MODEL_VERSION,
+        expected_producer=CORTEX_DECISION_PRODUCER,
+    )
+    gate_source = "politique Hermes"
     if proposal is None:
-        policy, policy_code = NOYAU_CENTRAL.policy_for(identity, contexte)
-        if policy is None:
-            NOYAU_CENTRAL.alert(code, identity, f"{policy_code}; aucun avis frais")
-            return False, f"noyau {code}: proposition exacte absente"
-        proposal = policy
-        code = policy_code
-        gate_source = "politique Hermes"
+        NOYAU_CENTRAL.alert(code, identity, "aucune politique Hermes fraiche")
+        return False, f"noyau {code}: autorisation Hermes absente"
     action = str(proposal.get("action", "WAIT")).upper()
     if action not in {"ALLOW", "WAIT", "BLOCK"}:
         NOYAU_CENTRAL.alert("BRAIN_ACTION_INVALID", identity, action)
@@ -1102,17 +1130,25 @@ def _demander_avis(sym: str, feats: dict, out, decision,
         if ltf is not None:
             attach_market_jepa(sym, feats, ltf, MARKET_JEPA)
         trace = feats.get("_trace") or {}
+        context_key = _contexte_cortex(sym, feats, out.side)
+        if not context_key:
+            return None
+        indicators = dict(trace.get("indicators") or {})
+        if _MEMOIRE_LIVE is not None:
+            edge = _MEMOIRE_LIVE.verdict(sym, _contexte_exact(sym, feats, out.side))
+            indicators.update(edge_samples=edge.samples, edge_expectancy_r=edge.expectancy_r,
+                              edge_profit_factor=edge.profit_factor)
         demande = Demande(
             symbol=sym, side=out.side,
             verdict=decision.verdict, code=decision.code,
-            piliers=sum(1 for g in (decision.gates or []) if g.passed),
+            piliers=int(getattr(decision, "support_passed", 0)),
             famille=getattr(decision, "setup_family", ""),
             prix=float(trace.get("price") or 0.0),
             stop_distance=float(out.stop_distance or 0.0),
             rr=cfg.rr_ratio,
             bar_time=str(trace.get("bar_time") or ""),
-            engine_context=_contexte_exact(sym, feats, out.side),
-            indicateurs=dict(trace.get("indicators") or {}),
+            engine_context=context_key,
+            indicateurs=indicators,
             sante=_sante_resumee(),
             demande_a=datetime.now(timezone.utc).isoformat(),
         )
@@ -1705,9 +1741,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     #    deux évaluations plus tard. Huit créneaux pour ~150 actifs : ils
     #    doivent aller aux setups les plus FORTS du tour, pas aux plus
     #    rapides. C'est le même capital, mieux placé.
+    from titanium.echelle import cout_relatif_stop
     from titanium.gates import confluence_gate as _cg
     from titanium.selection import barres_pour
-    from titanium.echelle import cout_relatif_stop
 
     candidats = []
     for sym in tradables:
@@ -1792,6 +1828,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             except Exception:  # noqa: BLE001 — sans panel, on trade quand même
                 pass
 
+            feats.setdefault("_trace", {}).setdefault("indicators", {})[
+                "execution_spread_stop_pct"
+            ] = float(cost)
             candidats.append({
                 "sym": sym, "feats": feats, "out": out, "dec": dec,
                 "support": int(getattr(dec, "support_passed", 0) or 0),
@@ -1934,7 +1973,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                   flush=True)
 
             conv, motif_avis = _avis_pour(
-                sym, out.side, identity, _contexte_exact(sym, feats, out.side),
+                sym, out.side, identity, _contexte_cortex(sym, feats, out.side),
             )
 
             conf = evaluer_confiance(

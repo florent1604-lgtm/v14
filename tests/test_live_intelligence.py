@@ -167,7 +167,7 @@ def test_fundamental_batch_accepte_le_verdict_unitaire_aplati(monkeypatch):
 def test_qwen_local_traite_les_entrees_et_positions_une_par_une():
     from tools import analystes
 
-    assert analystes.ENTRY_BATCH_SIZE == 8
+    assert analystes.ENTRY_BATCH_SIZE == 2
     assert fi.POSITION_BATCH_SIZE == 1
 
 
@@ -263,7 +263,7 @@ def test_evidence_is_balanced_across_sources():
     assert [item.source for item in chosen[:3]] == ["rss", "FRED", "EIA"]
 
 
-def test_engine_gate_reads_only_exact_central_proposal(tmp_path, monkeypatch):
+def test_raw_proposal_cannot_authorize_without_fresh_hermes_policy(tmp_path, monkeypatch):
     from tools import live_demo
 
     class EdgeMemory:
@@ -290,19 +290,24 @@ def test_engine_gate_reads_only_exact_central_proposal(tmp_path, monkeypatch):
         "action": "ALLOW", "confidence": 0.7, "summary": "accord",
         "sources": ["FRED"], "rendered_at": "2026-08-27T12:01:00+00:00",
     })
-    assert live_demo._garde_intelligente("XAUUSD", 1, {}, identity)[0] is True
+    feats = {"_trace": {"timeframe": "M15", "higher_timeframe": "H1"}}
+    assert live_demo._garde_intelligente("XAUUSD", 1, feats, identity)[0] is False
 
     next_bar = Demande(
         "XAUUSD", 1, verdict="ENTER", code="OK", piliers=3,
         famille="continuation", bar_time="2026-08-27T12:15:00+00:00",
         engine_context="XAUUSD|long|continuation|3p",
     ).sceller()
-    ok, reason = live_demo._garde_intelligente("XAUUSD", 1, {}, next_bar)
+    ok, reason = live_demo._garde_intelligente("XAUUSD", 1, feats, next_bar)
     assert ok is False
-    assert "STALE" in reason
+    assert "CORTEX_POLICY_MISSING" in reason
 
 
 def test_engine_gate_accepts_fresh_context_policy_without_waiting(tmp_path, monkeypatch):
+    from titanium.organism.contracts import (
+        CORTEX_DECISION_MODEL_VERSION,
+        CORTEX_DECISION_PRODUCER,
+    )
     from titanium.organism.cortex import build_cortex_policy
     from tools import live_demo
 
@@ -332,13 +337,16 @@ def test_engine_gate_accepts_fresh_context_policy_without_waiting(tmp_path, monk
     ).sceller()
     memory.record_policy(build_cortex_policy(
         previous,
-        context_key=context,
+        context_key=context + "|tf=M15>H1",
         action="ALLOW",
         confidence=0.7,
         summary="politique de regime",
         evidence_digest="e" * 64,
+        decision_model_version=CORTEX_DECISION_MODEL_VERSION,
+        producer=CORTEX_DECISION_PRODUCER,
     ))
-    ok, reason = live_demo._garde_intelligente("XAUUSD", 1, {}, current)
+    feats = {"_trace": {"timeframe": "M15", "higher_timeframe": "H1"}}
+    ok, reason = live_demo._garde_intelligente("XAUUSD", 1, feats, current)
     assert ok is True
     assert "CORTEX_POLICY_EXACT" in reason
 
@@ -361,6 +369,7 @@ def test_engine_deposits_sealed_request_in_central_memory(tmp_path, monkeypatch)
     cfg = type("Cfg", (), {"rr_ratio": 2.0})()
     feats = {"_trace": {
         "bar_time": "2026-08-27T12:00:00+00:00",
+        "timeframe": "M15", "higher_timeframe": "H1",
         "price": 2050.0, "indicators": {"rsi": 55.0},
     }}
     identity = live_demo._demander_avis("XAUUSD", feats, out, decision, cfg)
@@ -395,42 +404,31 @@ def test_worker_returns_proposal_to_same_central_identity(tmp_path, monkeypatch)
     assert avis.decision_ref == identity.decision_ref
 
 
-def test_worker_batch_publie_chaque_proposition_sous_sa_reference(
+def test_worker_batch_publie_wait_si_hermes_est_indisponible(
     tmp_path, monkeypatch,
 ):
+    from datetime import datetime, timedelta, timezone
+
     from tools import analystes
 
     memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
     monkeypatch.setattr(analystes, "CENTRAL_MEMORY", memory)
 
-    def fake_batch(payloads):
-        return [
-            {
-                "action": "ALLOW",
-                "confidence": 0.6 + index / 10,
-                "summary": payload["symbol"],
-                "sources": ["FRED", "ECB"],
-                "evidence_digest": str(index + 1) * 64,
-                "model_version": payload["model_version"],
-                "prompt_version": payload["prompt_version"],
-            }
-            for index, payload in enumerate(payloads)
-        ]
-
-    monkeypatch.setattr(fi, "analyse_batch", fake_batch)
     import titanium.hermes_cortex as hermes_cortex
     monkeypatch.setattr(
         hermes_cortex,
         "analyse_entries",
         lambda _payloads: (_ for _ in ()).throw(
-            hermes_cortex.HermesCortexUnavailable("test repli local")
+            hermes_cortex.HermesCortexUnavailable("test panne")
         ),
     )
     demandes = [
         Demande(
             symbol, 1, verdict="ENTER", code="OK", piliers=3,
-            famille="continuation", bar_time="2026-08-27T12:00:00+00:00",
-            engine_context=f"{symbol}|long|continuation|3p",
+            famille="continuation",
+            bar_time=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+            demande_a=datetime.now(timezone.utc).isoformat(),
+            engine_context=f"{symbol}|long|continuation|3p|tf=M1>H1",
         )
         for symbol in ("EURUSD", "BTCUSD")
     ]
@@ -438,8 +436,20 @@ def test_worker_batch_publie_chaque_proposition_sous_sa_reference(
     results = analystes._traiter_lot(demandes)
 
     assert [row[1].symbol for row in results] == ["EURUSD", "BTCUSD"]
-    assert [row[1].conviction for row in results] == [0.6, 0.7]
+    assert [row[1].action for row in results] == ["WAIT", "WAIT"]
+    assert [row[1].conviction for row in results] == [0.0, 0.0]
     for demande in demandes:
         proposal, code = memory.proposal_for(demande.sceller())
         assert code == "BRAIN_PROPOSAL_EXACT"
-        assert proposal["summary"] == demande.symbol
+        assert proposal["action"] == "WAIT"
+        assert proposal["evidence_digest"]
+        assert proposal["decision_model_version"] == "none"
+        assert proposal["producer"] == "hermes-unavailable"
+
+
+def test_cortex_context_is_timeframe_specific():
+    from tools import live_demo
+
+    feats = {"_trace": {"timeframe": "M1", "higher_timeframe": "H1"}}
+    base = live_demo._contexte_exact("BTCUSD", feats, 1)
+    assert live_demo._contexte_cortex("BTCUSD", feats, 1) == f"{base}|tf=M1>H1"

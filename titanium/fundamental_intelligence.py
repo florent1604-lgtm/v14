@@ -6,16 +6,21 @@ panne de source ou du modele rend WAIT (fail-closed), jamais une autorisation.
 
 from __future__ import annotations
 
+import csv
+import io
 import json
+import math
 import os
 import re
+import threading
 import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from titanium.organism.contracts import (
@@ -31,11 +36,15 @@ class Evidence:
     source: str
     text: str
     observed_at: str = ""
+    retrieved_at: str = ""
 
 
 _CACHE: dict[str, tuple[float, list[Evidence]]] = {}
 _ANALYSIS_CACHE: dict[str, tuple[float, dict]] = {}
 _TTL_S = 900
+_SOURCE_LOCK = threading.Lock()
+_SOURCE_LOCKS: dict[str, threading.Lock] = {}
+_SOURCE_STATUS: dict[str, dict] = {}
 POSITION_BATCH_SIZE = 1
 
 
@@ -67,10 +76,13 @@ def _crypto(symbol: str) -> list[Evidence]:
     if not coin:
         return []
     url = ("https://api.coingecko.com/api/v3/simple/price?ids=" + coin
-           + "&vs_currencies=usd&include_24hr_change=true&include_market_cap=true")
+           + "&vs_currencies=usd&include_24hr_change=true&include_market_cap=true"
+           + "&include_last_updated_at=true")
     data = json.loads(_get(url))
     row = data.get(coin, {})
-    return [Evidence("CoinGecko", json.dumps(row, sort_keys=True)[:240])] if row else []
+    observed = (datetime.fromtimestamp(float(row["last_updated_at"]), timezone.utc).isoformat()
+                if row.get("last_updated_at") else "")
+    return [Evidence("CoinGecko", json.dumps(row, sort_keys=True)[:240], observed)] if row else []
 
 
 def _ecb_fx(symbol: str) -> list[Evidence]:
@@ -78,11 +90,26 @@ def _ecb_fx(symbol: str) -> list[Evidence]:
     if len(pair) != 6:
         return []
     base, quote = pair[:3], pair[3:]
+    currencies = {"EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "SEK",
+                  "NOK", "DKK", "PLN", "CZK", "HUF", "SGD", "HKD", "ZAR", "MXN",
+                  "TRY", "BRL", "CNY", "INR", "KRW", "IDR", "ILS", "THB", "PHP"}
+    if base not in currencies or quote not in currencies or base == quote:
+        return []
+    wanted = sorted({base, quote} - {"EUR"})
+    # ECB reference series are quoted against EUR. Derive cross-rates only
+    # from observations sharing the same date; never fabricate USD bases.
     url = ("https://data-api.ecb.europa.eu/service/data/EXR/D."
-           f"{quote}.{base}.SP00.A?lastNObservations=2&format=csvdata")
-    lines = _get(url).decode("utf-8", errors="replace").splitlines()
-    rows = [line for line in lines[1:] if line.strip()]
-    return [Evidence("ECB-Data", row[:400]) for row in rows[-2:]]
+           + "+".join(wanted) + ".EUR.SP00.A?lastNObservations=2&format=csvdata")
+    dates: dict[str, dict[str, float]] = {}
+    for row in csv.DictReader(io.StringIO(_get(url).decode("utf-8-sig"))):
+        try:
+            value = float(row["OBS_VALUE"])
+            if row.get("CURRENCY") in wanted and math.isfinite(value) and value > 0:
+                dates.setdefault(row["TIME_PERIOD"], {"EUR": 1.0})[row["CURRENCY"]] = value
+        except (KeyError, ValueError):
+            continue
+    return [Evidence("ECB-Data", f"{pair} reference_daily={rates[quote] / rates[base]:.8g}", day)
+            for day, rates in sorted(dates.items())[-2:] if base in rates and quote in rates]
 
 
 def _cot(symbol: str) -> list[Evidence]:
@@ -131,7 +158,9 @@ def _fred(symbol: str) -> list[Evidence]:
             useful = [line.strip() for line in report.splitlines()
                       if line.startswith("## FRED:") or "**Latest:**" in line]
             if useful:
-                out.append(Evidence(f"FRED:{indicator}", " ".join(useful)[:500]))
+                observed = re.search(r"\((\d{4}-\d{2}-\d{2})\)", " ".join(useful))
+                out.append(Evidence(f"FRED:{indicator}", " ".join(useful)[:500],
+                                    observed.group(1) if observed else ""))
         except Exception:  # noqa: BLE001 - serie optionnelle
             continue
     return out
@@ -182,35 +211,90 @@ def _balanced(evidence: list[Evidence], limit: int = 8) -> list[Evidence]:
     return chosen
 
 
-def collect(symbol: str) -> list[Evidence]:
-    now = time.time()
-    cached = _CACHE.get(symbol)
-    if cached and now - cached[0] < _TTL_S:
-        return cached[1]
-    evidence: list[Evidence] = []
-    calls = (
-        lambda: _fred(symbol),
-        lambda: _eia(symbol),
-        lambda: _ecb_fx(symbol),
-        lambda: _crypto(symbol),
-        lambda: _cot(symbol),
-        lambda: _rss("FederalReserve", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
-        lambda: _rss("ECB", "https://mid.ecb.europa.eu/rss/mid.xml"),
-    )
-    def safe_call(call) -> list[Evidence]:
+def _source_cached(key: str, ttl_s: float, call) -> list[Evidence]:
+    with _SOURCE_LOCK:
+        lock = _SOURCE_LOCKS.setdefault(key, threading.Lock())
+    with lock:
+        now = time.time()
+        cached = _CACHE.get(key)
+        status = _SOURCE_STATUS.get(key, {})
+        ttl = ttl_s if status.get("state") == "OK" else min(ttl_s, 30.0)
+        if cached and now - cached[0] < ttl:
+            return list(cached[1])
+        error = ""
         try:
-            return list(call())
-        except Exception:  # noqa: BLE001 - une source ne condamne pas les autres
-            return []
+            items = list(call())
+        except Exception as exc:  # noqa: BLE001 - record type only, never URL/key
+            items, error = [], type(exc).__name__
+        completed = time.time()
+        retrieved = datetime.fromtimestamp(completed, timezone.utc).isoformat()
+        items = [replace(item, retrieved_at=retrieved) for item in items]
+        _CACHE[key] = (completed, items)
+        with _SOURCE_LOCK:
+            _SOURCE_STATUS[key] = {"state": "OK" if items else "UNAVAILABLE",
+                                   "retrieved_at": retrieved, "count": len(items), "error": error}
+        return list(items)
 
-    # Les sources sont independantes et surtout bornees par le reseau. Les
-    # attendre en parallele reduit la collecte au timeout le plus lent au lieu
-    # de la somme de sept timeouts, sans changer leur ordre dans l'artefact.
+
+def source_health() -> dict[str, dict]:
+    with _SOURCE_LOCK:
+        return {key: dict(value) for key, value in _SOURCE_STATUS.items()}
+
+
+def _micro_context(symbol: str) -> list[Evidence]:
+    from titanium.microstructure import attach_live_microstructure
+
+    snapshot = attach_live_microstructure(symbol, {}, root=Path(__file__).resolve().parents[1])
+    if not snapshot:
+        return []
+    facts = {key: snapshot[key] for key in ("symbol", "venues", "depth_imbalance_10bps",
+                                          "taker_imbalance_recent", "spread_bps")}
+    facts["scope"] = "external spot/USDT flow, not broker CFD execution price"
+    return [Evidence("VenueMicrostructure", json.dumps(facts, sort_keys=True),
+                     datetime.fromtimestamp(snapshot["received_ms"] / 1000, timezone.utc).isoformat())]
+
+
+def evidence_freshness(item: Evidence, *, now: datetime | None = None) -> str:
+    """Unknown age is not fresh; slow macro observations are never ticks."""
+    if not item.observed_at:
+        return "UNKNOWN_TIME"
+    try:
+        try:
+            observed = datetime.fromisoformat(item.observed_at.replace("Z", "+00:00"))
+        except ValueError:
+            observed = parsedate_to_datetime(item.observed_at)
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        age = ((now or datetime.now(timezone.utc)) - observed).total_seconds()
+    except (TypeError, ValueError, OverflowError):
+        return "UNKNOWN_TIME"
+    ttl = 90.0 if item.source == "CoinGecko" else (
+        8.0 if item.source == "VenueMicrostructure" else (
+            45 * 86400 if item.source.startswith("FRED:") else (
+                10 * 86400 if item.source.startswith(("EIA:", "CFTC")) else 5 * 86400)))
+    if age < -5:
+        return "FUTURE_TIME"
+    return "CURRENT_CONTEXT" if age <= ttl else "STALE"
+
+
+def collect(symbol: str) -> list[Evidence]:
+    from titanium.edge import ASSET_CLASSES
+
+    cls = next((key for key, symbols in ASSET_CLASSES.items() if symbol.upper() in symbols), symbol)
+    calls = (
+        (f"FRED:{cls}", 3600, lambda: _fred(symbol)),
+        (f"EIA:{symbol}", 3600, lambda: _eia(symbol)),
+        (f"ECB-Data:{symbol}", 3600, lambda: _ecb_fx(symbol)),
+        (f"CoinGecko:{symbol}", 30, lambda: _crypto(symbol)),
+        (f"CFTC:{symbol}", 3600, lambda: _cot(symbol)),
+        ("FederalReserve", 300, lambda: _rss("FederalReserve", "https://www.federalreserve.gov/feeds/press_monetary.xml")),
+        ("ECB", 300, lambda: _rss("ECB", "https://mid.ecb.europa.eu/rss/mid.xml")),
+        # Local snapshots have their own strict age check; no 15-minute cache.
+        (f"Micro:{symbol}", 0, lambda: _micro_context(symbol)),
+    )
     with ThreadPoolExecutor(max_workers=len(calls)) as pool:
-        for items in pool.map(safe_call, calls):
-            evidence.extend(items)
-    _CACHE[symbol] = (now, evidence)
-    return evidence
+        groups = list(pool.map(lambda args: _source_cached(*args), calls))
+    return [item for group in groups for item in group]
 
 
 def _json_object(text: str) -> dict:

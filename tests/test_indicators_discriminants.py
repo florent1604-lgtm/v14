@@ -220,6 +220,18 @@ def test_p_value_jamais_nulle():
     assert all(d.p_brut > 0 for d in r.discriminants)
 
 
+def test_bh_adjusted_p_values_are_monotone_and_agree_with_mask(monkeypatch):
+    import titanium.analysis.discriminants as module
+
+    ps = iter([.04, .05, .06])
+    monkeypatch.setattr(module, "_p_permutation", lambda *_: next(ps))
+    samples = [({"a": 1, "b": 1, "c": 1}, 1)] * 30
+    samples += [({"a": 0, "b": 0, "c": 0}, -1)] * 30
+    report = module.analyser(samples, fdr=.1)
+    assert [d.p_corrige for d in report.discriminants] == pytest.approx([.06, .06, .06])
+    assert all(d.retenu for d in report.discriminants)
+
+
 def test_donnees_vides_ne_levent_pas():
     r = analyser([])
     assert not r.suffisant

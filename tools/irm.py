@@ -275,18 +275,19 @@ def _organes() -> dict:
     compté. Une case vide signifie « la boucle ne compte pas cet étage », pas
     « cet étage n'a rien fait ».
     """
-    tunnel = ((_lire_json(RESULTS / "loop_heartbeat.json").get("stats") or {})
-              .get("tunnel") or {})
+    from titanium.analysis.entry_accounting import entry_balance
+
+    stats = _lire_json(RESULTS / "loop_heartbeat.json").get("stats") or {}
+    tunnel = stats.get("tunnel") or {}
     flow = tunnel.get("flow") or {}
     verdicts = tunnel.get("gate_verdict") or {}
     post = tunnel.get("post_enter_refusal") or {}
     features = tunnel.get("features") or {}
 
     enter = verdicts.get("ENTER", 0)
-    # `envoyes` du battement est cumulatif sur la vie de la boucle ; il ne se
-    # soustrait pas de cet entonnoir. Ce qui sort de l'exécution est donc
-    # calculé comme « ENTER moins tous les refus post-ENTER ».
-    refus_post = sum(post.values())
+    # ENTER, refus et envois sont tous cumulatifs depuis le même démarrage.
+    # Un candidat sans refus journalisé n'est PAS une preuve d'ordre envoyé.
+    balance = entry_balance(stats)
 
     chaine = [
         _bloc("catalogue", flow.get("catalogue"), flow.get("selectionnes"),
@@ -306,10 +307,11 @@ def _organes() -> dict:
               {k: post.get(k, 0) for k in ("GRAPPE", "MULTIPOSITION")}),
         _bloc("microstructure", None, None, dict(tunnel.get("microstructure") or {})),
         _bloc("avis", None, None, {}),
-        _bloc("execution", enter, max(0, enter - refus_post),
+        _bloc("execution", enter, stats.get("envoyes"),
               {"EXECUTION": post.get("EXECUTION", 0)}),
     ]
-    return {"chaine": chaine, "supports": tunnel.get("support_passed") or {}}
+    return {"chaine": chaine, "supports": tunnel.get("support_passed") or {},
+            "entry_accounting": balance}
 
 
 #: Tampon commun des évènements récents, alimenté par UN seul lecteur.

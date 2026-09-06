@@ -626,6 +626,24 @@ def _resoudre_candidats_multitimeframe(candidats: list[dict]) -> tuple[list[dict
     return retenus, conflits
 
 
+def _journaliser_selection_multitimeframe(
+    candidats: list[dict], retenus: list[dict], conflits: list[str], stats: dict,
+) -> None:
+    """One terminal outcome per discarded raw ENTER, without changing selection."""
+    identites = {id(c) for c in retenus}
+    symboles_en_conflit = set(conflits)
+    for c in candidats:
+        if id(c) in identites:
+            continue
+        conflit = str(c.get("sym", "")) in symboles_en_conflit
+        _refus(
+            stats, "MULTITIMEFRAME_CONFLICT" if conflit else "MULTITIMEFRAME_COALESCED",
+            c.get("sym", ""),
+            "directions opposees" if conflit else "autre horizon retenu; pas un rejet courtier",
+            timeframe=c.get("timeframe"), stage="multitimeframe",
+        )
+
+
 #: Charges de zones du tour courant, une par symbole. Vidé à chaque tour
 #: pour qu'un symbole sorti de l'univers cesse d'être tracé.
 _ZONES: dict = {}
@@ -1816,6 +1834,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 cost = math.inf
             if cost > MAX_COUT_SPREAD_PCT:
                 _compter_tunnel(stats, "multitimeframe", "COUT_SPREAD")
+                _refus(stats, "COUT_SPREAD", sym, "cout excessif avant cortex",
+                       stage="multitimeframe", timeframe=unite)
                 continue
 
             # Le setup entre : MAINTENANT le panel vaut son coût.
@@ -1839,11 +1859,11 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 "higher_timeframe": haute, "ltf_rates": ltf_rates,
             })
 
-    candidats, conflits = _resoudre_candidats_multitimeframe(candidats)
+    candidats_bruts = candidats
+    candidats, conflits = _resoudre_candidats_multitimeframe(candidats_bruts)
+    _journaliser_selection_multitimeframe(candidats_bruts, candidats, conflits, stats)
     for sym in conflits:
         _compter_tunnel(stats, "multitimeframe", "CONFLICT")
-        _refus(stats, "MULTITIMEFRAME_CONFLICT", sym,
-               "directions opposees entre horizons; aucun ordre")
         print(f"    {sym:8} bloque — directions opposees entre horizons", flush=True)
 
     # Les plus forts d'abord : piliers alignés, puis score de classement.
@@ -1856,7 +1876,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     # ── PHASE 2 — envoyer, sous tous les garde-fous, par ordre de mérite.
     _journaliser_grappes(candidats, compte.equity)
 
-    for c in candidats:
+    for indice_candidat, c in enumerate(candidats):
         if _stop:
             return
         sym, feats, out, _dec = c["sym"], c["feats"], c["out"], c["dec"]
@@ -2052,6 +2072,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             if tracer:
                 _tracer_zones(sym, feats, out, cfg, conf=conf, budget=budget)
         except Exception as exc:  # noqa: BLE001
+            _refus(stats, "SIZING_ERROR", sym, type(exc).__name__,
+                   timeframe=c.get("timeframe"))
             print(f"    {sym:8} dimensionnement impossible : {type(exc).__name__}",
                   flush=True)
             continue
@@ -2105,8 +2127,10 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             continue
 
         if MODE_ENTREE == "LIMITE" and limites_en_attente >= MAX_LIMITES_EN_ATTENTE:
-            _refus(stats, "LIMIT_PENDING_CAP", "",
-                   f"{MAX_LIMITES_EN_ATTENTE} limites deja en attente")
+            for restant in candidats[indice_candidat:]:
+                _refus(stats, "LIMIT_PENDING_CAP", restant["sym"],
+                       f"{MAX_LIMITES_EN_ATTENTE} limites deja en attente",
+                       timeframe=restant.get("timeframe"))
             print(f"    limite en attente déjà présente "
                   f"({MAX_LIMITES_EN_ATTENTE}) — aucun risque passif supplémentaire",
                   flush=True)

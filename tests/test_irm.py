@@ -207,8 +207,9 @@ def test_les_organes_relevent_l_entonnoir_sans_le_recalculer(monkeypatch, tmp_pa
     assert chaine["portes"]["sort"] == 40
     # La mémoire retire ses propres refus, et eux seuls.
     assert chaine["memoire"]["sort"] == 15
-    # L'exécution retire TOUS les refus post-ENTER, pas seulement les siens.
-    assert chaine["execution"]["sort"] == 10
+    # Sans compteur d'envois, les dix candidats restants ne sont pas des ordres.
+    assert chaine["execution"]["sort"] is None
+    assert irm._organes()["entry_accounting"]["status"] == "UNAVAILABLE"
 
 
 def test_un_etage_non_compte_rend_none_et_non_zero(monkeypatch, tmp_path):

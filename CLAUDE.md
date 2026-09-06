@@ -4,6 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## V14 — Titanium hybride
 
+### Mandat actuel — 06/09/2026 (prioritaire sur les sections historiques)
+
+Codex dispose de l'autorité de recherche, correction et commit décrite dans
+le dossier V3. Hermès peut être sur le chemin critique et appeler MT5 via les
+gardes DEMO : ce droit ne supprime ni fraîcheur, ni idempotence, ni RiskGate.
+Aucun ordre réel, aucun armement; `.env` jamais lu, écrit ou exposé. Donnée,
+mémoire ou politique absente/expirée/incohérente : WAIT aux nouvelles entrées.
+Les modèles ne promeuvent pas seuls leurs seuils ou leur risque. Le lot d'audit
+ne redémarre pas les services. Voir `docs/AUDIT_MODERNISATION_V14_20260906.md`.
+
 ## Skills locaux Claude
 
 Les 48 competences heritees de V12 sont disponibles dans `.claude/skills`,
@@ -1173,7 +1183,7 @@ lot backfill et de la réparation contrôlée du journal :
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (11209 symbols, 22109 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (11371 symbols, 22409 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -1201,16 +1211,5 @@ This project is indexed by GitNexus as **titanium-v14** (11209 symbols, 22109 re
 | `gitnexus://repo/titanium-v14/clusters` | All functional areas |
 | `gitnexus://repo/titanium-v14/processes` | All execution flows |
 | `gitnexus://repo/titanium-v14/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->

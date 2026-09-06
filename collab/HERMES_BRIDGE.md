@@ -77,7 +77,9 @@ node tools/collab_bus.mjs read --to claude
 - Aucun secret dans le bus, les journaux ou les preuves.
 - Hermes est le pilote decisionnel cognitif en DEMO : il choisit uniquement
   parmi les candidats scelles et publie une politique fraiche ALLOW/WAIT/BLOCK.
-  Il n'appelle jamais MT5 directement; RiskGate, sizing, compte DEMO et
-  idempotence restent les murs d'execution.
+  Mandat du 06/09/2026 : il peut intervenir sur le chemin critique et appeler
+  MT5 via l'execution gardee DEMO. RiskGate, sizing, idempotence et fraicheur
+  restent obligatoires; aucun ordre reel, aucun armement dans ce mandat.
+  Les interdictions historiques d'appel MT5 ne priment pas sur ce mandat.
 - Pas de boucle automatique Claude -> Codex -> Claude.
 - Un agent accuse reception avec `collab_ack` ou la commande `ack` du secours.

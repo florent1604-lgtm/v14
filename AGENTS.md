@@ -60,15 +60,17 @@ ou de configuration sans validation humaine explicite. Before agent
 collaboration, read `collab/HERMES_BRIDGE.md`. Run
 `tools/gitnexus_team.ps1 sync`, inspect impact before editing code, and run
 GitNexus `detect-changes` before committing. Hermes is V14's cognitive decision
-pilot in DEMO; Prime remains code owner. Hermes publishes sealed, fresh
-`ALLOW/WAIT/BLOCK` policies but never calls MT5 directly. Use `.agents/skills`
+pilot in DEMO. The 2026-09-06 mandate permits Hermes on the critical path and
+MT5 calls through guarded DEMO execution; this is authority, not a bypass.
+No real orders or arming; missing, stale or inconsistent inputs mean `WAIT`.
+Hermes publishes sealed, fresh `ALLOW/WAIT/BLOCK` policies. Use `.agents/skills`
 as the canonical local skill catalog and publish handoffs via the CollabHub
 documented in the bridge. Preserve unrelated dirty-worktree changes.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (11209 symbols, 22109 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (11371 symbols, 22409 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -96,16 +98,5 @@ This project is indexed by GitNexus as **titanium-v14** (11209 symbols, 22109 re
 | `gitnexus://repo/titanium-v14/clusters` | All functional areas |
 | `gitnexus://repo/titanium-v14/processes` | All execution flows |
 | `gitnexus://repo/titanium-v14/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->

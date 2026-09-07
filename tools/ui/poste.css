@@ -219,6 +219,37 @@ html, body {
 .cortex-barre .block { background: var(--alerte); }
 .cortex-note { display: grid; gap: 3px; font-size: 11px; line-height: 1.4; }
 .cortex-note b { color: var(--encre-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+.cortex-dialogue { border-top: 1px solid var(--trait); background: var(--fond-2); }
+.cortex-fil {
+  display: grid; gap: 6px; max-height: 230px; overflow-y: auto;
+  padding: 10px 14px; scrollbar-color: var(--trait-fort) transparent;
+}
+.cortex-msg {
+  display: grid; gap: 3px; max-width: 92%; padding: 7px 9px;
+  border: 1px solid var(--trait); background: var(--fond-3);
+  font-size: 11px; line-height: 1.45; overflow-wrap: anywhere;
+}
+.cortex-msg.hermes { justify-self: start; border-left: 2px solid var(--laiton); }
+.cortex-msg.florent { justify-self: end; border-right: 2px solid var(--calme); }
+.cortex-msg .meta {
+  color: var(--encre-3); font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.cortex-form { display: grid; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--trait); }
+.cortex-form label {
+  color: var(--encre-3); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.cortex-form textarea {
+  width: 100%; min-height: 54px; resize: vertical; box-sizing: border-box;
+  color: var(--encre); background: var(--fond); border: 1px solid var(--trait-fort);
+  border-radius: var(--r); padding: 7px 8px; font: inherit; line-height: 1.4;
+}
+.cortex-form textarea:focus { outline: 1px solid var(--laiton-mat); border-color: var(--laiton); }
+.cortex-envoi { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cortex-envoi span { color: var(--encre-3); font-size: 9.5px; line-height: 1.35; }
+.cortex-envoi button { color: #14100a; background: var(--laiton); border-color: var(--laiton); font-weight: 650; }
+.cortex-envoi button:disabled { opacity: .5; cursor: wait; }
 
 /* ── Graphique ──────────────────────────────────────────────────────── */
 

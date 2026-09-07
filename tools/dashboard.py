@@ -108,7 +108,8 @@ class Handler(BaseHTTPRequestHandler):
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; "
             "style-src 'self' 'unsafe-inline'; script-src 'self'; "
-            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+            "connect-src 'self' http://127.0.0.1:8097; "
+            "frame-ancestors 'none'; base-uri 'none'",
         )
         self.end_headers()
         self.wfile.write(corps)

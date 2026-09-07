@@ -103,3 +103,17 @@ def test_poste_expose_le_cortex_sans_route_d_execution():
     assert "function cortex(d)" in script
     for forbidden in ("/api/order", "/api/shell", "/api/hermes/call"):
         assert forbidden not in server
+
+
+def test_poste_dialogue_avec_hermes_via_le_hub_sans_appel_llm():
+    html = (ROOT / "tools" / "ui" / "poste.html").read_text(encoding="utf-8")
+    script = (ROOT / "tools" / "ui" / "poste.js").read_text(encoding="utf-8")
+    server = (ROOT / "tools" / "dashboard.py").read_text(encoding="utf-8")
+
+    assert 'id="cortex-form"' in html
+    assert "http://127.0.0.1:8097/api/chat" in script
+    assert "from: 'florent', to: 'hermes'" in script
+    assert "setInterval(chargerDialogue, 10000)" in script
+    assert "connect-src 'self' http://127.0.0.1:8097" in server
+    for forbidden in ("subprocess", "order_send", "/api/hermes/call"):
+        assert forbidden not in script

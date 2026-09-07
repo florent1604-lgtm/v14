@@ -213,6 +213,78 @@ function cortex(d) {
   c.append(note);
 }
 
+/* ── Dialogue Hermès ───────────────────────────────────────────────
+   Cette couture parle au terminal local, lequel journalise et route vers le
+   hub commun. Elle ne lance jamais Hermes/Claude et ne touche pas au moteur. */
+
+const COLLAB_CHAT = 'http://127.0.0.1:8097/api/chat';
+
+function afficherDialogue(messages) {
+  const fil = $('#cortex-fil');
+  if (!fil) return;
+  fil.innerHTML = '';
+  const utiles = (Array.isArray(messages) ? messages : [])
+    .filter(m => m && (m.from === 'hermes' || m.to === 'hermes'))
+    .slice(-12);
+  if (!utiles.length) {
+    fil.append(el('span', 'eteint', 'Aucun échange Hermès dans le journal récent.'));
+    return;
+  }
+  for (const m of utiles) {
+    const auteur = m.from === 'hermes' ? 'Hermès' : (m.from || 'Système');
+    const instant = m.at ? new Date(m.at).toLocaleTimeString('fr-FR') : '—';
+    const ligne = el('article', `cortex-msg ${m.from === 'hermes' ? 'hermes' : 'florent'}`);
+    ligne.append(el('span', 'meta', `${auteur} · ${instant}`));
+    ligne.append(el('span', null, String(m.content || '').slice(0, 2000)));
+    fil.append(ligne);
+  }
+  fil.scrollTop = fil.scrollHeight;
+}
+
+async function chargerDialogue() {
+  try {
+    const reponse = await fetch(COLLAB_CHAT, {cache: 'no-store'});
+    if (!reponse.ok) throw new Error(`HTTP ${reponse.status}`);
+    afficherDialogue(await reponse.json());
+  } catch {
+    const fil = $('#cortex-fil');
+    if (fil) {
+      fil.innerHTML = '';
+      fil.append(el('span', 'eteint', 'Terminal commun indisponible sur le port 8097.'));
+    }
+  }
+}
+
+async function transmettreHermes(event) {
+  event.preventDefault();
+  const champ = $('#cortex-message'), bouton = $('#cortex-envoyer'), etat = $('#cortex-envoi-etat');
+  const content = String(champ.value || '').trim();
+  if (!content) {
+    etat.textContent = 'Écrivez un message avant de transmettre.';
+    champ.focus();
+    return;
+  }
+  bouton.disabled = true;
+  etat.textContent = 'Transmission au hub…';
+  try {
+    const reponse = await fetch(COLLAB_CHAT, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({from: 'florent', to: 'hermes', type: 'message', content}),
+    });
+    const resultat = await reponse.json();
+    if (!reponse.ok) throw new Error(resultat.error || `HTTP ${reponse.status}`);
+    const routes = Array.isArray(resultat.routes) ? resultat.routes.join(' + ') : 'journal';
+    champ.value = '';
+    etat.textContent = `Transmis · ${routes || 'journal local'}.`;
+    await chargerDialogue();
+  } catch (erreur) {
+    etat.textContent = `Échec de transmission · ${erreur.message || erreur}`;
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
 /* ── Exécution ────────────────────────────────────────────────────── */
 
 function execution(d) {
@@ -1073,6 +1145,7 @@ async function tracer() {
 /* ── Amorçage ─────────────────────────────────────────────────────── */
 
 $('#btn-tracer').addEventListener('click', tracer);
+$('#cortex-form').addEventListener('submit', transmettreHermes);
 $('#sel-actif').addEventListener('change', tracer);
 for (const b of document.querySelectorAll('.tf button')) {
   b.addEventListener('click', () => {
@@ -1096,6 +1169,7 @@ document.querySelector('#anatomie').addEventListener('mouseleave',
   () => { document.querySelector('#anat-info').hidden = true; });
 
 chargerEtat();
+chargerDialogue();
 chargerUnivers();
 chargerMedecin();
 chargerCarte();
@@ -1109,5 +1183,6 @@ setInterval(() => {
   if (VUE === 'flux' && MED) dessinerAnatomie();
 }, 50);
 setInterval(chargerEtat, 10000);
+setInterval(chargerDialogue, 10000);
 setInterval(promotion, 30000);
 setInterval(chargerUnivers, 120000);

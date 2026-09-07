@@ -167,21 +167,30 @@ def write_atomic(snapshot: dict, output: Path = OUTPUT) -> Path:
 
 
 def cycle(symbols=SYMBOLS, *, output: Path = OUTPUT) -> int:
+    """Publish each completed asset without waiting for a slower neighbour.
+
+    Two assets at most, each with six bounded HTTP workers: this limit stays
+    constant even when the configured universe grows. Only this thread writes.
+    """
     written = 0
-    for symbol in symbols:
-        try:
-            snapshot, errors = collect_symbol(symbol)
-            write_atomic(snapshot, output)
-            written += 1
-            print(
-                f"  {symbol}: {snapshot['venue_count']} places, "
-                f"depth={snapshot['depth_imbalance_10bps']:+.2f}, "
-                f"flow={snapshot['taker_imbalance_recent']:+.2f}"
-                + (f" erreurs={errors}" if errors else ""),
-                flush=True,
-            )
-        except Exception as exc:  # noqa: BLE001
-            print(f"  {symbol}: indisponible ({type(exc).__name__})", flush=True)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {pool.submit(collect_symbol, symbol): symbol
+                   for symbol in dict.fromkeys(symbols)}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                snapshot, errors = future.result()
+                write_atomic(snapshot, output)
+                written += 1
+                print(
+                    f"  {symbol}: {snapshot['venue_count']} places, "
+                    f"depth={snapshot['depth_imbalance_10bps']:+.2f}, "
+                    f"flow={snapshot['taker_imbalance_recent']:+.2f}"
+                    + (f" erreurs={errors}" if errors else ""),
+                    flush=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"  {symbol}: indisponible ({type(exc).__name__})", flush=True)
     return written
 
 
@@ -242,6 +251,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--une-fois", action="store_true")
     parser.add_argument("--dossier", default=str(OUTPUT))
     args = parser.parse_args(argv)
+    if not math.isfinite(args.intervalle) or args.intervalle < 1.0:
+        parser.error("intervalle fini d'au moins une seconde requis")
     signal.signal(signal.SIGINT, _stopper)
     print("Microstructure publique Binance + Bybit + OKX (aucune cle, aucun ordre).",
           flush=True)
@@ -252,14 +263,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with collector_lock(output):
             while not _stop:
+                deadline = time.monotonic() + args.intervalle
                 cycle(symbols, output=output)
                 health = collection_health(symbols, output)
                 write_atomic(health, output)
                 if args.une_fois:
                     return 0 if health["status"] == "OK" else 1
-                deadline = time.monotonic() + max(1.0, args.intervalle)
                 while not _stop and time.monotonic() < deadline:
-                    time.sleep(min(0.25, deadline - time.monotonic()))
+                    time.sleep(max(0.0, min(0.25, deadline - time.monotonic())))
     except OSError as exc:
         print(f"Collecteur arrete, verrou ou stockage indisponible ({type(exc).__name__}).",
               flush=True)

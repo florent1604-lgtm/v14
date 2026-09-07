@@ -96,7 +96,7 @@ def test_invalid_hermes_confidence_rejected(monkeypatch, confidence):
     from titanium import hermes_cortex as cortex
 
     monkeypatch.setattr(cortex, "collect", lambda _: [])
-    monkeypatch.setattr(cortex, "_ask", lambda _: {"verdicts": [
+    monkeypatch.setattr(cortex, "_ask", lambda _, **_kw: {"verdicts": [
         {"decision_ref": "a", "action": "ALLOW", "confidence": confidence},
     ]})
     with pytest.raises(cortex.HermesCortexUnavailable, match="confiance"):
@@ -107,7 +107,7 @@ def test_opposite_hermes_allow_is_wait(monkeypatch):
     from titanium import hermes_cortex as cortex
 
     monkeypatch.setattr(cortex, "collect", lambda _: [])
-    monkeypatch.setattr(cortex, "_ask", lambda _: {"verdicts": [
+    monkeypatch.setattr(cortex, "_ask", lambda _, **_kw: {"verdicts": [
         {"decision_ref": ref, "action": "ALLOW", "confidence": .8} for ref in ("a", "b")
     ]})
     results = cortex.analyse_entries([
@@ -121,7 +121,7 @@ def test_duplicate_reply_rejected(monkeypatch):
     from titanium import hermes_cortex as cortex
 
     monkeypatch.setattr(cortex, "collect", lambda _: [])
-    monkeypatch.setattr(cortex, "_ask", lambda _: {"verdicts": [
+    monkeypatch.setattr(cortex, "_ask", lambda _, **_kw: {"verdicts": [
         {"decision_ref": "a", "action": "ALLOW", "confidence": .8},
         {"decision_ref": "a", "action": "BLOCK", "confidence": .8},
     ]})

@@ -65,6 +65,30 @@ def _dummy_api_keys(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_hermes_throttle():
+    """Neutralise l'espacement de débit d'Hermès pendant les tests.
+
+    `HERMES_INTERVALLE_MIN_S` protège la fenêtre d'usage de l'abonnement en
+    production. Appliqué aux tests, il ajoutait 30 s à chaque appel après le
+    premier du processus — 121 s pour cinq fichiers, sans rien vérifier de
+    plus. Le compteur est remis à zéro avant chaque test : le premier appel
+    n'attend jamais, et le débit reste borné là où il compte, en vol.
+    """
+    # Seulement si le module est deja charge : ne pas l'importer ici evite
+    # d'imposer ses dependances aux 2 700 tests qui ne le touchent pas, et
+    # qu'une panne d'import du cortex fasse tomber toute la suite.
+    def _remise_a_zero():
+        module = sys.modules.get("titanium.hermes_cortex")
+        if module is not None:
+            module._DERNIER_APPEL["at"] = 0.0
+            module._CIRCUIT.update(retry_at=0.0, error="")
+
+    _remise_a_zero()
+    yield
+    _remise_a_zero()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_config():
     """Reset the global dataflows config before and after each test.
 

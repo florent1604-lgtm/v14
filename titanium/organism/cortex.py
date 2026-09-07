@@ -20,21 +20,77 @@ CORTEX_POLICY_VERSION = "hermes-policy-v2"
 CORTEX_POLICY_TTL_S = 300
 ALLOWED_ACTIONS = frozenset({"ALLOW", "WAIT", "BLOCK"})
 
+#: Duree d'une barre, en minutes. UNE seule table, lue par `policy_ttl_s` et
+#: par `market_observed_at` : deux tables auraient fini par diverger, et la
+#: fraicheur serait alors calculee sur une duree que la cloture ne connait pas.
+BARRE_MINUTES = {
+    **{f"M{n}": n for n in (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30)},
+    **{f"H{n}": 60 * n for n in (1, 2, 3, 4, 6, 8, 12)},
+    "D1": 1440, "W1": 10080,
+}
 
-def policy_ttl_s(context_key: str) -> int:
-    """Exact horizon matching: M15 is not M1, M5 is not M30."""
+#: Part de la barre pendant laquelle un avis reste pertinent.
+#:
+#: MESURE DU 07/09/2026 QUI A IMPOSE CE CHANGEMENT. Le TTL etait une constante
+#: de 300 s pour tout horizon superieur a M5. Sur 40 demandes consecutives,
+#: ZERO n'atteignait Hermes : le decalage minimal barre -> demande est de 466 s
+#: (la boucle balaie ~50 portables par tour), donc superieur au TTL dans 100 %
+#: des cas. Sur H1 la fenetre valait 5 minutes sur 60 ; sur H4, 5 sur 240.
+#:
+#: Ce n'etait pas un defaut isole : l'orchestration multi-horizons a deplace
+#: les actifs vers H1/H4 pendant que le TTL restait cale sur du M1/M5. Chaque
+#: changement etait correct seul ; ensemble ils affamaient le cortex.
+#:
+#: Un quart de barre garde l'intention d'origine — une politique ne survit
+#: jamais a la condition de marche qui l'a produite — tout en laissant au
+#: pipeline le temps d'exister.
+CORTEX_TTL_FRACTION_BARRE = 0.25
+
+#: Planchers hérités, conservés tels quels : sur ces deux horizons le quart de
+#: barre (15 s et 75 s) serait plus court que la valeur eprouvee.
+CORTEX_TTL_PLANCHER = {"M1": 60, "M5": 120}
+
+
+def _horizon(context_key: str) -> str:
+    """Horizon d'execution porte par la cle de contexte (`...|tf=H1>H4`)."""
     horizon = context_key.rsplit("|tf=", 1)[-1].split(">", 1)[0]
     if "|tf=" not in context_key or not horizon:
         raise ValueError("timeframe cortex manquante")
-    return {"M1": 60, "M5": 120}.get(horizon, CORTEX_POLICY_TTL_S)
+    return horizon
+
+
+def policy_ttl_s(context_key: str) -> int:
+    """TTL proportionnel a la barre. Exact horizon matching: M15 is not M1."""
+    horizon = _horizon(context_key)
+    minutes = BARRE_MINUTES.get(horizon)
+    if minutes is None:
+        # Horizon inconnu : on garde l'ancienne constante, jamais plus large.
+        return CORTEX_POLICY_TTL_S
+    barre_s = minutes * 60
+    ttl = max(int(barre_s * CORTEX_TTL_FRACTION_BARRE),
+              CORTEX_TTL_PLANCHER.get(horizon, 0))
+    # La barre elle-meme est le plafond absolu : un plancher herite ne doit
+    # jamais faire survivre une politique a la condition qui l'a produite.
+    # Sans ce min, une barre M2 heritait de 300 s pour 120 s de vie reelle.
+    return min(ttl, barre_s)
+
+
+def _ttl_borne(context_key: str) -> int:
+    """Plafond de TTL applicable a ce contexte, sans jamais lever.
+
+    Une cle sans `|tf=` — politique ancienne, doublure de test — retombe sur
+    la borne historique. Le plafond ne doit pas dependre d'un format de cle.
+    """
+    try:
+        return policy_ttl_s(str(context_key))
+    except (TypeError, ValueError):
+        return CORTEX_POLICY_TTL_S
 
 
 def market_observed_at(bar_time: str, context_key: str, requested_at: str) -> datetime:
     """Date of source bar close, never refreshed by queueing or LLM latency."""
     horizon = context_key.rsplit("|tf=", 1)[-1].split(">", 1)[0]
-    minutes = {**{f"M{n}": n for n in (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30)},
-               **{f"H{n}": 60 * n for n in (1, 2, 3, 4, 6, 8, 12)},
-               "D1": 1440, "W1": 10080}
+    minutes = BARRE_MINUTES
     opened = datetime.fromisoformat(bar_time.replace("Z", "+00:00"))
     requested = datetime.fromisoformat(requested_at.replace("Z", "+00:00"))
     if opened.tzinfo is None or requested.tzinfo is None:
@@ -88,7 +144,7 @@ def build_cortex_policy(
     confidence: float,
     summary: str,
     evidence_digest: str,
-    ttl_s: int = CORTEX_POLICY_TTL_S,
+    ttl_s: int | None = None,
     now: datetime | None = None,
     producer: str = CORTEX_ROLE,
     source_observed_at: str = "",
@@ -104,8 +160,16 @@ def build_cortex_policy(
         raise ValueError("evidence cortex non scellee")
     if not isfinite(float(confidence)):
         raise ValueError("confiance cortex non finie")
-    ttl = int(ttl_s)
-    if ttl < 1 or ttl > CORTEX_POLICY_TTL_S:
+    # Le plafond suit l'horizon du contexte, pas une constante unique : une
+    # politique H4 valide 3 600 s reste bornee par SA barre, et une politique
+    # M1 reste bornee a 60 s. Un plafond global aurait relache les deux.
+    #
+    # Le defaut suit le meme horizon. Il valait 300 s en dur, ce qui devenait
+    # contradictoire des que le plafond a cesse d'etre constant : un appelant
+    # sans `ttl_s` sur un contexte M1 demandait 300 s pour une borne de 60.
+    borne = _ttl_borne(context_key)
+    ttl = borne if ttl_s is None else int(ttl_s)
+    if ttl < 1 or ttl > borne:
         raise ValueError(f"TTL cortex hors borne: {ttl}")
     created = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     observed = created
@@ -161,9 +225,10 @@ def policy_is_fresh(policy: CortexPolicy, *, now: datetime | None = None) -> boo
             return False
         if observed > created + timedelta(seconds=5):
             return False
-        if expiry > created + timedelta(seconds=CORTEX_POLICY_TTL_S):
+        borne = _ttl_borne(policy.context_key)
+        if expiry > created + timedelta(seconds=borne):
             return False
-        if expiry > observed + timedelta(seconds=CORTEX_POLICY_TTL_S):
+        if expiry > observed + timedelta(seconds=borne):
             return False
         return current <= expiry
     except (TypeError, ValueError):

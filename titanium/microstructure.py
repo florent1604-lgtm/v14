@@ -70,7 +70,17 @@ def aggregate_snapshots(snapshots: Iterable[VenueSnapshot], *,
     """Agrege plusieurs carnets spot sans melanger des donnees invalides."""
     now = float(now_ms if now_ms is not None else time.time() * 1000.0)
     valid: list[tuple[VenueSnapshot, float, float, float]] = []
+    seen: set[str] = set()
     for venue in snapshots:
+        received = float(venue.received_ms)
+        event = float(venue.event_ms)
+        if (not math.isfinite(received) or not math.isfinite(event)
+                or not -1_000.0 <= now - received <= FRESHNESS_MS
+                or not -1_000.0 <= now - event <= FRESHNESS_MS
+                or venue.venue in seen):
+            continue
+        if valid and venue.symbol != valid[0][0].symbol:
+            raise ValueError("mixed symbols in microstructure snapshot")
         bids = [(float(p), float(q)) for p, q in venue.bids
                 if _finite_positive(p) and _finite_positive(q)]
         asks = [(float(p), float(q)) for p, q in venue.asks
@@ -83,6 +93,7 @@ def aggregate_snapshots(snapshots: Iterable[VenueSnapshot], *,
             continue
         mid = (best_bid + best_ask) / 2.0
         valid.append((venue, best_bid, best_ask, mid))
+        seen.add(venue.venue)
     if not valid:
         raise ValueError("aucun carnet exploitable")
 
@@ -93,15 +104,13 @@ def aggregate_snapshots(snapshots: Iterable[VenueSnapshot], *,
     all_bids: list[tuple[float, float]] = []
     all_asks: list[tuple[float, float]] = []
     spreads = []
-    event_ms = 0.0
-    received_ms = 0.0
+    event_ms = min(float(row[0].event_ms) for row in valid)
+    received_ms = min(float(row[0].received_ms) for row in valid)
     sources = []
 
     for venue, best_bid, best_ask, mid in valid:
         sources.append(venue.venue)
         spreads.append((best_ask - best_bid) / mid * 10_000.0)
-        event_ms = max(event_ms, float(venue.event_ms))
-        received_ms = max(received_ms, float(venue.received_ms))
         for price, quantity in venue.bids:
             p, q = float(price), float(quantity)
             if not (_finite_positive(p) and _finite_positive(q)):
@@ -135,7 +144,7 @@ def aggregate_snapshots(snapshots: Iterable[VenueSnapshot], *,
 
     bid_wall_bps, bid_wall_ratio = _wall(all_bids, reference_mid)
     ask_wall_bps, ask_wall_ratio = _wall(all_asks, reference_mid)
-    age_ms = max(0.0, now - received_ms)
+    age_ms = max(0.0, now - received_ms, now - event_ms)
     return {
         "schema": SCHEMA,
         "symbol": symbol,
@@ -145,6 +154,8 @@ def aggregate_snapshots(snapshots: Iterable[VenueSnapshot], *,
         "fresh": age_ms <= FRESHNESS_MS,
         "venue_count": len(valid),
         "venues": sorted(set(sources)),
+        "source_times": {row[0].venue: {"event_ms": row[0].event_ms,
+                                       "received_ms": row[0].received_ms} for row in valid},
         "mid": reference_mid,
         "spread_bps": statistics.median(spreads),
         "depth_imbalance_10bps": _imbalance(bid_10, ask_10),
@@ -207,10 +218,15 @@ def attach_live_microstructure(mt5_symbol: str, features: dict, *, root: Path,
         snapshot = json.loads(path.read_text(encoding="utf-8"))
         now = float(now_ms if now_ms is not None else time.time() * 1000.0)
         received = float(snapshot["received_ms"])
-        age = max(0.0, now - received)
+        event = float(snapshot["event_ms"])
+        age = max(0.0, now - received, now - event)
         if (snapshot.get("schema") != SCHEMA
                 or snapshot.get("symbol") != market_symbol
                 or not snapshot.get("fresh")
+                or not math.isfinite(received)
+                or not math.isfinite(event)
+                or received > now + 1_000.0
+                or event > now + 1_000.0
                 or age > float(max_age_ms)):
             return None
         numeric = {
@@ -232,3 +248,16 @@ def attach_live_microstructure(mt5_symbol: str, features: dict, *, root: Path,
         return snapshot
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
+
+
+def entry_microstructure_guard(mt5_symbol: str, *, side: int, root: Path,
+                               now_ms: float | None = None) -> MicrostructureGate:
+    """Final local-file check, after deliberation. Required for mapped BTC/ETH only.
+
+    No fake quorum for unsupported instruments; those keep their existing gates.
+    UNKNOWN on a supported instrument means WAIT, never implicit permission.
+    """
+    if _market_symbol(mt5_symbol) is None:
+        return MicrostructureGate("ALLOW", "source crypto non applicable")
+    snapshot = attach_live_microstructure(mt5_symbol, {}, root=root, now_ms=now_ms)
+    return microstructure_gate(snapshot, side=side)

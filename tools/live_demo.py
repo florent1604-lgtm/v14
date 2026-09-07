@@ -46,6 +46,10 @@ from titanium.execution.decision_registry import (  # noqa: E402
     make_decision_id,
 )
 from titanium.execution.micro_basket import required_improvement_r  # noqa: E402
+from titanium.execution.execution_ledger import (  # noqa: E402
+    execute_recorded,
+    reconcile_recorded,
+)
 from titanium.execution.policy_identity import (  # noqa: E402
     build_policy_identity,
     snapshot_code_identity,
@@ -1710,6 +1714,18 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 print(f"    gestion fail-closed : {r['reason']}", flush=True)
                 for d in r.get("details", []):
                     print(f"      {d}", flush=True)
+            # After protective management: evidence failure must never disable exits.
+            try:
+                trace = reconcile_recorded(
+                    mt5, account=compte, path=RACINE / "results" / "execution_ledger.sqlite3",
+                )
+            except Exception as exc:  # keep protections active, but no new entry
+                trace = {"status": "WAIT", "reason": type(exc).__name__}
+            stats["execution_trace"] = trace
+            if trace["status"] == "WAIT":
+                gestion_saine = False
+                print("    execution incertaine : reconciliation requise, nouvelles entrees WAIT",
+                      flush=True)
     except Exception as exc:  # noqa: BLE001
         gestion_saine = False
         print(f"    gestion indisponible : {type(exc).__name__}", flush=True)
@@ -1950,7 +1966,10 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             micro = attach_live_microstructure(sym, feats, root=RACINE)
             micro_gate = microstructure_gate(micro, side=int(out.side or 0))
             _compter_tunnel(stats, "microstructure", micro_gate.action)
-            if micro_gate.action == "BLOCK":
+            from titanium.microstructure import entry_microstructure_guard
+
+            required_micro_gate = entry_microstructure_guard(sym, side=int(out.side or 0), root=RACINE)
+            if micro_gate.action == "BLOCK" or required_micro_gate.action != "ALLOW":
                 _refus(stats, "MICROSTRUCTURE", sym, micro_gate.reason,
                        piliers=c.get("support"), side=int(out.side or 0))
                 print(f"    {sym:8} ENTER refuse - {micro_gate.reason}", flush=True)
@@ -2146,12 +2165,28 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             ltf=str(c.get("timeframe") or LTF),
             htf=str(c.get("higher_timeframe") or HTF),
         )
-        res = _envoi_entree()(
+        # The deliberation/sizing may outlive the quote. Re-read local data now;
+        # a previously fresh snapshot is not an authorization to trade later.
+        from titanium.microstructure import entry_microstructure_guard
+
+        final_micro = entry_microstructure_guard(sym, side=int(out.side or 0), root=RACINE)
+        if final_micro.action != "ALLOW":
+            _refus(stats, "MICROSTRUCTURE_FINAL", sym, final_micro.reason)
+            continue
+        res = execute_recorded(
+            _envoi_entree(),
             sym, out.side, budget.risk_money, out.stop_distance or 0.0,
             policy=politique,
+            account=compte, identity=policy_identity,
+            path=RACINE / "results" / "execution_ledger.sqlite3",
             tp_distance=(out.stop_distance or 0.0) * cfg.rr_ratio,
             idempotency_key=cle_barre(sym, feats),
         )
+
+        if res.sent and not res.ticket:
+            # A broker acknowledgement without a usable ticket is not safely adoptable.
+            _refus(stats, "EXECUTION", sym, "TRACE_MISSING_ORDER_TICKET")
+            continue
 
         decision_id = ""
         if res.sent:

@@ -276,6 +276,7 @@ def _organes() -> dict:
     « cet étage n'a rien fait ».
     """
     from titanium.analysis.entry_accounting import entry_balance
+    from titanium.analysis.execution_trace import ledger_summary
 
     stats = _lire_json(RESULTS / "loop_heartbeat.json").get("stats") or {}
     tunnel = stats.get("tunnel") or {}
@@ -311,7 +312,9 @@ def _organes() -> dict:
               {"EXECUTION": post.get("EXECUTION", 0)}),
     ]
     return {"chaine": chaine, "supports": tunnel.get("support_passed") or {},
-            "entry_accounting": balance}
+            "entry_accounting": balance,
+            "execution_ledger": ledger_summary(RESULTS / "execution_ledger.sqlite3"),
+            "execution_trace": stats.get("execution_trace", {"status": "NOT_STARTED"})}
 
 
 #: Tampon commun des évènements récents, alimenté par UN seul lecteur.

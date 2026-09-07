@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from titanium.data.mt5_vendor import SymbolSpec, ensure_symbol, mt5_session, account_snapshot
 
@@ -141,6 +142,17 @@ class OrderResult:
     overrisk_ratio: float = 1.0  # >1 = le lot minimum force plus de risque que voulu
     idempotency_key: str = ""
     checks: list[dict] = field(default_factory=list)
+    request_attempted: bool = False
+    broker_deal_ticket: int | None = None
+    filled_volume: float | None = None
+    requested_price: float | None = None
+    reference_bid: float | None = None
+    reference_ask: float | None = None
+    quote_time_msc: int | None = None
+    submitted_at: str = ""
+    acknowledged_at: str = ""
+    trace_id: str = ""
+    trace_state: str = ""
 
     def _add(self, gate: str, passed: bool, detail: str = "") -> None:
         self.checks.append({"gate": gate, "passed": bool(passed), "detail": detail})
@@ -385,7 +397,13 @@ def place_market_order(symbol: str, side: int, risk_money: float,
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": _pick_filling_mode(mt5, symbol),
             }
+            r.requested_price = price
+            r.reference_bid, r.reference_ask = float(tick.bid), float(tick.ask)
+            r.quote_time_msc = getattr(tick, "time_msc", None)
+            r.submitted_at = datetime.now(timezone.utc).isoformat()
+            r.request_attempted = True
             res = mt5.order_send(requete)
+            r.acknowledged_at = datetime.now(timezone.utc).isoformat()
 
             if res is None:
                 r.reason = "ORDER_SEND_NUL"
@@ -393,17 +411,20 @@ def place_market_order(symbol: str, side: int, risk_money: float,
                 return r
 
             r.retcode = int(res.retcode)
+            r.broker_deal_ticket = int(getattr(res, "deal", 0)) or None
+            r.filled_volume = getattr(res, "volume", None)
+            r.ticket = int(getattr(res, "order", 0)) or None
             r.price = float(getattr(res, "price", price) or price)
             r.sl, r.tp = sl, (tp or None)
 
-            if r.retcode != mt5.TRADE_RETCODE_DONE:
+            if r.retcode not in (mt5.TRADE_RETCODE_DONE, 10010):
                 r.reason = f"RETCODE_{r.retcode}"
                 r._add("send", False, f"{getattr(res, 'comment', '')}")
                 return r
 
             r.sent = True
             r.ticket = int(getattr(res, "order", 0)) or None
-            r.reason = "OK"
+            r.reason = "PARTIAL_FILL_REVIEW" if r.retcode == 10010 else "OK"
             r._add("send", True, f"ticket={r.ticket} @ {r.price}")
             if idempotency_key:
                 _sent_keys.add(idempotency_key)

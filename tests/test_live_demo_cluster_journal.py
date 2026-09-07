@@ -183,7 +183,8 @@ def test_gate_correle_unique_utilise_le_risque_post_sizing_avant_ordre():
     # L'envoi passe par ``_envoi_entree`` depuis le 24/08/2026 : marche par
     # defaut, limite passive sur demande. La porte correlee doit rester devant
     # l'ordre quel que soit le type d'ordre choisi.
-    ordre = source.index("res = _envoi_entree()(")
+    ordre = source.index("res = execute_recorded(")
+    assert source.index("_envoi_entree(),", ordre) > ordre
 
     assert budget < non_tradable < gate_effectif < ordre
     assert "_place_dans_la_grappe(sym, conf.pct)" not in source

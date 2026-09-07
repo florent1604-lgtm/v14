@@ -62,7 +62,7 @@ def test_snapshot_est_fixe_avant_tout_envoi_et_couvre_les_producteurs():
 
     source = inspect.getsource(live_demo.tour)
     assert source.index("_decision_policy_identity(") < source.index(
-        "res = _envoi_entree()(",
+        "res = execute_recorded(",
     )
     inventory = live_demo._BASE_CODE_SNAPSHOT["inventory"]
     for required in (
@@ -75,6 +75,7 @@ def test_snapshot_est_fixe_avant_tout_envoi_et_couvre_les_producteurs():
         "titanium/avis.py",
         "titanium/risk/riskgate.py",
         "titanium/execution/policy_identity.py",
+        "titanium/execution/execution_ledger.py",
     ):
         assert required in inventory
 

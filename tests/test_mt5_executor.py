@@ -312,6 +312,18 @@ def test_ordre_nominal(terminal):
     assert req["magic"] == 14_000
 
 
+def test_partial_fill_is_exposure_not_rejection(terminal):
+    terminal(mt5=FakeMt5(retcode=10010))
+    result = place_market_order("EURUSD", 1, 100., .005, policy=armee())
+    assert result.sent and result.ticket == 555
+    assert result.reason == "PARTIAL_FILL_REVIEW"
+    assert result.request_attempted
+    assert result.reference_bid == 1.1000
+    assert result.reference_ask == 1.1002
+    assert result.filled_volume is None  # fake broker omitted it; do not invent volume
+    assert result.submitted_at and result.acknowledged_at
+
+
 def test_ordre_vente_inverse_sl_tp(terminal):
     m = terminal()
     place_market_order("EURUSD", -1, risk_money=100.0, stop_distance=0.005,

@@ -61,10 +61,18 @@ def test_market_age_not_reset_when_old_bar_is_queued_again():
 
 
 def test_horizons_match_exactly():
-    assert policy_ttl_s(CONTEXT) == 60
-    # 225 s et non 300 : le TTL vaut desormais un quart de la barre M15.
-    assert policy_ttl_s(CONTEXT.replace("M1>", "M15>")) == 225
-    assert policy_ttl_s(CONTEXT.replace("M1>", "M5>")) == 120
+    """M15 n'est pas M1 : l'horizon se lit en entier, jamais par prefixe.
+
+    Ce que ce test protege est la DISTINCTION, pas une valeur : confondre M15
+    avec M1 donnerait a une barre de 15 minutes le TTL d'une barre d'une
+    minute. Les durees elles-memes dependent d'un reglage de risque revisable,
+    verrouille par `test_le_ttl_suit_la_duree_de_la_barre`.
+    """
+    m1 = policy_ttl_s(CONTEXT)
+    m5 = policy_ttl_s(CONTEXT.replace("M1>", "M5>"))
+    m15 = policy_ttl_s(CONTEXT.replace("M1>", "M15>"))
+    assert m1 < m5 < m15
+    assert m1 <= 60      # la barre M1 reste le plafond absolu
     with pytest.raises(ValueError):
         market_observed_at("2026-09-06T05:59:00Z", "BTCUSD|long", NOW.isoformat())
 
@@ -139,13 +147,27 @@ def test_le_ttl_suit_la_duree_de_la_barre():
     portables par tour — donc superieur au TTL de 300 s dans 100 % des cas.
     Sur H1 la fenetre valait 5 minutes sur 60 ; sur H4, 5 sur 240.
     """
+    # La REGLE, pas des nombres graves : la fraction est un reglage de risque
+    # revisable (25 % -> 50 % le 07/09 au soir). Un test qui code ses valeurs
+    # en dur ne verifie plus l'invariant, il oblige a le reecrire a chaque
+    # arbitrage — et se fait alors ajuster sans qu'on relise ce qu'il protege.
+    from titanium.organism.cortex import (
+        BARRE_MINUTES,
+        CORTEX_TTL_FRACTION_BARRE,
+        CORTEX_TTL_PLANCHER,
+    )
     cle = "BTCUSD|long|continuation|4p|tf=%s>H4"
-    assert policy_ttl_s(cle % "M1") == 60        # plancher herite
-    assert policy_ttl_s(cle % "M5") == 120       # plancher herite
-    assert policy_ttl_s(cle % "M15") == 225      # 25 % de 900
-    assert policy_ttl_s(cle % "H1") == 900       # 25 % de 3 600
-    assert policy_ttl_s(cle % "H4") == 3600      # 25 % de 14 400
-    assert policy_ttl_s(cle % "D1") == 21600     # 25 % de 86 400
+    for horizon in ("M1", "M5", "M15", "H1", "H4", "D1"):
+        barre_s = BARRE_MINUTES[horizon] * 60
+        attendu = min(barre_s, max(int(barre_s * CORTEX_TTL_FRACTION_BARRE),
+                                   CORTEX_TTL_PLANCHER.get(horizon, 0)))
+        assert policy_ttl_s(cle % horizon) == attendu, horizon
+
+    # Ce que la fraction ne doit jamais devenir, quel que soit le reglage :
+    # une politique H1 qui vivrait plus longtemps que sa propre barre.
+    assert 0 < CORTEX_TTL_FRACTION_BARRE <= 1.0
+    # Et le sens du reglage doit rester lisible sur un cas concret.
+    assert policy_ttl_s(cle % "H1") == 1800      # 50 % de 3 600
 
 
 def test_le_ttl_ne_depasse_jamais_la_barre():
@@ -180,8 +202,10 @@ def test_le_plafond_de_construction_suit_l_horizon():
 def test_le_defaut_suit_l_horizon_du_contexte():
     """Sans `ttl_s`, la politique prend le TTL de sa propre barre."""
     identity = build_decision_identity({"symbol": "BTCUSD", "side": 1})
-    for horizon, attendu in (("M1", 60), ("H1", 900), ("H4", 3600)):
+    from titanium.organism.cortex import policy_ttl_s as _ttl
+    for horizon in ("M1", "H1", "H4"):
         cle = f"BTCUSD|long|continuation|4p|tf={horizon}>D1"
+        attendu = _ttl(cle)
         p = policy(identity, context_key=cle)
         duree = (datetime.fromisoformat(p.expires_at)
                  - datetime.fromisoformat(p.created_at)).total_seconds()

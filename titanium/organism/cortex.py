@@ -41,10 +41,26 @@ BARRE_MINUTES = {
 #: les actifs vers H1/H4 pendant que le TTL restait cale sur du M1/M5. Chaque
 #: changement etait correct seul ; ensemble ils affamaient le cortex.
 #:
-#: Un quart de barre garde l'intention d'origine — une politique ne survit
-#: jamais a la condition de marche qui l'a produite — tout en laissant au
-#: pipeline le temps d'exister.
-CORTEX_TTL_FRACTION_BARRE = 0.25
+#: RELEVE AU DEMI-BARRE LE 07/09/2026 AU SOIR, decision de Florent.
+#: Le quart de barre laissait encore le cortex majoritairement muet. Mesure sur
+#: 800 demandes reelles, en prenant leur age A LA CREATION — le bon repere, car
+#: c'est a cet instant que la garde de fraicheur les juge :
+#:
+#:     age median a la creation   H1 41 % de la barre · M15 59 % · H4 25 %
+#:
+#: La boucle balaie 149 actifs en rotation : une demande nait donc rarement en
+#: debut de barre, elle nait ou le balayage en est. D'ou la part servable :
+#:
+#:     TTL  25 % -> 32 % des demandes      TTL  75 % -> 72 %
+#:     TTL  50 % -> 64 % des demandes      TTL 100 % -> 96 %
+#:
+#: A 25 %, `cortex-request-guard` ecartait 68 % des demandes avant tout appel :
+#: le premier motif de refus du cortex n'etait ni le quota ni une panne, mais
+#: ce seuil. Le demi-barre double la couverture et conserve l'invariant — une
+#: politique expire toujours avant la barre suivante, donc jamais apres la
+#: condition de marche qui l'a produite. Le pas 50 -> 75 % ne rapporterait que
+#: 8 points de plus, pour la moitie de la marge de securite.
+CORTEX_TTL_FRACTION_BARRE = 0.5
 
 #: Planchers hérités, conservés tels quels : sur ces deux horizons le quart de
 #: barre (15 s et 75 s) serait plus court que la valeur eprouvee.

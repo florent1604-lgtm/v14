@@ -33,7 +33,8 @@ let CHART = null;
 function anomalies(d) {
   const out = [];
   const w = d.wall || {}, l = d.loop || {}, r = d.risque || {},
-        a = d.account || {}, an = d.analystes || {}, p = d.promotion || {};
+        a = d.account || {}, an = d.analystes || {}, p = d.promotion || {},
+        cx = d.cortex || {};
 
   if (a.connected === false)
     out.push(['grave', 'MT5', 'terminal injoignable — la boucle ne peut ni lire ni gérer']);
@@ -55,6 +56,11 @@ function anomalies(d) {
 
   if (an.actif && an.en_attente > 8)
     out.push(['attention', 'ANALYSTES', `${an.en_attente} demandes en attente — le travailleur décroche`]);
+
+  if (cx.status === 'quota_exhausted')
+    out.push(['attention', 'HERMÈS', 'fenêtre Claude saturée — les nouvelles entrées restent en WAIT']);
+  else if (cx.status === 'unavailable' || cx.status === 'circuit_open')
+    out.push(['attention', 'HERMÈS', cx.label || 'cortex indisponible']);
 
   if (p.total_trades > 0 && p.sans_classe > 0)
     out.push(['attention', 'JOURNAL',
@@ -135,6 +141,76 @@ function vitaux(d) {
 
   $('#v-heure').textContent = l.age_s == null ? 'inconnue' : `il y a ${nb(l.age_s, 0)} s`;
   $('#v-heure').className = 'v n ' + (l.stale ? 'mal' : '');
+}
+
+/* ── Cortex Hermès ────────────────────────────────────────────────
+   Sépare l'indisponibilité du LLM d'un refus fondé de la mémoire V4.
+   La page ne déclenche jamais d'appel : elle ne fait que relire les preuves. */
+
+function cortex(d) {
+  const x = d.cortex || {}, m = x.memory || {}, r = x.refusals || {},
+        cats = r.categories || {}, com = x.communication || {};
+  const c = $('#cortex');
+  if (!c) return;
+  c.innerHTML = '';
+  $('#cortex-fenetre').textContent = `${x.window_minutes || 60} dernières minutes`;
+
+  const head = el('div', 'cortex-head');
+  const badge = el('span', 'etat-pastille', x.label || 'Hermès non mesuré');
+  badge.style.color = x.status === 'ready' ? 'var(--long)'
+    : x.status === 'quota_exhausted' ? 'var(--grave)'
+    : x.status === 'unknown' ? 'var(--encre-3)' : 'var(--alerte)';
+  head.append(badge);
+  const terminal = com.terminal?.running && com.hub?.running;
+  const lien = el('a', 'cortex-chat', terminal ? 'Ouvrir la conversation' : 'Terminal indisponible');
+  lien.href = 'http://127.0.0.1:8097/#chat';
+  lien.target = '_blank';
+  lien.rel = 'noopener';
+  if (!terminal) lien.setAttribute('aria-disabled', 'true');
+  head.append(lien);
+  c.append(head);
+
+  const total = Number(m.checks || 0);
+  const allowRate = m.allow_rate == null ? null : Number(m.allow_rate) * 100;
+  const blockRate = m.block_rate == null ? null : Number(m.block_rate) * 100;
+  const grid = el('div', 'cortex-grid');
+  const cellule = (titre, valeur, detail, cls) => {
+    const n = el('div', 'cortex-kpi ' + (cls || ''));
+    n.append(el('span', 'k', titre), el('strong', 'n', valeur), el('small', null, detail));
+    grid.append(n);
+  };
+  cellule('Mémoire V4 · autorise', String(m.allow || 0),
+    allowRate == null ? 'aucune mesure' : `${nb(allowRate, 1)} % des contrôles`, 'ok');
+  cellule('Mémoire V4 · bloque', String(m.block || 0),
+    blockRate == null ? 'aucune mesure' : `${nb(blockRate, 1)} % des contrôles`, 'att');
+  cellule('Contextes distincts', String(m.unique_contexts || 0),
+    `${m.unique_allow || 0} autorisés · ${m.unique_block || 0} bloqués`);
+  cellule('Politiques invalides', String(cats.policy_model_invalid || 0),
+    `${cats.policy_missing || 0} absente(s) · ${cats.policy_stale || 0} périmée(s)`,
+    cats.policy_model_invalid ? 'mal' : '');
+  c.append(grid);
+
+  if (total) {
+    const barre = el('div', 'cortex-barre');
+    const ok = el('i', 'allow');
+    ok.style.width = `${Math.max(0, Math.min(100, allowRate || 0))}%`;
+    const block = el('i', 'block');
+    block.style.width = `${Math.max(0, Math.min(100, blockRate || 0))}%`;
+    barre.append(ok, block);
+    c.append(barre);
+  }
+
+  const last = x.last_result || {};
+  const note = el('div', 'cortex-note');
+  if (last.at) {
+    const quand = new Date(last.at).toLocaleString('fr-FR');
+    note.append(el('b', null, `Dernier retour · ${last.symbol || '—'} · ${last.action || 'WAIT'}`));
+    note.append(el('span', 'eteint', `${quand} · ${last.source || ''}`));
+    if (last.summary) note.append(el('span', null, last.summary));
+  } else {
+    note.append(el('span', 'eteint', 'Aucun retour Hermès récent.'));
+  }
+  c.append(note);
 }
 
 /* ── Exécution ────────────────────────────────────────────────────── */
@@ -951,7 +1027,7 @@ async function chargerEtat() {
   try {
     const d = await (await fetch('/api/state')).json();
     ETAT = d;
-    vitaux(d); anomalies(d); execution(d); positions(d);
+    vitaux(d); anomalies(d); cortex(d); execution(d); positions(d);
     analystes(d); fantome(d); edge(d); organes(d); vendeurs(d);
     const m = d.meta || {};
     $('#pied-llm').textContent =

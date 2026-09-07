@@ -571,6 +571,13 @@ def risque() -> dict:
     }
 
 
+def cortex() -> dict:
+    """Sante recente d'Hermes et de la memoire, sans appeler de LLM."""
+    from titanium.web.cortex_status import snapshot
+
+    return snapshot(root=RACINE)
+
+
 def state() -> dict:
     """État complet. Chaque bloc est isolé : un échec n'en emporte pas d'autres."""
     return {
@@ -590,6 +597,10 @@ def state() -> dict:
         "prod_fantome": _safe(prod_fantome, {"actif": False, "lignes": 0}),
         "fenetres": _safe(fenetres, {"disponible": False, "symboles": []}),
         "risque": _safe(risque, {"disponible": False}),
+        "cortex": _safe(cortex, {
+            "status": "unknown", "label": "Hermes non mesure",
+            "memory": {}, "refusals": {}, "communication": {},
+        }),
     }
 
 

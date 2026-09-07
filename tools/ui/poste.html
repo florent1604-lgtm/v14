@@ -133,6 +133,12 @@
     <!-- ── Colonne des registres ────────────────────────────────────── -->
     <div class="colonne">
 
+      <section class="bloc cortex-bloc">
+        <h2>Hermès · cortex
+          <span class="compte" id="cortex-fenetre">60 dernières minutes</span></h2>
+        <div class="contenu" id="cortex"></div>
+      </section>
+
       <section class="bloc">
         <h2>Exécution</h2>
         <div class="contenu" id="execution"></div>
@@ -167,8 +173,9 @@
   </div>
 
   <footer class="pied">
-    <span>Lecture seule — cette page n'envoie aucun ordre et n'appelle aucun LLM.</span>
+    <span>Supervision seule — aucun ordre et aucun appel LLM depuis cette page.</span>
     <a href="/command">Ouvrir le V14 Command Center</a>
+    <a href="http://127.0.0.1:8097/#chat" target="_blank" rel="noopener">Parler à Hermès</a>
     <span id="pied-llm"></span>
     <span id="pied-maj"></span>
   </footer>

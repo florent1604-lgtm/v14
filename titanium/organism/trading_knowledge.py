@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-KNOWLEDGE_VERSION = "v14-trading-playbook-1"
+KNOWLEDGE_VERSION = "v14-trading-playbook-2"
 _STRATEGIES = {
     "trend_pullback": ("trend", "HTF alignment, pullback holds, renewed momentum",
                        "structure break or adverse flow; avoid chasing extension"),
@@ -28,6 +28,7 @@ _BY_CLASS = {
     "energie": ("trend_pullback", "range_reversion", "event_repricing"),
     "indices": ("trend_pullback", "breakout_retest", "event_repricing"),
     "actions": ("trend_pullback", "breakout_retest", "event_repricing"),
+    "agricole": ("trend_pullback", "range_reversion", "event_repricing"),
 }
 _CONTEXT = {
     "crypto": "Broker ticks execute CFDs; venue spot books inform flow, not broker fills. Funding/OI require derivatives data.",
@@ -36,23 +37,28 @@ _CONTEXT = {
     "energie": "EIA stocks/releases, curve and contract rollover; spot, futures and CFDs differ.",
     "indices": "Cash/futures session, breadth, rates and scheduled releases; account for contract basis.",
     "actions": "Issuer filings, earnings calendar and corporate actions; no invented fundamentals.",
+    "agricole": "Dated crop reports, weather and seasonality; verify contract month, rollover and broker session. Seasonal patterns alone do not time an entry.",
 }
 
 
 def knowledge_for(symbol: str, asset_class: str = "") -> dict:
     if not asset_class:
-        from titanium.edge import ASSET_CLASSES
-        asset_class = next((key for key, symbols in ASSET_CLASSES.items()
-                            if symbol.upper() in symbols), "")
+        # Meme resolution que les moteurs : les groupes du courtier couvrent
+        # les actifs absents de la petite liste historique (FX, futures, crypto...).
+        from titanium.edge import asset_class_of
+        asset_class = asset_class_of(symbol)
+    asset_class = str(asset_class).strip().lower()
+    known = asset_class in _BY_CLASS
     strategies = _BY_CLASS.get(asset_class, ("trend_pullback", "range_reversion"))
     return {
         "version": KNOWLEDGE_VERSION,
         "asset_class": asset_class or "unknown",
+        "classification_status": "KNOWN" if known else "UNKNOWN",
         "strategies": [{"id": key, "regime": _STRATEGIES[key][0],
                         "requires": _STRATEGIES[key][1], "invalidate": _STRATEGIES[key][2]}
                        for key in strategies],
         "market_context": _CONTEXT.get(asset_class, "Instrument mapping and session must be known."),
-        "decision": "Choose among supplied candidates. State the supporting evidence and invalidation; missing data stays unknown.",
+        "decision": "Choose among supplied candidates. State the supporting evidence and invalidation; missing data stays unknown. Unknown instrument classification requires WAIT.",
         "learning": "Evaluate reconciled net R, sample count, drawdown, costs and out-of-sample stability by asset/regime/horizon.",
         "limits": "Confidence is not a calibrated win probability. No guaranteed profit. Do not change SL or increase risk to recover losses.",
     }

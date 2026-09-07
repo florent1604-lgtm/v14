@@ -62,7 +62,8 @@ collaboration, read `collab/HERMES_BRIDGE.md`. Run
 GitNexus `detect-changes` before committing. Hermes is V14's cognitive decision
 pilot in DEMO. The 2026-09-06 mandate permits Hermes on the critical path and
 MT5 calls through guarded DEMO execution; this is authority, not a bypass.
-No real orders or arming; missing, stale or inconsistent inputs mean `WAIT`.
+No real orders; arming requires explicit human approval for the operation.
+Missing, stale or inconsistent inputs mean `WAIT`.
 Hermes publishes sealed, fresh `ALLOW/WAIT/BLOCK` policies. Use `.agents/skills`
 as the canonical local skill catalog and publish handoffs via the CollabHub
 documented in the bridge. Preserve unrelated dirty-worktree changes.
@@ -70,7 +71,7 @@ documented in the bridge. Preserve unrelated dirty-worktree changes.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (11579 symbols, 22828 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (11662 symbols, 22961 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

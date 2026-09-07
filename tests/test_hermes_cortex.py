@@ -58,8 +58,14 @@ def _refs_du_prompt(prompt: str, cle: str) -> list[str]:
     `_bound_verdicts` refuserait. Repondre a ce qu'on a recu est la seule
     doublure qui reste juste quel que soit `HERMES_LOT_MAX`.
     """
-    charge = json.loads(prompt[prompt.index("{", prompt.rindex("\n")):])
-    return [item[cle] for item in next(iter(charge.values()))]
+    charge = _charge_du_prompt(prompt)
+    lot = charge.get("positions") or charge.get("candidates") or []
+    return [item[cle] for item in lot]
+
+
+def _charge_du_prompt(prompt: str) -> dict:
+    """Relit le JSON transmis, quelle que soit la longueur de l'entete."""
+    return json.loads(prompt[prompt.index("{", prompt.rindex("\n")):])
 
 
 def test_hermes_position_batch_returns_every_ticket(monkeypatch):
@@ -79,6 +85,60 @@ def test_hermes_position_batch_returns_every_ticket(monkeypatch):
     assert {row["model_version"] for row in rows} == {
         cortex.HERMES_MODEL_VERSION,
     }
+
+
+def test_les_playbooks_sont_partages_et_non_repetes(monkeypatch):
+    """Les playbooks pesaient la moitie du prompt, pour 4 contenus distincts sur 8.
+
+    Ce qui fait refuser un appel est le budget de jetons restant : la part de
+    reference doit laisser la place aux faits, seuls a etre reellement uniques.
+    """
+    monkeypatch.setattr(cortex, "collect", lambda _symbol: [])
+    vu = {}
+
+    def _ask(prompt, **_kw):
+        vu["charge"] = _charge_du_prompt(prompt)
+        vu["entete_playbooks"] = cortex._LIGNE_PLAYBOOKS in prompt
+        return {"verdicts": [{"request_ref": ref, "state": "CALM",
+                              "confidence": 0.5, "reason": "ok"}
+                             for ref in _refs_du_prompt(prompt, "request_ref")]}
+
+    monkeypatch.setattr(cortex, "_ask", _ask)
+    cortex.analyse_positions([
+        {"request_ref": f"r{i}", "ticket": str(i), "symbol": sym, "side": 1}
+        for i, sym in enumerate(["EURUSD", "GBPUSD", "AUDUSD"])
+    ])
+    charge = vu["charge"]
+    assert vu["entete_playbooks"], "l'entete doit expliquer le renvoi"
+    # Trois paires FX : un seul playbook transmis, trois renvois vers lui.
+    assert len(charge["playbooks"]) == 1
+    assert all("playbook" not in item for item in charge["positions"])
+    assert {item["playbook_ref"] for item in charge["positions"]} == set(
+        charge["playbooks"])
+
+
+def test_deux_playbooks_distincts_ne_se_confondent_jamais():
+    """Une meme classe portant deux contenus doit garder deux entrees.
+
+    Les ecraser ferait juger un candidat sur la reference d'un autre — en
+    silence, puisque rien dans la reponse ne dirait lequel a servi.
+    """
+    lot = [
+        {"request_ref": "a", "playbook": {"asset_class": "fx", "n": 1}},
+        {"request_ref": "b", "playbook": {"asset_class": "fx", "n": 2}},
+        {"request_ref": "c", "playbook": {"asset_class": "fx", "n": 1}},
+    ]
+    charge, partages = _charge_compacte_public(lot)
+    assert partages
+    assert len(charge["playbooks"]) == 2
+    refs = [item["playbook_ref"] for item in charge["positions"]]
+    assert refs[0] == refs[2] != refs[1]
+    for item, ref in zip(lot, refs, strict=True):
+        assert charge["playbooks"][ref] == item["playbook"]
+
+
+def _charge_compacte_public(lot):
+    return cortex._charge_compacte(lot, "positions")
 
 
 def test_un_gros_lot_est_decoupe_et_rend_toutes_les_positions(monkeypatch):

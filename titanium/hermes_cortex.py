@@ -349,6 +349,53 @@ def _bound_verdicts(parsed: dict, refs: list[str], field: str) -> dict[str, dict
     return by_ref
 
 
+_LIGNE_PLAYBOOKS = (
+    "Le champ 'playbooks' est un dictionnaire partage par classe d'actif: "
+    "chaque candidat porte 'playbook_ref' qui y renvoie. Un playbook decrit "
+    "des hypotheses conditionnelles, jamais une preuve de rentabilite."
+)
+
+
+def _charge_compacte(lot: list[dict], cle_payload: str) -> tuple[dict, bool]:
+    """Factorise les playbooks, identiques d'un candidat a l'autre.
+
+    Mesure du 07/09 : sur un lot de 8 candidats, les playbooks pesent 10 490
+    caracteres, soit **la moitie du payload** — pour seulement 4 contenus
+    distincts, un par classe d'actif. Un lot de huit indices envoyait huit fois
+    le meme texte de reference.
+
+    Ce n'est pas une coquetterie : ce qui fait refuser un appel, c'est le
+    budget de jetons restant dans la fenetre d'usage de l'abonnement. Diviser
+    la part de reference augmente d'autant la place laissee aux faits, qui sont
+    la seule chose que le cortex ne peut pas deviner.
+
+    `evidence_digest` n'est PAS affecte : il est calcule en amont sur l'element
+    complet, playbook inclus. Cette fonction ne change que la mise en forme du
+    transport, jamais ce qui a ete scelle.
+    """
+    playbooks: dict[str, Any] = {}
+    items: list[dict] = []
+    for item in lot:
+        playbook = item.get("playbook")
+        if not isinstance(playbook, dict):
+            items.append(item)
+            continue
+        cle = str(playbook.get("asset_class") or "defaut")
+        # Deux playbooks differents sous une meme classe ne doivent jamais se
+        # confondre : le second prendrait silencieusement la place du premier
+        # et un candidat serait juge sur la reference d'un autre.
+        while cle in playbooks and playbooks[cle] != playbook:
+            cle += "+"
+        playbooks[cle] = playbook
+        allege = {k: v for k, v in item.items() if k != "playbook"}
+        allege["playbook_ref"] = cle
+        items.append(allege)
+    charge: dict[str, Any] = {cle_payload: items}
+    if playbooks:
+        charge["playbooks"] = playbooks
+    return charge, bool(playbooks)
+
+
 def _ask_par_lots(prepared: list[dict], entete: list[str], cle_payload: str,
                   cle_ref: str, *, taille: int = HERMES_LOT_MAX) -> dict[str, dict]:
     """Interroge Hermès par lots bornés, en scindant si la requête est refusée.
@@ -374,10 +421,11 @@ def _ask_par_lots(prepared: list[dict], entete: list[str], cle_payload: str,
     resultats: dict[str, dict] = {}
 
     def _traiter(lot: list[dict]) -> None:
+        charge, partages = _charge_compacte(lot, cle_payload)
         prompt = "\n".join([
             *entete,
-            json.dumps({cle_payload: lot}, ensure_ascii=False,
-                       separators=(",", ":")),
+            *([_LIGNE_PLAYBOOKS] if partages else []),
+            json.dumps(charge, ensure_ascii=False, separators=(",", ":")),
         ])
         motif = ""
         for tentative in range(HERMES_RETENTATIVES):

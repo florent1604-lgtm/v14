@@ -400,7 +400,14 @@ def _traiter_lot(demandes):
                 {
                     "action": "WAIT",
                     "confidence": 0.0,
-                    "summary": f"Hermes indisponible: {type(exc).__name__}",
+                    # Le MESSAGE, pas le nom de la classe. `HermesCortexUnavailable`
+                    # ne dit rien : quota, disjoncteur ouvert, executable
+                    # introuvable et refus fournisseur donnaient le meme mot.
+                    # Le motif reel ne vivait que dans le print, donc dans une
+                    # fenetre cmd — perdu des qu'on diagnostique a froid.
+                    # `_safe_cli_error` a deja classe et assaini ce texte
+                    # (cf. tests/test_hermes_error_privacy.py).
+                    "summary": f"Hermes indisponible: {exc}"[:240],
                     "sources": [],
                     "evidence_digest": digest({
                         "decision_ref": payload["decision_ref"],
@@ -462,7 +469,11 @@ def _traiter_positions() -> int:
                 "request_ref": request["request_ref"],
                 "ticket": request["ticket"], "symbol": request["symbol"],
                 "state": "UNKNOWN", "confidence": 0.0,
-                "reason": "HERMES_UNAVAILABLE", "model_version": "none",
+                # Meme correction que pour les entrees : garder la cause, pas
+                # seulement l'etiquette. `HERMES_UNAVAILABLE` ne distingue pas
+                # un disjoncteur ouvert d'un refus du fournisseur.
+                "reason": f"HERMES_UNAVAILABLE: {exc}"[:240],
+                "model_version": "none",
                 "source": "hermes-unavailable",
                 "rendered_at": datetime.now(timezone.utc).isoformat(),
             } for request in requests]

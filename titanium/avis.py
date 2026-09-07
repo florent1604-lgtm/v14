@@ -50,6 +50,8 @@ from titanium.organism.contracts import (
 
 #: Au-delà, un avis ne décrit plus le marché courant. Trois barres M15.
 PEREMPTION_S = 45 * 60
+HERMES_RETRY_AFTER_S = 600
+HERMES_MAX_FAILURES_PER_DECISION = 2
 
 #: Valeur rendue quand aucun avis exploitable n'existe. Le point mort de
 #: l'échelle de confiance : ni bonus, ni malus.
@@ -303,18 +305,37 @@ def demandes_en_attente(file_demandes: Path, file_avis: Path,
     if not file_demandes.exists():
         return []
 
+    import time as _t
+    maintenant = _t.time()
     faits = set()
+    outages: dict[str, tuple[int, float]] = {}
     if file_avis.exists():
         for ligne in file_avis.read_text(encoding="utf-8").splitlines():
             try:
                 d = json.loads(ligne)
-                faits.add(d.get("decision_ref") or
-                           (d.get("symbol"), d.get("bar_time")))
+                cle = d.get("decision_ref") or (d.get("symbol"), d.get("bar_time"))
+                if (isinstance(cle, str) and cle and d.get("source") == "hermes-unavailable"
+                        and d.get("action") == "WAIT" and d.get("model_version") == "none"):
+                    try:
+                        rendered = datetime.fromisoformat(d.get("rendu_a", ""))
+                        if rendered.tzinfo is None or rendered.timestamp() > maintenant:
+                            raise ValueError("unverifiable outage timestamp")
+                        count, last = outages.get(cle, (0, 0.0))
+                        outages[cle] = (count + 1, max(last, rendered.timestamp()))
+                    except (TypeError, ValueError):
+                        faits.add(cle)
+                else:
+                    # A real cognitive WAIT/BLOCK/ALLOW is final for these facts.
+                    faits.add(cle)
             except json.JSONDecodeError:
                 continue
-
-    import time as _t
-    maintenant = _t.time()
+    for cle, (count, last) in outages.items():
+        # One retry after a durable cooldown, never a loop of billable retries.
+        # A restart cannot reset this budget: evidence stays in the append-only journal.
+        # Source freshness is still checked by the worker before any API request.
+        if (count >= HERMES_MAX_FAILURES_PER_DECISION
+                or maintenant - last < HERMES_RETRY_AFTER_S):
+            faits.add(cle)
 
     vues: dict[object, Demande] = {}
     perimees = 0

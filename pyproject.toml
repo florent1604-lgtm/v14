@@ -71,7 +71,12 @@ cli = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# `-p no:langsmith_plugin` : ce plugin est charge AVANT tout conftest et
+# importe `xxhash`, dont l'extension native est refusee par Smart App Control
+# sur ce poste. Il ne sert a rien ici — V14 ne trace pas vers LangSmith — et
+# sans cette exclusion la suite entiere devient incollectable. Le substitut de
+# `tests/compat/xxhash.py` couvre l'autre chemin, celui des imports de modules.
+addopts = "-ra --strict-markers -p no:langsmith_plugin"
 markers = [
     "unit: fast isolated unit tests",
     "integration: tests requiring external services",

@@ -1,9 +1,36 @@
 """Shared pytest fixtures that prevent CI hangs when API keys are absent."""
 
 import os
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# ── Substitut `xxhash`, uniquement si le paquet natif est inutilisable.
+#
+# Smart App Control refuse de charger `_xxhash...pyd` (non signe, sans
+# reputation ISG) et rend 30 fichiers de tests incollectables via la chaine
+# tradingagents -> langchain -> langsmith. Le substitut de `tests/compat/`
+# n'est place devant `site-packages` QUE si le vrai paquet echoue : sur une
+# machine saine, rien ne change et c'est le paquet natif qui sert.
+# Detail et portee : `tests/compat/xxhash.py`.
+XXHASH_TEST_FALLBACK = False
+try:  # pragma: no cover - depend de la machine, pas du code
+    import xxhash  # noqa: F401
+except (ImportError, OSError):
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "compat"))
+    XXHASH_TEST_FALLBACK = True
+
+
+def pytest_terminal_summary(terminalreporter):
+    if XXHASH_TEST_FALLBACK:
+        terminalreporter.write_sep("!", "DEGRADED: test-only blake2b substitute for xxhash")
+        terminalreporter.write_line(
+            "Native xxHash digests/checkpoint compatibility NOT validated; rerun on native backend."
+        )
+    else:
+        terminalreporter.write_line("xxHash backend: native (no test substitute activated).")
 
 
 def pytest_configure(config):

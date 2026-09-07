@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -116,6 +117,27 @@ def circuit_status() -> dict[str, Any]:
     }
 
 
+def _safe_cli_error(stdout: str, stderr: str) -> str:
+    """Classify failure without storing arbitrary CLI output or credentials.
+
+    Inspect before truncating: a banner may precede the useful error. A credit
+    refusal is an observed provider response, not proof of depleted billing.
+    """
+    text = "\n".join(str(value)[:65536] + str(value)[-65536:]
+                     for value in (stdout, stderr)).lower()
+    status = re.search(r"\bhttp(?:\s+status)?\s*[:=]?\s*(4\d\d|5\d\d)\b", text)
+    prefix = f"HTTP {status.group(1)}: " if status else ""
+    if "credit balance is too low" in text:
+        return prefix + "provider refused: credit balance is too low"
+    if any(token in text for token in ("out of extra usage", "quota", "insufficient credits")):
+        return prefix + "provider usage/quota refusal"
+    if "rate limit" in text or (status and status.group(1) == "429"):
+        return prefix + "provider rate limit 429"
+    if "timeout" in text or "timed out" in text:
+        return prefix + "provider timeout"
+    return prefix + "HERMES_CLI_ERROR_OR_INVALID_RESPONSE"
+
+
 def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S) -> dict[str, Any]:
     status = circuit_status()
     if not status["available"]:
@@ -147,14 +169,26 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S) -> dict[str, Any]:
         _trip(type(exc).__name__)
         raise HermesCortexUnavailable(type(exc).__name__) from exc
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "erreur Hermes").strip()
+        detail = _safe_cli_error(completed.stdout, completed.stderr)
         _trip(detail)
         raise HermesCortexUnavailable(detail[:240])
     try:
         result = _json_object(completed.stdout)
     except HermesCortexUnavailable as exc:
-        _trip(str(exc))
-        raise
+        # Le CLI Hermes rend 0 meme quand l'API refuse : le motif reel est
+        # alors du texte sur stdout, pas un code de sortie. Signaler seulement
+        # « reponse sans JSON valide » perdait ce motif, et le disjoncteur
+        # appliquait 60 s de backoff a un probleme de quota qui en demande 600.
+        # Constate le 07/09/2026 : stdout portait « HTTP 400: Your credit
+        # balance is too low », diagnostique comme un defaut de parsing.
+        detail = _safe_cli_error(completed.stdout, completed.stderr)
+        motif = f"{exc}: {detail}"
+        _trip(motif)
+        raise HermesCortexUnavailable(motif) from exc
+    if result.get("error") or result.get("type") == "error":
+        detail = _safe_cli_error(completed.stdout, completed.stderr)
+        _trip(detail)
+        raise HermesCortexUnavailable(detail)
     _CIRCUIT.update(retry_at=0.0, error="")
     return result
 

@@ -91,3 +91,31 @@ def test_hermes_rejects_an_unbound_answer(monkeypatch):
     })
     with pytest.raises(cortex.HermesCortexUnavailable, match="decision_ref"):
         cortex.analyse_entries([{"decision_ref": "expected", "symbol": "BTCUSD"}])
+
+
+def test_une_erreur_api_sur_stdout_est_nommee_et_non_masquee(monkeypatch):
+    """Le CLI Hermes rend 0 meme quand l'API refuse.
+
+    Constate le 07/09/2026 : stdout portait « HTTP 400: Your credit balance is
+    too low » et le cortex ne remontait que « reponse sans JSON valide ». Le
+    motif reel etait perdu, et le disjoncteur appliquait le backoff court a un
+    probleme de quota qui demande le backoff long.
+    """
+    def fake_run(command, **_kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout="HTTP 400: Your credit balance is too low to access the "
+                   "Anthropic API. Please go to Plans & Billing.",
+            stderr="",
+        )
+
+    monkeypatch.setattr(cortex, "_hermes_executable", lambda: cortex.Path("hermes.exe"))
+    monkeypatch.setattr(cortex.subprocess, "run", fake_run)
+
+    with pytest.raises(cortex.HermesCortexUnavailable) as leve:
+        cortex._ask("peu importe")
+
+    message = str(leve.value)
+    assert "credit balance is too low" in message, message
+    # Le disjoncteur doit reconnaitre un quota et prendre le backoff long.
+    assert cortex.circuit_status()["retry_in_s"] > cortex.HERMES_BACKOFF_S

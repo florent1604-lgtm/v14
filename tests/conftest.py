@@ -7,14 +7,23 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ── Substitut `xxhash`, uniquement si le paquet natif est inutilisable.
+# ── Repli `xxhash`, uniquement si le paquet natif est inutilisable.
 #
-# Smart App Control refuse de charger `_xxhash...pyd` (non signe, sans
-# reputation ISG) et rend 30 fichiers de tests incollectables via la chaine
-# tradingagents -> langchain -> langsmith. Le substitut de `tests/compat/`
-# n'est place devant `site-packages` QUE si le vrai paquet echoue : sur une
-# machine saine, rien ne change et c'est le paquet natif qui sert.
-# Detail et portee : `tests/compat/xxhash.py`.
+# Smart App Control (etat 1, enforcement) refuse de charger `_xxhash...pyd`
+# (non signe, sans reputation ISG) et rendait 30 fichiers de tests
+# incollectables via la chaine tradingagents -> langchain -> langsmith.
+# Verifie le 08/09/2026 : la version 4.0.1 est bloquee de la meme facon, ce
+# n'est pas une question de version.
+#
+# Le repli de `tests/compat/` n'est place devant `site-packages` QUE si le vrai
+# paquet echoue : sur une machine saine, rien ne change.
+#
+# Depuis le 08/09/2026 ce repli calcule le VRAI XXH3-128, verifie contre les
+# vecteurs officiels de xxHash v0.8.2 (cf. tests/test_xxh3_pur_python.py).
+# Les empreintes sont identiques a celles du binaire natif, donc les
+# identifiants LangGraph/LangSmith restent compatibles et la suite n'est plus
+# degradee. Seule la vitesse change, sur des identifiants courts hors chemin
+# critique.
 XXHASH_TEST_FALLBACK = False
 try:  # pragma: no cover - depend de la machine, pas du code
     import xxhash  # noqa: F401
@@ -25,12 +34,13 @@ except (ImportError, OSError):
 
 def pytest_terminal_summary(terminalreporter):
     if XXHASH_TEST_FALLBACK:
-        terminalreporter.write_sep("!", "DEGRADED: test-only blake2b substitute for xxhash")
         terminalreporter.write_line(
-            "Native xxHash digests/checkpoint compatibility NOT validated; rerun on native backend."
+            "xxHash backend: pure-Python XXH3-128 (native module blocked by "
+            "Smart App Control). Digests are exact; verified against official "
+            "xxHash v0.8.2 vectors."
         )
     else:
-        terminalreporter.write_line("xxHash backend: native (no test substitute activated).")
+        terminalreporter.write_line("xxHash backend: native.")
 
 
 def pytest_configure(config):

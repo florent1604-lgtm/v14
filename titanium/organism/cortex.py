@@ -126,6 +126,68 @@ def market_observed_at(bar_time: str, context_key: str, requested_at: str) -> da
     return min(closed, requested).astimezone(timezone.utc)
 
 
+def request_is_current(bar_time: str, context_key: str, requested_at: str,
+                       *, now: datetime | None = None) -> bool:
+    """La demande porte-t-elle encore sur la derniere barre cloturee ?
+
+    MESURE DU 08/09/2026 QUI A IMPOSE CETTE FONCTION. La garde d'entree de
+    `_traiter_lot` comparait l'age depuis la cloture au TTL DE POLITIQUE. Les
+    deux repondent a des questions differentes :
+
+        TTL de politique   combien de temps une decision DEJA RENDUE reste
+                           valable — un contrat de consommation ;
+        garde de demande   les faits envoyes au cortex sont-ils les plus
+                           recents qui existent — un contrat d'entree.
+
+    Confondre les deux rejetait des faits qu'aucune donnee plus fraiche ne
+    pouvait remplacer. La boucle balaie ~149 actifs, une demande nait donc la
+    ou le balayage en est, pas a l'ouverture de barre. Releve sur les 20 000
+    dernieres demandes reelles de la memoire centrale :
+
+        H1   95 % portent sur la derniere barre cloturee, garde actuelle 46 %
+        H4   97 %                                          garde actuelle 48 %
+        M15  97 %                                          garde actuelle 48 %
+        M30 100 %                                          garde actuelle  0 %
+
+    Soit 53 % des demandes ecartees avant tout appel alors qu'attendre ne
+    pouvait rien apporter : la barre suivante n'avait pas cloture. C'etait le
+    premier motif de silence du cortex, devant le quota et les pannes reunis.
+
+    L'invariant de sureté est INCHANGE et vit ou il doit vivre : c'est
+    `build_cortex_policy` qui cale `expires_at` sur `source_observed_at + ttl`,
+    donc sur la CLOTURE des faits et jamais sur l'heure de reponse. Une demande
+    servie tardivement produit une politique d'autant plus courte ; elargir
+    l'entree ne prolonge aucune autorisation d'une seconde.
+
+    Retard tolere : la barre en cours (partielle, deja bornee par
+    `market_observed_at`) et la derniere barre cloturee. Des qu'une barre plus
+    recente a cloture, les faits sont reellement depasses -> False.
+    """
+    horizon = context_key.rsplit("|tf=", 1)[-1].split(">", 1)[0]
+    if "|tf=" not in context_key or not horizon:
+        return False
+    minutes = BARRE_MINUTES.get(horizon)
+    if minutes is None:
+        return False
+    try:
+        opened = datetime.fromisoformat(str(bar_time).replace("Z", "+00:00"))
+        requested = datetime.fromisoformat(str(requested_at).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    if opened.tzinfo is None or requested.tzinfo is None:
+        return False
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    opened = opened.astimezone(timezone.utc)
+    requested = requested.astimezone(timezone.utc)
+    # Une barre future, ou une demande antidatee, reste un contrat casse.
+    if opened > requested or requested > current + timedelta(seconds=5):
+        return False
+    barre = timedelta(minutes=minutes)
+    # Nombre de barres ecoulees depuis l'ouverture de la barre source. 0 = la
+    # barre se forme encore, 1 = elle vient de cloturer, >= 2 = depassee.
+    return current - opened < 2 * barre
+
+
 @dataclass(frozen=True)
 class CortexPolicy:
     """Politique cognitive reutilisable, bornee a un contexte et un TTL."""

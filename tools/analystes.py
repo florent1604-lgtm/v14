@@ -27,7 +27,7 @@ import signal
 import sys
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -45,6 +45,7 @@ from titanium.organism.cortex import (  # noqa: E402
     build_cortex_policy,
     market_observed_at,
     policy_ttl_s,
+    request_is_current,
 )
 from titanium.organism.memory import CentralMemory  # noqa: E402
 from titanium.organism.trading_knowledge import compact_observations  # noqa: E402
@@ -373,13 +374,16 @@ def _traiter_lot(demandes):
     active_indices = []
     now = datetime.now(timezone.utc)
     for index, demande in enumerate(demandes):
-        try:
-            observed = market_observed_at(
-                demande.bar_time, demande.engine_context, demande.demande_a,
-            )
-            fresh = now <= observed + timedelta(seconds=policy_ttl_s(demande.engine_context))
-        except (TypeError, ValueError):
-            fresh = False
+        # Le contrat d'ENTREE est « ces faits sont-ils les plus recents qui
+        # existent ? », pas « une politique deja rendue serait-elle encore
+        # valable ? ». Le TTL de politique repondait a la seconde question et
+        # ecartait 53 % des demandes qu'aucune donnee plus fraiche ne pouvait
+        # remplacer (cf. `request_is_current`). La borne de sortie, elle, reste
+        # entiere : `build_cortex_policy` cale toujours `expires_at` sur
+        # `source_observed_at + ttl`.
+        fresh = request_is_current(
+            demande.bar_time, demande.engine_context, demande.demande_a, now=now,
+        )
         results.append({
             "action": "WAIT", "confidence": 0.0,
             "summary": "CORTEX_REQUEST_STALE: source ou timeframe inexploitable",

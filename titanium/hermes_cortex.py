@@ -18,6 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from titanium.fundamental_intelligence import Evidence, _balanced, collect, evidence_freshness
@@ -62,15 +63,17 @@ HERMES_QUOTA_BACKOFF_S = 600.0
 #   solde epuise      un prompt de 46 caracteres passe pendant que les gros
 #                     echouent, et rien n'a ete recharge entre-temps.
 #
-# Ce qui reste : une fenetre d'usage glissante de l'abonnement Claude Code,
-# partagee par tous les clients de la machine, que le fournisseur rend en
-# « HTTP 400: credit balance is too low » — un libelle trompeur. Elle se
-# recharge : recharge observee 15 s apres une salve, et retour a la normale
-# complet en une vingtaine de minutes.
+# Ce qui restait — « une fenetre d'usage glissante qui se recharge » — etait
+# FAUX, et l'a ete jusqu'au 08/09/2026. La vraie cause est l'heritage de
+# `ANTHROPIC_API_KEY` : le CLI basculait de l'abonnement vers une cle API au
+# solde vide (cf. `_env_abonnement`, qui corrige le defaut). Ce qui « se
+# rechargeait » etait le shell d'ou l'on relancait, pas un quota. Les quatre
+# hypotheses ci-dessus restent refutees ; la cinquieme leur manquait.
 #
-# Le lot borne sert donc a UNE chose : empecher un prompt sans plafond. Le
-# chemin d'entree n'en avait aucun — tous les candidats d'un tour partaient
-# dans une seule requete, dont la taille n'etait bornee par rien.
+# Consequence pour ce plafond : il n'a jamais soigne le HTTP 400 et ne le
+# pretend plus. Il sert a UNE chose, toujours valable : empecher un prompt sans
+# plafond. Le chemin d'entree n'en avait aucun — tous les candidats d'un tour
+# partaient dans une seule requete, dont la taille n'etait bornee par rien.
 #
 # Il ne doit surtout pas etre plus petit que necessaire. Mesure du debit reel
 # le 07/09 : la boucle ne produit pas un flux regulier mais des salves, 5
@@ -91,15 +94,11 @@ HERMES_RETENTATIVES = 3
 HERMES_ATTENTE_REFUS_S = 20.0
 # Espacement minimal entre deux appels Hermes, pour tout le processus.
 #
-# C'est la correction de fond du 07/09. La fenetre d'usage de l'abonnement est
-# partagee par TOUS les clients Claude Code de la machine — le worker, les
-# sessions ouvertes, les agents. Elle ne se vide pas parce qu'un prompt est
-# gros, mais parce que les appels arrivent en rafale : une salve de diagnostic
-# a suffi a la mettre a plat, et le worker en produisait bien davantage.
-#
-# Le lot borne (`HERMES_LOT_MAX`) reduit le cout de chaque appel; cet
-# espacement borne leur DEBIT. Les deux sont necessaires : sans le second, des
-# lots plus petits sont simplement emis plus vite.
+# Attention a la justification d'origine (07/09) : elle invoquait une « fenetre
+# d'usage partagee » que la mesure du 08/09 a refutee (cf. `_env_abonnement`).
+# L'espacement reste, sur un motif plus modeste mais reel : il borne le DEBIT
+# d'un worker qui produit des salves — 5 decisions par minute en mediane,
+# jusqu'a 15 — et evite d'ouvrir autant de sous-processus CLI simultanes.
 #
 # Hermes est asynchrone par construction — la boucle MT5 relit ses politiques
 # localement et ne l'attend jamais. Ralentir le worker retarde une politique,
@@ -108,6 +107,7 @@ HERMES_INTERVALLE_MIN_S = float(
     os.getenv("TITANIUM_HERMES_INTERVALLE_S", "30") or 30
 )
 _DERNIER_APPEL: dict[str, float] = {"at": 0.0}
+_APPEL_LOCK = Lock()
 ROOT = Path(__file__).resolve().parents[1]
 
 _CIRCUIT: dict[str, Any] = {"retry_at": 0.0, "error": ""}
@@ -231,6 +231,42 @@ def _refus_prealable(detail: str) -> bool:
     )
 
 
+def _env_abonnement() -> dict[str, str]:
+    """Environnement du sous-processus, purge des identifiants API Anthropic.
+
+    CAUSE RACINE MESUREE LE 08/09/2026, et correction du diagnostic du 07/09.
+
+    Le CLI Hermes, des qu'il voit `ANTHROPIC_API_KEY` dans son environnement,
+    abandonne l'abonnement Claude Pro/Max et facture la CLE API — dont le solde
+    est vide. Le fournisseur repond alors « HTTP 400: credit balance is too
+    low ». Le message etait exact ; il parlait simplement d'un compte que V14 ne
+    doit jamais utiliser. Preuve, meme prompt et meme binaire :
+
+        sans ANTHROPIC_API_KEY   rc=0, verdicts JSON, ~10 s
+        avec ANTHROPIC_API_KEY   HTTP 401: API key is invalid
+
+    Le chaînon : `PRIME_V14.bat` exporte la cle depuis `.env`; tout service
+    lance depuis un shell ayant execute PRIME en herite, `cmd /k` la propageant
+    au worker. D'ou l'intermittence — elle dependait du shell de depart, pas
+    d'une « fenetre d'usage » du fournisseur.
+
+    Ce que cela invalide : l'enquete du 07/09 concluait a un quota glissant qui
+    « se recharge ». Ce qui se rechargeait, c'etait le shell d'ou l'on
+    relancait. `HERMES_LOT_MAX` et `HERMES_INTERVALLE_MIN_S` ont ete calibres
+    contre une cause inexistante ; ils restent en place car ils bornent
+    utilement le debit, mais ils ne soignent pas ce defaut.
+
+    La purge vit ICI, au plus pres du `subprocess.run`, pour qu'aucun chemin
+    d'appel — entrees, positions, diagnostic — ne puisse la contourner, et
+    qu'aucun shell parent ne puisse la defaire. Aucune valeur de secret n'est
+    lue, ni journalisee : les cles sont retirees, jamais inspectees.
+    """
+    env = dict(os.environ)
+    for cle in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
+        env.pop(cle, None)
+    return env
+
+
 def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
          scindable: bool = False) -> dict[str, Any]:
     """Interroge Hermes.
@@ -239,75 +275,77 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
     un refus prealable leve alors `HermesLotTropGrand` sans ouvrir le
     disjoncteur, puisque Hermes n'est pas en panne.
     """
-    status = circuit_status()
-    if not status["available"]:
-        raise HermesCortexUnavailable(
-            f"circuit Hermes ouvert encore {status['retry_in_s']:.0f}s"
-        )
-    command = [
-        str(_hermes_executable()),
-        "-z", prompt,
-        "--provider", HERMES_PROVIDER,
-        "--model", HERMES_MODEL,
-        "--ignore-rules",
-        "-t", "todo",
-    ]
-    # Espacement du debit, juste avant de depenser. Place ici et non chez
-    # l'appelant pour qu'aucun chemin — entrees, positions, outil de diagnostic
-    # — ne puisse le contourner en appelant `_ask` directement.
-    attente = _DERNIER_APPEL["at"] + HERMES_INTERVALLE_MIN_S - time.time()
-    if attente > 0:
-        time.sleep(attente)
-    _DERNIER_APPEL["at"] = time.time()
-    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=max(1.0, float(timeout_s)),
-            check=False,
-            creationflags=flags,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        _trip(type(exc).__name__)
-        raise HermesCortexUnavailable(type(exc).__name__) from exc
-    if completed.returncode != 0:
-        detail = _safe_cli_error(completed.stdout, completed.stderr)
-        if scindable and _refus_prealable(detail):
-            raise HermesLotTropGrand(detail[:240])
-        _trip(detail)
-        raise HermesCortexUnavailable(detail[:240])
-    try:
-        result = _json_object(completed.stdout)
-    except HermesCortexUnavailable as exc:
-        # Le CLI Hermes rend 0 meme quand l'API refuse : le motif reel est
-        # alors du texte sur stdout, pas un code de sortie. Signaler seulement
-        # « reponse sans JSON valide » perdait ce motif, et le disjoncteur
-        # appliquait 60 s de backoff a un probleme de quota qui en demande 600.
-        # Constate le 07/09/2026 : stdout portait « HTTP 400: Your credit
-        # balance is too low », diagnostique comme un defaut de parsing.
-        detail = _safe_cli_error(completed.stdout, completed.stderr)
-        motif = f"{exc}: {detail}"
-        # Cas mesure le 07/09 : returncode 0, stdout = « HTTP 400: Your credit
-        # balance is too low », donc echec de parsing ET refus prealable. Un
-        # lot plus petit passe; ouvrir le disjoncteur ici privait d'Hermes le
-        # chemin d'entree, qui n'y etait pour rien.
-        if scindable and _refus_prealable(detail):
-            raise HermesLotTropGrand(motif) from exc
-        _trip(motif)
-        raise HermesCortexUnavailable(motif) from exc
-    if result.get("error") or result.get("type") == "error":
-        detail = _safe_cli_error(completed.stdout, completed.stderr)
-        if scindable and _refus_prealable(detail):
-            raise HermesLotTropGrand(detail)
-        _trip(detail)
-        raise HermesCortexUnavailable(detail)
-    _CIRCUIT.update(retry_at=0.0, error="")
-    return result
+    with _APPEL_LOCK:
+        status = circuit_status()
+        if not status["available"]:
+            raise HermesCortexUnavailable(
+                f"circuit Hermes ouvert encore {status['retry_in_s']:.0f}s"
+            )
+        command = [
+            str(_hermes_executable()),
+            "-z", prompt,
+            "--provider", HERMES_PROVIDER,
+            "--model", HERMES_MODEL,
+            "--ignore-rules",
+            "-t", "todo",
+        ]
+        # Espacement du debit, juste avant de depenser. Place ici et non chez
+        # l'appelant pour qu'aucun chemin — entrees, positions, outil de diagnostic
+        # — ne puisse le contourner en appelant `_ask` directement.
+        attente = _DERNIER_APPEL["at"] + HERMES_INTERVALLE_MIN_S - time.time()
+        if attente > 0:
+            time.sleep(attente)
+        _DERNIER_APPEL["at"] = time.time()
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=max(1.0, float(timeout_s)),
+                check=False,
+                creationflags=flags,
+                env=_env_abonnement(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            _trip(type(exc).__name__)
+            raise HermesCortexUnavailable(type(exc).__name__) from exc
+        if completed.returncode != 0:
+            detail = _safe_cli_error(completed.stdout, completed.stderr)
+            if scindable and _refus_prealable(detail):
+                raise HermesLotTropGrand(detail[:240])
+            _trip(detail)
+            raise HermesCortexUnavailable(detail[:240])
+        try:
+            result = _json_object(completed.stdout)
+        except HermesCortexUnavailable as exc:
+            # Le CLI Hermes rend 0 meme quand l'API refuse : le motif reel est
+            # alors du texte sur stdout, pas un code de sortie. Signaler seulement
+            # « reponse sans JSON valide » perdait ce motif, et le disjoncteur
+            # appliquait 60 s de backoff a un probleme de quota qui en demande 600.
+            # Constate le 07/09/2026 : stdout portait « HTTP 400: Your credit
+            # balance is too low », diagnostique comme un defaut de parsing.
+            detail = _safe_cli_error(completed.stdout, completed.stderr)
+            motif = f"{exc}: {detail}"
+            # Cas mesure le 07/09 : returncode 0, stdout = « HTTP 400: Your credit
+            # balance is too low », donc echec de parsing ET refus prealable. Un
+            # lot plus petit passe; ouvrir le disjoncteur ici privait d'Hermes le
+            # chemin d'entree, qui n'y etait pour rien.
+            if scindable and _refus_prealable(detail):
+                raise HermesLotTropGrand(motif) from exc
+            _trip(motif)
+            raise HermesCortexUnavailable(motif) from exc
+        if result.get("error") or result.get("type") == "error":
+            detail = _safe_cli_error(completed.stdout, completed.stderr)
+            if scindable and _refus_prealable(detail):
+                raise HermesLotTropGrand(detail)
+            _trip(detail)
+            raise HermesCortexUnavailable(detail)
+        _CIRCUIT.update(retry_at=0.0, error="")
+        return result
 
 
 def _evidence_by_symbol(symbols: list[str]) -> dict[str, list[Evidence]]:
@@ -561,6 +599,7 @@ def analyse_positions(reviews: list[dict]) -> list[dict]:
         prepared.append({
             "request_ref": str(row.get("request_ref", "")),
             "ticket": str(row.get("ticket", "")),
+            "observed_at": str(row.get("observed_at", "")),
             "symbol": symbol,
             "side": int(row.get("side", 0) or 0),
             "entry": row.get("entry"),
@@ -608,6 +647,7 @@ def analyse_positions(reviews: list[dict]) -> list[dict]:
             "sources": sorted({fact["source"] for fact in item["facts"]}),
             "evidence_digest": item["evidence_digest"],
             "rendered_at": rendered,
+            "observed_at": item["observed_at"],
             "model_version": HERMES_MODEL_VERSION,
             "prompt_version": POSITION_PROMPT_VERSION,
             "source": HERMES_SOURCE,

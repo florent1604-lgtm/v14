@@ -15,6 +15,8 @@ import re
 import shutil
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,24 +34,26 @@ from titanium.organism.contracts import (
 from titanium.organism.trading_knowledge import knowledge_for
 from titanium.position_sentiment import POSITION_PROMPT_VERSION
 
-HERMES_PROVIDER = "claude-code"
-# Opus 5 depuis le 05/09/2026, decision de Florent : le cortex principal doit
-# raisonner avec le meilleur modele disponible, pas avec le plus rapide.
-# `config.yaml` d'Hermes porte deja `claude-opus-5` ; le drapeau explicite
-# passe au CLI gagne toujours sur le fichier de reglages, donc les deux doivent
-# concorder — sinon le reglage projet ne sert a rien (lecon PRIME_V14.bat).
-HERMES_MODEL = "claude-opus-5"
+HERMES_PROVIDER = "ollama-local"
+# Repli local valide le 09/09/2026 pendant la remise a zero du compte Claude
+# Pro. Qwen 2.5 7B et Granite 3B depassent 120 s. Qwen 3.5 2B est le seul
+# candidat teste qui alloue reellement 65 536 tokens et rend le JSON demande
+# sur cette machine. Le transport local ci-dessous impose le role V14 sans
+# charger le contexte generaliste ni les outils du CLI interactif Hermes.
+HERMES_MODEL = "qwen3.5:2b"
 HERMES_SOURCE = CORTEX_DECISION_PRODUCER
 #: Porte par chaque verdict d'Hermes. Prefixe pour qu'un filtre sur les
 #: cloture reelles separe sans ambiguite les deux cortex.
 HERMES_MODEL_VERSION = CORTEX_DECISION_MODEL_VERSION
-# Opus reflechit plus longtemps que Sonnet. Mesure le 05/09 : 11 s sur un lot
-# unitaire, mais la marge doit couvrir un lot charge et une fenetre de debit
-# saturee par les autres clients Claude Code de la machine. Le disjoncteur
-# ci-dessous transforme un depassement en repli local, jamais en blocage.
+# Mesure de production locale : 38 a 46 s par verdict unitaire, 83 a 91 s
+# pour deux verdicts serialises. Le disjoncteur transforme toute expiration
+# en WAIT et reste sous le TTL des politiques H1/H4.
 HERMES_TIMEOUT_S = 120.0
 HERMES_BACKOFF_S = 60.0
 HERMES_QUOTA_BACKOFF_S = 600.0
+HERMES_CONTEXT_LENGTH = 65_536
+HERMES_MAX_OUTPUT_TOKENS = 512
+HERMES_OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 # Taille de lot maximale d'une requete Hermes.
 #
 # ⚠️ Ce plafond N'EST PAS le correctif du refus HTTP 400. Enquete du 07/09/2026,
@@ -86,7 +90,9 @@ HERMES_QUOTA_BACKOFF_S = 600.0
 # fait rater le TTL a ce qu'il pretend proteger. La scission adaptative de
 # `_ask_par_lots` rend le plafond haut sans risque — un lot refuse redescend
 # tout seul a 4, 2, puis 1.
-HERMES_LOT_MAX = 8
+# Calibration locale du 09/09 : Qwen 2B omet parfois une reference sur un lot
+# de deux; les appels unitaires conservent exactement la reference scellee.
+HERMES_LOT_MAX = 1
 # Un refus prealable est transitoire : on repropose le meme lot au lieu de
 # declarer Hermes en panne. Trois tentatives espacees de 20 s couvrent la
 # recharge la plus courte observee sans immobiliser le worker.
@@ -103,8 +109,9 @@ HERMES_ATTENTE_REFUS_S = 20.0
 # Hermes est asynchrone par construction — la boucle MT5 relit ses politiques
 # localement et ne l'attend jamais. Ralentir le worker retarde une politique,
 # il ne bloque aucune decision : le fail-closed rend WAIT en attendant.
+# Ollama est deja serialise par `_APPEL_LOCK`; aucun quota distant a espacer.
 HERMES_INTERVALLE_MIN_S = float(
-    os.getenv("TITANIUM_HERMES_INTERVALLE_S", "30") or 30
+    os.getenv("TITANIUM_HERMES_INTERVALLE_S", "0") or 0
 )
 _DERNIER_APPEL: dict[str, float] = {"at": 0.0}
 _APPEL_LOCK = Lock()
@@ -136,7 +143,7 @@ def _hermes_executable() -> Path:
         if local:
             candidates.append(
                 Path(local) / "hermes" / "hermes-agent" / "venv" /
-                "Scripts" / "hermes.exe"
+                "Scripts" / "python.exe"
             )
     discovered = shutil.which("hermes.exe")
     if discovered:
@@ -145,6 +152,15 @@ def _hermes_executable() -> Path:
         if candidate.is_file():
             return candidate
     raise HermesCortexUnavailable("executable Hermes introuvable")
+
+
+def _hermes_command_prefix() -> list[str]:
+    """Use Hermes' Python entrypoint when Windows blocks its generated exe shim."""
+    executable = _hermes_executable()
+    command = [str(executable)]
+    if os.name == "nt" and executable.name.lower() == "python.exe":
+        command.extend(["-c", "from hermes_cli.main import main; main()"])
+    return command
 
 
 def _json_object(text: str) -> dict[str, Any]:
@@ -267,6 +283,47 @@ def _env_abonnement() -> dict[str, str]:
     return env
 
 
+def _ask_ollama_local(prompt: str, timeout_s: float) -> dict[str, Any]:
+    """Execute le role Hermes V14 sur Ollama, sans contexte agent ni outil."""
+    payload = {
+        "model": HERMES_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Tu es Hermes, cortex principal et decisionnel de Titanium V14. "
+                    "Tu arbitres uniquement les candidats scelles sur MT5 DEMO. "
+                    "Tu n'appelles aucun outil et tu reponds seulement avec le JSON demande."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "stream": False,
+        "format": "json",
+        "think": False,
+        "tools": [],
+        "options": {
+            "num_ctx": HERMES_CONTEXT_LENGTH,
+            "num_predict": HERMES_MAX_OUTPUT_TOKENS,
+            "temperature": 0,
+        },
+        "keep_alive": "30m",
+    }
+    request = urllib.request.Request(
+        HERMES_OLLAMA_URL,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=max(1.0, float(timeout_s))) as response:
+        envelope = json.loads(response.read().decode("utf-8"))
+    if not isinstance(envelope, dict):
+        raise HermesCortexUnavailable("reponse Ollama invalide")
+    if envelope.get("error"):
+        raise HermesCortexUnavailable("OLLAMA_LOCAL_ERROR")
+    content = str((envelope.get("message") or {}).get("content") or "")
+    return _json_object(content)
+
+
 def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
          scindable: bool = False) -> dict[str, Any]:
     """Interroge Hermes.
@@ -281,14 +338,6 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
             raise HermesCortexUnavailable(
                 f"circuit Hermes ouvert encore {status['retry_in_s']:.0f}s"
             )
-        command = [
-            str(_hermes_executable()),
-            "-z", prompt,
-            "--provider", HERMES_PROVIDER,
-            "--model", HERMES_MODEL,
-            "--ignore-rules",
-            "-t", "todo",
-        ]
         # Espacement du debit, juste avant de depenser. Place ici et non chez
         # l'appelant pour qu'aucun chemin — entrees, positions, outil de diagnostic
         # — ne puisse le contourner en appelant `_ask` directement.
@@ -296,6 +345,33 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
         if attente > 0:
             time.sleep(attente)
         _DERNIER_APPEL["at"] = time.time()
+        if HERMES_PROVIDER == "ollama-local":
+            try:
+                result = _ask_ollama_local(prompt, timeout_s)
+            except urllib.error.HTTPError as exc:
+                detail = f"HTTP {exc.code}: Ollama local"
+                if scindable and 400 <= exc.code < 500:
+                    raise HermesLotTropGrand(detail) from exc
+                _trip(detail)
+                raise HermesCortexUnavailable(detail) from exc
+            except (OSError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+                detail = type(exc).__name__
+                _trip(detail)
+                raise HermesCortexUnavailable(detail) from exc
+            except HermesCortexUnavailable as exc:
+                _trip(str(exc))
+                raise
+            _CIRCUIT.update(retry_at=0.0, error="")
+            return result
+
+        command = [
+            *_hermes_command_prefix(),
+            "-z", prompt,
+            "--provider", HERMES_PROVIDER,
+            "--model", HERMES_MODEL,
+            "--ignore-rules",
+            "-t", "todo",
+        ]
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         try:
             completed = subprocess.run(

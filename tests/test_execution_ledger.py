@@ -1,5 +1,6 @@
 """Offline fault injection: no MT5 import, no credentials, no live orders."""
 
+import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -44,9 +45,11 @@ class Broker:
     def account_info(self):
         return self.account
 
-    def history_deals_get(self, **kwargs):
+    def history_deals_get(self, *args, **kwargs):
         if "ticket" in kwargs:
             return tuple(d for d in self.deals if d.order == kwargs["ticket"])
+        if "position" in kwargs:
+            return tuple(d for d in self.deals if d.position_id == kwargs["position"])
         return tuple(self.deals)
 
 
@@ -55,7 +58,7 @@ def test_commit_intent_before_send_and_keep_comment_ownership(tmp_path):
     def executor(*args, **kw):
         assert ledger.ledger_summary(path)["states"] == {"SUBMITTING": 1}
         assert kw["policy"].comment.startswith("titanium-v14-")
-        assert len(kw["policy"].comment) == 31
+        assert len(kw["policy"].comment) <= 29
         assert kw["policy"].enabled == POLICY.enabled
         return accepted()
     result = send(path, executor)
@@ -152,11 +155,35 @@ def test_all_partial_fills_and_manual_partial_exits_are_retained(tmp_path):
         assert all('"position_id":22' in r[0] for r in db.execute("SELECT payload FROM deals"))
 
 
+def test_empty_ticket_filter_falls_back_to_bounded_exact_order_match(tmp_path):
+    path = tmp_path / "trace.db"
+    send(path)
+    broker = Broker()
+    calls = []
+
+    def target_terminal_behavior(*args, **kwargs):
+        calls.append((args, kwargs))
+        if "ticket" in kwargs:
+            return None
+        if "position" in kwargs:
+            return tuple(d for d in broker.deals if d.position_id == kwargs["position"])
+        return tuple(broker.deals)
+
+    broker.history_deals_get = target_terminal_behavior
+    broker.last_error = lambda: (-2, "Terminal: Invalid params")
+    result = ledger.reconcile_recorded(broker, account=ACCOUNT, path=path)
+
+    assert result["status"] == "OK"
+    assert ledger.ledger_summary(path)["deals"] == 1
+    assert calls[0] == ((), {"ticket": 11})
+    assert len(calls[1][0]) == 2 and calls[1][1] == {}
+
+
 def test_missing_history_not_reported_as_empty_success(tmp_path):
     path = tmp_path / "trace.db"
     send(path)
     broker = Broker()
-    broker.history_deals_get = lambda **kw: None
+    broker.history_deals_get = lambda *args, **kw: None
     with pytest.raises(ValueError, match="HISTORY_UNAVAILABLE"):
         ledger.reconcile_recorded(broker, account=ACCOUNT, path=path)
 
@@ -203,10 +230,114 @@ def test_lost_ack_exact_tag_recovers_order_but_does_not_approve_retry(tmp_path):
     assert ledger.ledger_summary(path)["deals"] == 1
 
 
+def test_review_resolves_only_when_exact_tag_absent_everywhere(tmp_path):
+    path = tmp_path / "trace.db"
+    send(path, lambda *a, **kw: OrderResult(request_attempted=True))
+
+    class Reviewer:
+        def account_info(self): return ACCOUNT
+        def history_orders_get(self, *args): return ()
+        def orders_get(self): return ()
+        def history_deals_get(self, *args): return ()
+
+    review = ledger.resolve_no_broker_order(Reviewer(), account=ACCOUNT, path=path,
+                                            min_age_s=0)
+    assert review == {"status": "RESOLVED_NO_ORDER", "resolved": 1}
+    assert ledger.ledger_summary(path)["unresolved"] == 0
+    assert send(path, idempotency_key="next").sent
+
+
+def test_review_keeps_uncertainty_when_exact_tag_exists(tmp_path):
+    path = tmp_path / "trace.db"
+    send(path, lambda *a, **kw: OrderResult(request_attempted=True))
+    with sqlite3.connect(path) as db:
+        payload = json.loads(db.execute("SELECT payload FROM intents").fetchone()[0])
+    order = NS(ticket=91, comment=payload["client_tag"], magic=payload["magic"],
+               symbol="BTCUSD")
+
+    class Reviewer:
+        def account_info(self): return ACCOUNT
+        def history_orders_get(self, *args): return (order,)
+        def orders_get(self): return ()
+        def history_deals_get(self, *args): return ()
+
+    review = ledger.resolve_no_broker_order(Reviewer(), account=ACCOUNT, path=path,
+                                            min_age_s=0)
+    assert review["status"] == "STILL_UNCERTAIN"
+    assert ledger.ledger_summary(path)["unresolved"] == 1
+
+
+def test_review_keeps_uncertainty_when_broker_truncates_tag(tmp_path):
+    path = tmp_path / "trace.db"
+    send(path, lambda *a, **kw: OrderResult(request_attempted=True))
+    with sqlite3.connect(path) as db:
+        payload = json.loads(db.execute("SELECT payload FROM intents").fetchone()[0])
+    order = NS(ticket=91, comment=payload["client_tag"][:-1], magic=payload["magic"],
+               symbol="BTCUSD")
+
+    class Reviewer:
+        def account_info(self): return ACCOUNT
+        def history_orders_get(self, *args): return (order,)
+        def orders_get(self): return ()
+        def history_deals_get(self, *args): return ()
+
+    review = ledger.resolve_no_broker_order(Reviewer(), account=ACCOUNT, path=path,
+                                            min_age_s=0)
+    assert review["status"] == "STILL_UNCERTAIN"
+    assert ledger.ledger_summary(path)["unresolved"] == 1
+
+
+def test_review_ignores_another_v14_intent_on_same_symbol(tmp_path):
+    path = tmp_path / "trace.db"
+    send(path, lambda *a, **kw: OrderResult(request_attempted=True))
+    with sqlite3.connect(path) as db:
+        payload = json.loads(db.execute("SELECT payload FROM intents").fetchone()[0])
+    other = "titanium-v14-" + ("0" if payload["client_tag"][13] != "0" else "1") * 18
+    order = NS(ticket=92, comment=other, magic=payload["magic"], symbol="BTCUSD")
+
+    class Reviewer:
+        def account_info(self): return ACCOUNT
+        def history_orders_get(self, *args): return (order,)
+        def orders_get(self): return ()
+        def history_deals_get(self, *args): return ()
+
+    review = ledger.resolve_no_broker_order(Reviewer(), account=ACCOUNT, path=path,
+                                            min_age_s=0)
+    assert review["status"] == "RESOLVED_NO_ORDER"
+    assert ledger.ledger_summary(path)["unresolved"] == 0
+
+
 def test_missing_summary_does_not_create_database(tmp_path):
     path = tmp_path / "trace.db"
     assert ledger.ledger_summary(path)["status"] == "NOT_STARTED"
     assert not path.exists()
+
+
+def test_invalid_local_request_is_rejected_without_blocking_account(tmp_path):
+    path = tmp_path / "trace.db"
+    result = OrderResult(reason="ORDER_SEND_NUL", request_attempted=True)
+    result.terminal_error_code = -2
+    result._add("send", False, "DO_NOT_RECORD_SECRET")
+    send(path, lambda *a, **kw: result)
+    with sqlite3.connect(path) as db:
+        state, raw = db.execute("SELECT state, outcome FROM intents").fetchone()
+    evidence = json.loads(raw)
+    assert state == "REJECTED"
+    assert evidence["reason"] == "ORDER_SEND_NUL"
+    assert evidence["terminal_error_code"] == -2
+    assert "DO_NOT_RECORD_SECRET" not in raw
+    assert send(path, idempotency_key="next").sent
+
+
+def test_trace_does_not_persist_arbitrary_reason_or_terminal_text(tmp_path):
+    path = tmp_path / "trace.db"
+    result = OrderResult(reason="DO_NOT_RECORD_SECRET", request_attempted=True)
+    result.terminal_error_code = "DO_NOT_RECORD_SECRET"
+    send(path, lambda *a, **kw: result)
+    with sqlite3.connect(path) as db:
+        raw = db.execute("SELECT outcome FROM intents").fetchone()[0]
+    assert "DO_NOT_RECORD_SECRET" not in raw
+    assert json.loads(raw)["terminal_error_code"] is None
 
 
 def test_live_loop_calls_guarded_executor_through_ledger_after_gates():

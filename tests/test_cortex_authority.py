@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -95,8 +96,11 @@ def test_old_qwen_fear_cannot_close_position():
     from titanium.position_sentiment import confirm_fear
 
     verdict = {"request_ref": "r", "model_version": "qwen3.5:2b", "state": "FEAR",
-                   "confidence": .99, "rendered_at": NOW.isoformat()}
-    assert not confirm_fear(verdict, last_ref="old", previous_streak=1, now=NOW).should_exit
+                   "confidence": .99, "rendered_at": NOW.isoformat(),
+                   "observed_at": NOW.isoformat()}
+    result = confirm_fear(verdict, last_ref="old", previous_streak=1, now=NOW)
+    assert not result.should_exit
+    assert result.reason == "MODELE_INATTENDU"
 
 
 @pytest.mark.parametrize("confidence", [float("nan"), float("inf"), -1, 2])
@@ -115,9 +119,15 @@ def test_opposite_hermes_allow_is_wait(monkeypatch):
     from titanium import hermes_cortex as cortex
 
     monkeypatch.setattr(cortex, "collect", lambda _: [])
-    monkeypatch.setattr(cortex, "_ask", lambda _, **_kw: {"verdicts": [
-        {"decision_ref": ref, "action": "ALLOW", "confidence": .8} for ref in ("a", "b")
-    ]})
+
+    def allow_requested_ref(prompt, **_kw):
+        payload = json.loads(prompt[prompt.index("{", prompt.rindex("\n")):])
+        return {"verdicts": [
+            {"decision_ref": row["decision_ref"], "action": "ALLOW", "confidence": .8}
+            for row in payload["candidates"]
+        ]}
+
+    monkeypatch.setattr(cortex, "_ask", allow_requested_ref)
     results = cortex.analyse_entries([
         {"decision_ref": "a", "symbol": "BTCUSD", "side": 1},
         {"decision_ref": "b", "symbol": "BTCUSD", "side": -1},
@@ -263,7 +273,7 @@ def test_seul_le_chronometre_est_filtre():
     """Un filtre trop large effacerait de vraies mesures de marche."""
     from titanium.organism.contracts import MESURES_INSTRUMENTALES
 
-    assert MESURES_INSTRUMENTALES == {"jepa_latency_ms"}
+    assert {"jepa_latency_ms"} == MESURES_INSTRUMENTALES
     # Les autres cles jepa_* sont des predictions, pas de l'instrumentation.
     for garde in ("jepa_available", "jepa_impulse_r", "jepa_vol_ratio"):
         assert garde not in MESURES_INSTRUMENTALES

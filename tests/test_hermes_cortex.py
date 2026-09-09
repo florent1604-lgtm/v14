@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
@@ -17,20 +18,17 @@ def reset_circuit():
 def test_hermes_entry_is_strictly_bound_and_has_no_execution_tools(monkeypatch):
     captured = {}
 
-    def fake_run(command, **_kwargs):
-        captured["command"] = command
-        captured["prompt"] = command[command.index("-z") + 1]
-        return SimpleNamespace(
-            returncode=0,
-            stdout=json.dumps({"verdicts": [{
+    def fake_urlopen(request, **kwargs):
+        captured["request"] = json.loads(request.data)
+        captured["timeout"] = kwargs["timeout"]
+        return BytesIO(json.dumps({"message": {"content": json.dumps({
+            "verdicts": [{
                 "decision_ref": "d1", "action": "ALLOW",
                 "confidence": 0.81, "summary": "contexte coherent",
-            }]}),
-            stderr="",
-        )
+            }],
+        })}}).encode())
 
-    monkeypatch.setattr(cortex, "_hermes_executable", lambda: cortex.Path("hermes.exe"))
-    monkeypatch.setattr(cortex.subprocess, "run", fake_run)
+    monkeypatch.setattr(cortex.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(cortex, "collect", lambda _symbol: [
         Evidence("FRED", "macro stable", "2026-09-05"),
         Evidence("CoinGecko", "variation neutre", "2026-09-05"),
@@ -44,10 +42,43 @@ def test_hermes_entry_is_strictly_bound_and_has_no_execution_tools(monkeypatch):
     assert result["action"] == "ALLOW"
     assert result["source"] == cortex.HERMES_SOURCE
     assert result["model_version"] == cortex.HERMES_MODEL_VERSION
-    assert captured["command"][captured["command"].index("-t") + 1] == "todo"
-    assert "--ignore-rules" in captured["command"]
-    assert "terminal" not in captured["command"]
-    assert "MT5 DEMO uniquement" in captured["prompt"]
+    request = captured["request"]
+    assert request["model"] == "qwen3.5:2b"
+    assert request["think"] is False
+    assert request["format"] == "json"
+    assert request["options"]["num_ctx"] == 65_536
+    assert request["options"]["temperature"] == 0
+    assert request["tools"] == []
+    assert request["messages"][0]["role"] == "system"
+    assert "cortex principal" in request["messages"][0]["content"]
+    assert "MT5 DEMO uniquement" in request["messages"][1]["content"]
+
+
+def test_ollama_local_timeout_opens_circuit_and_fails_closed(monkeypatch):
+    monkeypatch.setattr(
+        cortex.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError()),
+    )
+
+    with pytest.raises(cortex.HermesCortexUnavailable, match="TimeoutError"):
+        cortex._ask("diagnostic", timeout_s=1)
+
+    assert cortex.circuit_status()["available"] is False
+
+
+def test_ollama_local_invalid_json_is_never_accepted(monkeypatch):
+    response = json.dumps({"message": {"content": "pas du JSON"}}).encode()
+    monkeypatch.setattr(
+        cortex.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: BytesIO(response),
+    )
+
+    with pytest.raises(cortex.HermesCortexUnavailable, match="JSON valide"):
+        cortex._ask("diagnostic")
+
+    assert cortex.circuit_status()["available"] is False
 
 
 def _refs_du_prompt(prompt: str, cle: str) -> list[str]:
@@ -70,11 +101,18 @@ def _charge_du_prompt(prompt: str) -> dict:
 
 def test_hermes_position_batch_returns_every_ticket(monkeypatch):
     monkeypatch.setattr(cortex, "collect", lambda _symbol: [])
-    monkeypatch.setattr(cortex, "_ask", lambda prompt, **_kw: {"verdicts": [
-        {"request_ref": ref, "state": "CALM", "confidence": 0.7,
-         "reason": "these intacte"}
-        for ref in _refs_du_prompt(prompt, "request_ref")
-    ]})
+    tailles = []
+
+    def _ask(prompt, **_kw):
+        refs = _refs_du_prompt(prompt, "request_ref")
+        tailles.append(len(refs))
+        return {"verdicts": [
+            {"request_ref": ref, "state": "CALM", "confidence": 0.7,
+             "reason": "these intacte"}
+            for ref in refs
+        ]}
+
+    monkeypatch.setattr(cortex, "_ask", _ask)
     rows = cortex.analyse_positions([
         {"request_ref": "r1", "ticket": "1", "symbol": "BTCUSD", "side": 1},
         {"request_ref": "r2", "ticket": "2", "symbol": "ETHUSD", "side": -1},
@@ -85,6 +123,7 @@ def test_hermes_position_batch_returns_every_ticket(monkeypatch):
     assert {row["model_version"] for row in rows} == {
         cortex.HERMES_MODEL_VERSION,
     }
+    assert tailles == [1, 1]
 
 
 def test_les_playbooks_sont_partages_et_non_repetes(monkeypatch):
@@ -188,11 +227,11 @@ def test_un_refus_prealable_scinde_le_lot_sans_ouvrir_le_disjoncteur(monkeypatch
                               "confidence": 0.4, "reason": "ok"}]}
 
     monkeypatch.setattr(cortex, "_ask", _ask)
-    rows = cortex.analyse_positions([
+    rows = cortex._ask_par_lots([
         {"request_ref": "r1", "ticket": "1", "symbol": "BTCUSD", "side": 1},
         {"request_ref": "r2", "ticket": "2", "symbol": "ETHUSD", "side": -1},
-    ])
-    assert [row["ticket"] for row in rows] == ["1", "2"]
+    ], ["entete"], "positions", "request_ref", taille=2)
+    assert list(rows) == ["r1", "r2"]
     assert vus == [2, 1, 1]
     assert cortex.circuit_status()["available"] is True
 
@@ -309,6 +348,7 @@ def test_une_erreur_api_sur_stdout_est_nommee_et_non_masquee(monkeypatch):
         )
 
     monkeypatch.setattr(cortex, "_hermes_executable", lambda: cortex.Path("hermes.exe"))
+    monkeypatch.setattr(cortex, "HERMES_PROVIDER", "anthropic")
     monkeypatch.setattr(cortex.subprocess, "run", fake_run)
 
     with pytest.raises(cortex.HermesCortexUnavailable) as leve:

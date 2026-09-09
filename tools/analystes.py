@@ -338,6 +338,23 @@ def _traiter(d):
     return d, avis_local, time.time() - t0, ("cortex-local",)
 
 
+def _entry_loss_gate():
+    """Lit le coupe-circuit comptable sans initialiser ni appeler MT5."""
+    from titanium.execution.live_loss_guard import LiveLossVerdict, evaluate_live_loss_guard
+    from titanium.execution.mt5_executor import ExecutionPolicy
+
+    try:
+        account = ExecutionPolicy.from_config().expected_demo_login
+        if account is None:
+            return LiveLossVerdict("WAIT", "LIVE_LOSS_ACCOUNT_UNCONFIGURED")
+        return evaluate_live_loss_guard(
+            RACINE / "results" / "trades.ndjson",
+            account=str(account),
+        )
+    except Exception:  # noqa: BLE001 - une preuve illisible doit rester fail-closed
+        return LiveLossVerdict("WAIT", "LIVE_LOSS_GUARD_UNAVAILABLE")
+
+
 def _traiter_lot(demandes):
     """Fait arbitrer un lot par Hermès; toute panne publie uniquement WAIT."""
     from titanium.hermes_cortex import (
@@ -395,9 +412,32 @@ def _traiter_lot(demandes):
         if fresh:
             active_indices.append(index)
     selected_payloads = [payloads[index] for index in active_indices]
+    loss_gate = _entry_loss_gate()
+    active_results = None
+    if selected_payloads and loss_gate.action != "ALLOW":
+        active_results = [
+            {
+                "action": loss_gate.action,
+                "confidence": 1.0 if loss_gate.action == "BLOCK" else 0.0,
+                "summary": (
+                    f"{loss_gate.reason}: jour {loss_gate.daily_net_r:+.2f} R, "
+                    f"7j {loss_gate.rolling_net_r:+.2f} R"
+                ),
+                "sources": ["journal-live"],
+                "evidence_digest": digest({
+                    "decision_ref": payload["decision_ref"],
+                    "state": loss_gate.to_dict(),
+                }),
+                "model_version": "none",
+                "prompt_version": payload["prompt_version"],
+                "source": "live-loss-guard",
+            }
+            for payload in selected_payloads
+        ]
     with _GLM_LOCK:
         try:
-            active_results = analyse_entries(selected_payloads) if selected_payloads else []
+            if active_results is None:
+                active_results = analyse_entries(selected_payloads) if selected_payloads else []
         except HermesCortexUnavailable as exc:
             print(f"  Hermes indisponible ({exc}); nouvelles entrees en WAIT", flush=True)
             active_results = [
@@ -548,7 +588,7 @@ def main() -> int:
     print("═" * 70)
     print(f"  demandes : {DEMANDES}")
     print(f"  avis     : {AVIS}")
-    print("\n  Hermes/Claude Code est le cortex principal asynchrone.")
+    print("\n  Hermes est le cortex principal asynchrone de V14.")
     print("  Hermes decide; indisponibilite = WAIT/UNKNOWN; protections DEMO actives.\n")
 
     deliberateur = None

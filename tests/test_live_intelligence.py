@@ -7,6 +7,7 @@ import pytest
 
 from titanium import fundamental_intelligence as fi
 from titanium.avis import Demande
+from titanium.execution.live_loss_guard import LiveLossVerdict
 from titanium.live_memory import MemoryVerdict, ReplayEdgeMemory
 from titanium.organism.memory import CentralMemory
 
@@ -48,13 +49,39 @@ def test_replay_memory_allows_only_positive_sealed_edge(tmp_path):
     assert verdict.expectancy_r > 0.05
 
 
-def test_replay_memory_blocks_three_recent_losses(tmp_path):
-    _artifact(tmp_path, [0.4, 0.2, -0.1])
-    trades = tmp_path / "results" / "trades.ndjson"
+def _trois_pertes(root):
+    trades = root / "results" / "trades.ndjson"
     trades.write_text("".join(
         json.dumps({"context": "TEST|long|reversal|3p", "source": "live",
                     "pnl_r": -1.0}) + "\n" for _ in range(3)), encoding="utf-8")
+
+
+def test_replay_memory_blocks_three_recent_losses_without_measured_edge(tmp_path):
+    """La serie perdante suspend le contexte quand rien ne la contredit."""
+    _artifact(tmp_path, [0.1, -0.4, -0.2])
+    _trois_pertes(tmp_path)
     memory = ReplayEdgeMemory(tmp_path, min_context=3, min_symbol=3)
+    assert memory.verdict("TEST", "TEST|long|reversal|3p").action == "BLOCK"
+
+
+def test_three_losses_do_not_override_a_positive_measured_edge(tmp_path):
+    """Une serie perdante ne prime pas sur une esperance mesuree positive.
+
+    `_recent_live` n'a pas de fenetre de recence : les trois pertes peuvent
+    dater de plusieurs semaines. Les laisser primer suspendait, au 08/09/2026,
+    21 contextes a esperance positive sur les 24 suspendus.
+    """
+    _artifact(tmp_path, [0.4, 0.2, -0.1])
+    _trois_pertes(tmp_path)
+    memory = ReplayEdgeMemory(tmp_path, min_context=3, min_symbol=3)
+    assert memory.verdict("TEST", "TEST|long|reversal|3p").action == "ALLOW"
+
+
+def test_three_losses_still_block_when_the_sample_is_too_short(tmp_path):
+    """Echantillon insuffisant : aucune esperance ne peut contredire la serie."""
+    _artifact(tmp_path, [0.4, 0.2, -0.1])
+    _trois_pertes(tmp_path)
+    memory = ReplayEdgeMemory(tmp_path, min_context=60, min_symbol=100)
     assert memory.verdict("TEST", "TEST|long|reversal|3p").action == "BLOCK"
 
 
@@ -385,6 +412,11 @@ def test_worker_returns_proposal_to_same_central_identity(tmp_path, monkeypatch)
 
     memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
     monkeypatch.setattr(analystes, "CENTRAL_MEMORY", memory)
+    monkeypatch.setattr(
+        analystes,
+        "_entry_loss_gate",
+        lambda: LiveLossVerdict("ALLOW", "WITHIN_LOSS_LIMITS"),
+    )
     monkeypatch.setattr(fi, "analyse", lambda *_args, **kwargs: {
         "action": "ALLOW", "confidence": 0.66, "summary": "macro neutre",
         "sources": ["FRED"], "evidence_digest": "e" * 64,
@@ -413,6 +445,11 @@ def test_worker_batch_publie_wait_si_hermes_est_indisponible(
 
     memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
     monkeypatch.setattr(analystes, "CENTRAL_MEMORY", memory)
+    monkeypatch.setattr(
+        analystes,
+        "_entry_loss_gate",
+        lambda: LiveLossVerdict("ALLOW", "WITHIN_LOSS_LIMITS"),
+    )
 
     import titanium.hermes_cortex as hermes_cortex
     monkeypatch.setattr(
@@ -445,6 +482,58 @@ def test_worker_batch_publie_wait_si_hermes_est_indisponible(
         assert proposal["evidence_digest"]
         assert proposal["decision_model_version"] == "none"
         assert proposal["producer"] == "hermes-unavailable"
+
+
+def test_worker_publishes_loss_block_without_calling_hermes(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from tools import analystes
+
+    memory = CentralMemory(tmp_path / "core.sqlite3", tmp_path / "alerts.ndjson")
+    monkeypatch.setattr(analystes, "CENTRAL_MEMORY", memory)
+    monkeypatch.setattr(
+        analystes,
+        "_entry_loss_gate",
+        lambda: LiveLossVerdict(
+            "BLOCK",
+            "DAILY_LOSS_LIMIT",
+            daily_trades=3,
+            daily_net_r=-2.75,
+            rolling_trades=8,
+            rolling_net_r=-4.0,
+        ),
+    )
+
+    import titanium.hermes_cortex as hermes_cortex
+
+    monkeypatch.setattr(
+        hermes_cortex,
+        "analyse_entries",
+        lambda _payloads: pytest.fail("Hermes ne doit pas etre appele sous coupe-circuit"),
+    )
+    demande = Demande(
+        "BTCUSD",
+        1,
+        verdict="ENTER",
+        code="OK",
+        piliers=3,
+        famille="continuation",
+        bar_time=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+        demande_a=datetime.now(timezone.utc).isoformat(),
+        engine_context="BTCUSD|long|continuation|3p|tf=M1>H1",
+    )
+
+    [(returned, avis, _, sources)] = analystes._traiter_lot([demande])
+
+    assert returned is demande
+    assert avis.action == "BLOCK"
+    assert avis.conviction == 1.0
+    assert avis.source == "live-loss-guard"
+    assert sources == ("live-loss-guard",)
+    proposal, code = memory.proposal_for(demande.sceller())
+    assert code == "BRAIN_PROPOSAL_EXACT"
+    assert proposal["action"] == "BLOCK"
+    assert proposal["producer"] == "live-loss-guard"
 
 
 def test_cortex_context_is_timeframe_specific():

@@ -13,9 +13,8 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-
 RACINE = Path(__file__).resolve().parent.parent.parent
-HERMES_SOURCE = "hermes-cortex/claude-opus-5"
+HERMES_SOURCE = "hermes-cortex/qwen3.5:2b"
 
 _SECRET_PATTERNS = (
     re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{12,}\b"),
@@ -28,6 +27,7 @@ _QUOTA_MARKERS = (
     "out of extra usage",
     "usage exhausted",
     "quota exhausted",
+    "provider usage/quota refusal",
     "more credits",
 )
 
@@ -56,11 +56,13 @@ def _tail_json(path: Path, *, maximum_bytes: int = 2_000_000) -> list[dict]:
         with path.open("rb") as stream:
             size = stream.seek(0, 2)
             start = max(0, size - maximum_bytes)
+            stream.seek(max(0, start - 1))
+            partial = start > 0 and stream.read(1) != b"\n"
             stream.seek(start)
-            raw = stream.read()
+            raw = stream.read(maximum_bytes)
     except OSError:
         return []
-    if start:
+    if partial:
         newline = raw.find(b"\n")
         raw = b"" if newline < 0 else raw[newline + 1:]
     rows: list[dict] = []
@@ -74,12 +76,13 @@ def _tail_json(path: Path, *, maximum_bytes: int = 2_000_000) -> list[dict]:
     return rows
 
 
-def _recent(rows: list[dict], *, since: datetime, time_fields: tuple[str, ...]) -> list[dict]:
+def _recent(rows: list[dict], *, since: datetime, until: datetime,
+            time_fields: tuple[str, ...]) -> list[dict]:
     out = []
     for row in rows:
         instant = next((_instant(row.get(field)) for field in time_fields
                         if row.get(field)), None)
-        if instant is not None and instant >= since:
+        if instant is not None and since <= instant <= until:
             out.append(row)
     return out
 
@@ -126,8 +129,10 @@ def _cortex_health(avis: list[dict]) -> tuple[str, str, dict]:
         status = "ready"
         label = "Hermes disponible"
     elif any(marker in lowered for marker in _QUOTA_MARKERS):
-        status = "quota_exhausted"
-        label = "Fenetre Claude saturee"
+        # Le message de credit/quota ne prouve ni le compte utilise ni une
+        # saturation de l'abonnement (une cle API heritee peut le produire).
+        status = "provider_refused"
+        label = "Refus du fournisseur Hermes"
     elif "circuit hermes ouvert" in lowered:
         status = "circuit_open"
         label = "Circuit Hermes en attente"
@@ -156,15 +161,17 @@ def snapshot(*, root: Path = RACINE, now: datetime | None = None,
     results = Path(root) / "results"
 
     avis_all = _tail_json(results / "avis_rendus.ndjson")
-    avis = _recent(avis_all, since=since, time_fields=("rendu_a", "at"))
+    avis = _recent(avis_all, since=since, until=current, time_fields=("rendu_a", "at"))
     refus = _recent(
         _tail_json(results / "refus_live.ndjson"),
         since=since,
+        until=current,
         time_fields=("at",),
     )
     memory = _recent(
         _tail_json(results / "live_memory.ndjson"),
         since=since,
+        until=current,
         time_fields=("at",),
     )
 

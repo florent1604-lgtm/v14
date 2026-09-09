@@ -8,7 +8,6 @@ import pytest
 
 from titanium.web import cortex_status
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -47,7 +46,8 @@ def test_snapshot_separe_edge_et_indisponibilite_hermes(tmp_path, monkeypatch):
 
     result = cortex_status.snapshot(root=tmp_path, now=now)
 
-    assert result["status"] == "quota_exhausted"
+    assert result["status"] == "provider_refused"
+    assert result["label"] == "Refus du fournisseur Hermes"
     assert result["memory"]["checks"] == 3
     assert result["memory"]["allow_rate"] == pytest.approx(1 / 3, abs=0.0001)
     assert result["memory"]["unique_contexts"] == 2
@@ -91,6 +91,37 @@ def test_tail_json_ne_parse_pas_la_premiere_ligne_tronquee(tmp_path):
     rows = cortex_status._tail_json(path, maximum_bytes=80)
 
     assert rows == [{"id": "conserve"}]
+
+
+def test_tail_json_conserve_une_ligne_complete_a_la_borne(tmp_path):
+    path = tmp_path / "events.ndjson"
+    path.write_bytes(b'{"id":1}\n{"id":2}\n')
+    assert cortex_status._tail_json(path, maximum_bytes=len(b'{"id":2}\n')) == [
+        {"id": 2},
+    ]
+
+
+def test_snapshot_ignore_les_evenements_futurs(tmp_path, monkeypatch):
+    now = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    future = (now + timedelta(seconds=1)).isoformat()
+    results = tmp_path / "results"
+    _write(results / "avis_rendus.ndjson", [
+        {"rendu_a": future, "source": cortex_status.HERMES_SOURCE, "action": "ALLOW"},
+    ])
+    _write(results / "live_memory.ndjson", [{"at": future, "action": "ALLOW"}])
+    _write(results / "refus_live.ndjson", [{"at": future, "code": "INTELLIGENCE_GATE"}])
+    monkeypatch.setattr(cortex_status, "_port_open", lambda _port: False)
+    result = cortex_status.snapshot(root=tmp_path, now=now)
+    assert result["status"] == "unknown"
+    assert result["memory"]["checks"] == 0
+    assert result["refusals"]["intelligence_gate"] == 0
+
+
+def test_cortex_reconnait_le_refus_quota_normalise():
+    status, _, _ = cortex_status._cortex_health([
+        {"source": "hermes-unavailable", "resume": "provider usage/quota refusal"},
+    ])
+    assert status == "provider_refused"
 
 
 def test_poste_expose_le_cortex_sans_route_d_execution():

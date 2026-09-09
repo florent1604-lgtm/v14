@@ -27,6 +27,9 @@ UNCERTAIN = ("SUBMITTING", "UNKNOWN")
 # Positive acknowledgement is not necessarily a fill. Unknown/new codes stay UNKNOWN.
 REJECT_CODES = {10004, 10006, 10007, *range(10013, 10023), 10024, 10026, 10027,
                 10030, *range(10032, 10036), 10040, *range(10042, 10047)}
+# MetaTrader5 library error: invalid arguments/parameters.  Unlike IPC send or
+# timeout failures, this proves the request was rejected before broker transport.
+LOCAL_REJECT_TERMINAL_CODES = {-2}
 DEAL_FIELDS = ("ticket", "order", "position_id", "time", "time_msc", "type", "entry",
                "magic", "reason", "volume", "price", "commission", "swap", "profit", "fee")
 
@@ -97,7 +100,10 @@ def execute_recorded(executor, symbol, side, risk_money, stop_distance, *, polic
             raise ValueError("MISSING_POLICY_IDENTITY")
         # Same bar stays the same intent across code/policy updates and tactics.
         intent = hashlib.sha256(_json([scope, symbol, idempotency_key]).encode()).hexdigest()
-        tag = "titanium-v14-" + intent[:18]  # MT5 comment <=31 ASCII chars; ownership retained.
+        # The MetaTrader5 Python binding rejects comments longer than 29 ASCII
+        # characters on the DEMO terminal (last_error=-2).  Sixteen hex digits
+        # retain a 64-bit intent discriminator while respecting that hard bound.
+        tag = "titanium-v14-" + intent[:16]
         payload = dict(symbol=symbol, side=side, risk_money=risk_money,
                        stop_distance=stop_distance, tp_distance=tp_distance,
                        bar_key=idempotency_key, magic=policy.magic, client_tag=tag, **version)
@@ -129,13 +135,25 @@ def execute_recorded(executor, symbol, side, risk_money, stop_distance, *, polic
     state = "UNKNOWN"
     if result.sent and result.ticket and result.retcode != 10010:
         state = "ACKNOWLEDGED"
-    elif not result.sent and (not result.request_attempted or result.retcode in REJECT_CODES):
+    elif not result.sent and (
+        not result.request_attempted
+        or result.retcode in REJECT_CODES
+        or result.terminal_error_code in LOCAL_REJECT_TERMINAL_CODES
+    ):
         state = "REJECTED"
     evidence = {key: getattr(result, key) for key in (
         "sent", "ticket", "retcode", "lot", "price", "sl", "tp", "broker_deal_ticket",
         "filled_volume", "request_attempted", "requested_price", "reference_bid",
         "reference_ask", "quote_time_msc", "submitted_at", "acknowledged_at")}
     evidence["elapsed_seconds"] = time.perf_counter() - started
+    # Persist stable diagnostics only, never raw broker comments or exception text.
+    safe_reasons = {"OK", "PARTIAL_FILL_REVIEW", "ORDER_SEND_NUL", "WALL_ERREUR",
+                    "LOT_ERREUR", "ENVOI_ERREUR", "TRACE_EXECUTOR_EXCEPTION"}
+    if type(result.retcode) is int:
+        safe_reasons.add(f"RETCODE_{result.retcode}")
+    evidence["reason"] = result.reason if result.reason in safe_reasons else "UNCLASSIFIED"
+    evidence["terminal_error_code"] = (
+        result.terminal_error_code if type(result.terminal_error_code) is int else None)
     result.trace_id, result.trace_state = intent, state
     try:
         with _db(path) as db, db:
@@ -165,6 +183,69 @@ def _store_deals(db, scope, deals):
                    (scope, data["ticket"], payload))
 
 
+def resolve_no_broker_order(mt5, *, account, path=DEFAULT_PATH, min_age_s=300.0):
+    """Resolve a lost acknowledgement only after exhaustive exact-tag review.
+
+    This is an explicit operator review, never part of automatic reconciliation.
+    It cannot retry or send. Missing broker history stays fail-closed.
+    """
+    scope = _scope(account)
+    if _scope(mt5.account_info()) != scope:
+        raise ValueError("ACCOUNT_CHANGED")
+    now = time.time()
+    with _db(path) as db:
+        rows = db.execute(
+            "SELECT * FROM intents WHERE account=? AND state IN (?,?) ORDER BY created",
+            (scope, *UNCERTAIN),
+        ).fetchall()
+    if not rows:
+        return {"status": "NO_UNCERTAIN", "resolved": 0}
+
+    reviewed = []
+    for row in rows:
+        age = now - float(row["created"])
+        if age < 0 or age < min_age_s:
+            return {"status": "WAIT_REVIEW_WINDOW", "resolved": 0}
+        payload = json.loads(row["payload"])
+        start = datetime.fromtimestamp(row["created"], timezone.utc) - timedelta(days=1)
+        end = datetime.now(timezone.utc) + timedelta(days=1)
+        history = mt5.history_orders_get(start, end)
+        active = mt5.orders_get()
+        deals = mt5.history_deals_get(start, end)
+        if history is None or active is None or deals is None:
+            raise ValueError("BROKER_HISTORY_UNAVAILABLE")
+
+        tag, magic, symbol = payload["client_tag"], payload["magic"], row["symbol"]
+        matches = [
+            item for item in (*history, *active, *deals)
+            if ((str(getattr(item, "comment", "")) == tag
+                 or (len(str(getattr(item, "comment", ""))) > len("titanium-v14-")
+                     and tag.startswith(str(getattr(item, "comment", "")))))
+                and getattr(item, "magic", None) == magic
+                and getattr(item, "symbol", "") == symbol)
+        ]
+        if matches:
+            return {"status": "STILL_UNCERTAIN", "resolved": 0,
+                    "exact_tag_matches": len(matches)}
+        reviewed.append(row["id"])
+
+    resolved = 0
+    with _db(path) as db, db:
+        db.execute("BEGIN IMMEDIATE")
+        for intent in reviewed:
+            changed = db.execute(
+                "UPDATE intents SET state='RESOLVED_NO_ORDER' "
+                "WHERE id=? AND state IN (?,?)", (intent, *UNCERTAIN),
+            ).rowcount
+            if changed:
+                _event(db, intent, "RESOLVED_NO_ORDER", {
+                    "evidence": "NO_EXACT_TAG_IN_ACTIVE_HISTORY_OR_DEALS",
+                    "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                })
+                resolved += 1
+    return {"status": "RESOLVED_NO_ORDER", "resolved": resolved}
+
+
 def reconcile_recorded(mt5, *, account, path=DEFAULT_PATH):
     """Read-only MT5 evidence. Uncertain sends require review, never automatic retry.
 
@@ -179,8 +260,10 @@ def reconcile_recorded(mt5, *, account, path=DEFAULT_PATH):
         raise ValueError("ACCOUNT_CHANGED")
     issues, observed = [], 0
     with _db(path) as db:
-        rows = db.execute("SELECT * FROM intents WHERE account=? AND state!='REJECTED'",
-                          (scope,)).fetchall()
+        rows = db.execute(
+            "SELECT * FROM intents WHERE account=? "
+            "AND state NOT IN ('REJECTED','RESOLVED_NO_ORDER')", (scope,),
+        ).fetchall()
         unresolved = sum(r["state"] in UNCERTAIN for r in rows)
         # Bound broker work; round-robin also revisits closed positions for late fees.
         start_index = _reconcile_cursor.get(scope, 0) % max(1, len(rows))
@@ -210,10 +293,27 @@ def reconcile_recorded(mt5, *, account, path=DEFAULT_PATH):
                 continue
             entry_deals = mt5.history_deals_get(ticket=int(ticket))
             if entry_deals is None:
-                raise ValueError("DEAL_HISTORY_UNAVAILABLE")
-            if any(d.order != ticket or d.symbol != row["symbol"]
-                   or d.magic != payload["magic"] for d in entry_deals):
-                raise ValueError("ORDER_DEAL_IDENTITY_MISMATCH")
+                error = getattr(mt5, "last_error", lambda: ())()
+                if not error or error[0] not in LOCAL_REJECT_TERMINAL_CODES:
+                    raise ValueError("DEAL_HISTORY_UNAVAILABLE")
+                entry_deals = ()
+            # The target terminal has returned an empty documented ticket filter
+            # for a valid filled order. Fall back to a bounded read and retain only
+            # exact immutable broker identity matches.
+            if not entry_deals:
+                start = datetime.fromtimestamp(row["created"], timezone.utc) - timedelta(days=1)
+                end = datetime.now(timezone.utc) + timedelta(days=1)
+                history_deals = mt5.history_deals_get(start, end)
+                if history_deals is None:
+                    raise ValueError("DEAL_HISTORY_UNAVAILABLE")
+                entry_deals = tuple(
+                    d for d in history_deals
+                    if d.order == ticket and d.symbol == row["symbol"]
+                    and d.magic == payload["magic"]
+                )
+            if not entry_deals:
+                issues.append("ENTRY_DEAL_NOT_VISIBLE")
+                continue
             for position_id in {d.position_id for d in entry_deals if d.position_id}:
                 deals = mt5.history_deals_get(position=int(position_id))
                 if deals is None or not deals:

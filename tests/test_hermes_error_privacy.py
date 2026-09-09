@@ -15,6 +15,7 @@ def test_refusal_behind_banner_preserves_reason_not_secrets(monkeypatch, code, j
     output = 'banner ' * 100 + message
     monkeypatch.setattr(cortex, "_CIRCUIT", {"retry_at": 0., "error": ""})
     monkeypatch.setattr(cortex, "_hermes_executable", lambda: cortex.Path("hermes.exe"))
+    monkeypatch.setattr(cortex, "HERMES_PROVIDER", "anthropic")
     monkeypatch.setattr(cortex.subprocess, "run", lambda *a, **k: SimpleNamespace(
         returncode=code, stdout=output, stderr=""))
     with pytest.raises(cortex.HermesCortexUnavailable) as exc:

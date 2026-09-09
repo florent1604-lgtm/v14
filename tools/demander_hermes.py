@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -241,10 +242,8 @@ def _derniers(n: int = 10) -> None:
 def main() -> int:
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is not None:
-        try:
+        with suppress(OSError, ValueError):
             reconfigure(encoding="utf-8", errors="replace")
-        except (OSError, ValueError):
-            pass
 
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     options = {a for a in sys.argv[1:] if a.startswith("--")}

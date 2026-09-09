@@ -44,12 +44,14 @@ sys.path.insert(0, str(RACINE))
 from titanium.execution.decision_registry import (  # noqa: E402
     append_decision_event,
     make_decision_id,
+    prepare_decision_registry,
 )
-from titanium.execution.micro_basket import required_improvement_r  # noqa: E402
 from titanium.execution.execution_ledger import (  # noqa: E402
     execute_recorded,
     reconcile_recorded,
 )
+from titanium.execution.live_loss_guard import evaluate_live_loss_guard  # noqa: E402
+from titanium.execution.micro_basket import required_improvement_r  # noqa: E402
 from titanium.execution.policy_identity import (  # noqa: E402
     build_policy_identity,
     snapshot_code_identity,
@@ -469,6 +471,32 @@ def _journal_coverage(recovery: dict | None) -> dict:
     }
 
 
+def _execution_detail(result, budget, *, equity: float, currency: str) -> tuple[str, float]:
+    """Render the broker-sized fill and return its effective monetary risk."""
+    lot_value = getattr(result, "filled_volume", None)
+    if lot_value is None:
+        lot_value = getattr(result, "lot", None)
+    try:
+        lot = float(lot_value)
+    except (TypeError, ValueError):
+        lot = float(budget.lot)
+    risk_value = getattr(result, "risk_money_effective", None)
+    try:
+        risk_money = float(risk_value)
+    except (TypeError, ValueError):
+        risk_money = float(budget.risk_money)
+    if not math.isfinite(lot) or lot <= 0:
+        lot = float(budget.lot)
+    if not math.isfinite(risk_money) or risk_money <= 0:
+        risk_money = float(budget.risk_money)
+    effective_pct = 100.0 * risk_money / equity if equity > 0 else 0.0
+    detail = (
+        f"lot {lot:g} · risque {risk_money:g} {currency} ({effective_pct:.2f} %)"
+        + (" [lot min]" if budget.at_min_lot else "")
+    )
+    return detail, risk_money
+
+
 def _compter_tunnel(stats: dict, etape: str, motif: str, nombre: int = 1) -> None:
     """Compte un passage/refus avec des cles stables et serialisables."""
     try:
@@ -707,6 +735,7 @@ def _publier_zones() -> None:
 #: critique. `None` = pas encore disponible, le garde-fou refuse l'entree.
 _GRAPPES = None
 _GRAPPES_A = 0.0
+_GRAPPES_CATALOGUE: set = set()
 
 
 #: Actifs jouables vus depuis le démarrage. La rotation n'en montre que 24
@@ -736,12 +765,21 @@ def rafraichir_grappes(catalogue) -> None:
     disque, et la porte de risque correle refuse 435 entrees d'affilee.
     Le seuil ne garde donc plus que le recalcul.
     """
-    global _GRAPPES, _GRAPPES_A
+    global _GRAPPES, _GRAPPES_A, _GRAPPES_CATALOGUE
     try:
         import time as _t
 
-        from titanium.correlation import TTL_GRAPPES_S, age_grappes, charger, charger_cache
-        if _GRAPPES is not None and _t.time() - _GRAPPES_A < TTL_GRAPPES_S:
+        from titanium.correlation import (
+            CATALOGUE_REFRESH_MIN_S,
+            TTL_GRAPPES_S,
+            age_grappes,
+            charger,
+            charger_cache,
+        )
+        age = _t.time() - _GRAPPES_A
+        connus = _GRAPPES_CATALOGUE | (set(_GRAPPES.par_actif) if _GRAPPES else set())
+        if (_GRAPPES is not None and 0 <= age < TTL_GRAPPES_S
+                and (set(catalogue) <= connus or age < CATALOGUE_REFRESH_MIN_S)):
             return
 
         if len(catalogue) < 20:
@@ -767,6 +805,7 @@ def rafraichir_grappes(catalogue) -> None:
         if g.par_actif:
             _GRAPPES = g
             _GRAPPES_A = _t.time()
+            _GRAPPES_CATALOGUE = set(catalogue)
             print(f"  grappes de correlation : {len(g.membres)} familles "
                   f"({g.methode})", flush=True)
     except Exception as exc:  # noqa: BLE001
@@ -1736,6 +1775,25 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                portables=len(tradables))
         return
 
+    # Protective management above remains active even when new entries are
+    # cut. Missing, invalid, or excessive live losses fail closed here.
+    loss_guard = evaluate_live_loss_guard(
+        RACINE / "results" / "trades.ndjson",
+        account=str(compte.login),
+    )
+    stats["live_loss_guard"] = loss_guard.to_dict()
+    if loss_guard.action != "ALLOW":
+        print(
+            "    coupe-circuit pertes "
+            f"{loss_guard.action}/{loss_guard.reason} "
+            f"(jour {loss_guard.daily_net_r:+.2f} R, "
+            f"7j {loss_guard.rolling_net_r:+.2f} R) - aucune nouvelle entree",
+            flush=True,
+        )
+        battre(stats, armer=armer and politique.enabled, equity=compte.equity,
+               portables=len(tradables))
+        return
+
     risque_engage = 0.0
     try:
         import MetaTrader5 as mt5  # noqa: N813
@@ -2182,6 +2240,13 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             tp_distance=(out.stop_distance or 0.0) * cfg.rr_ratio,
             idempotency_key=cle_barre(sym, feats),
         )
+        execution_detail, execution_risk_money = _execution_detail(
+            res, budget, equity=compte.equity, currency=compte.currency,
+        )
+        execution_risk_pct = (
+            100.0 * execution_risk_money / compte.equity if compte.equity > 0 else 0.0
+        )
+        risque_panier_execute = risque_panier + execution_risk_pct
 
         if res.sent and not res.ticket:
             # A broker acknowledgement without a usable ticket is not safely adoptable.
@@ -2230,14 +2295,14 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             stats["envoyes"] += 1
             ouvertes += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
-            risque_par_symbole[sym] = risque_panier_apres
+            risque_par_symbole[sym] = risque_panier_execute
             expositions_par_symbole.setdefault(sym, []).append(
                 (int(out.side), float(res.price))
             )
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
             _attacher_contexte(res.ticket, sym, feats, out, res,
-                               risque_devise=budget.risk_money,
+                               risque_devise=execution_risk_money,
                                spread_r=budget.cout_spread,
                                policy_identity=policy_identity,
                                decision_id=decision_id,
@@ -2246,7 +2311,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             ctxk = _contexte_exact(sym, feats, out.side)
             print(f"    {sym:8} ORDRE ENVOYÉ {sens}{marque} #{res.ticket} "
-                  f"@ {res.price} — {detail} · SL {res.sl} TP {res.tp}",
+                  f"@ {res.price} — {execution_detail} · SL {res.sl} TP {res.tp}",
                   flush=True)
             print(f"             contexte : {ctxk}", flush=True)
         elif res.sent:
@@ -2255,7 +2320,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             ouvertes += 1
             limites_en_attente += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
-            risque_par_symbole[sym] = risque_panier_apres
+            risque_par_symbole[sym] = risque_panier_execute
             expositions_par_symbole.setdefault(sym, []).append(
                 (int(out.side), float(res.price))
             )
@@ -2263,7 +2328,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             # montrera plus la position et l'information serait perdue.
             contexte_sauve, motif_contexte = _memoriser_contexte_limit(
                 res.ticket, sym, feats, out, res,
-                risque_devise=budget.risk_money,
+                risque_devise=execution_risk_money,
                 spread_r=budget.cout_spread,
                 policy_identity=policy_identity,
                 decision_id=decision_id,
@@ -2298,7 +2363,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     "spread_r": float(res.spread_r or 0.0),
                     "expires_at": res.expires_at,
                     "lot": float(res.lot or 0.0),
-                    "risk_money": float(budget.risk_money or 0.0),
+                    "risk_money": execution_risk_money,
                     "context": ctxk,
                     "regime": regime[0] if regime else "unknown",
                     "asset_class": stratification.get("asset_class", ""),
@@ -2319,7 +2384,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                       f"{motif_evenement}", flush=True)
             print(f"    {sym:8} LIMIT PLACÉE {sens}{marque} #{res.ticket} "
                   f"@ {res.price} — économie visée {economie_r:.1%}R · "
-                  f"expire {res.expires_at} — {detail} · SL {res.sl} TP {res.tp}",
+                  f"expire {res.expires_at} — {execution_detail} · SL {res.sl} TP {res.tp}",
                   flush=True)
             print(f"             contexte : {ctxk}", flush=True)
         elif res.reason != "DEJA_ENVOYE":
@@ -2365,6 +2430,15 @@ def main() -> None:
     args = ap.parse_args()
 
     signal.signal(signal.SIGINT, _arreter)
+
+    registry_ready, registry_reason = prepare_decision_registry(
+        RACINE / "results" / "decision_registry.ndjson",
+    )
+    if not registry_ready:
+        print(
+            f"  ALERTE registre de décisions non préchargé : {registry_reason}",
+            flush=True,
+        )
 
     from titanium.data.mt5_vendor import account_snapshot, shutdown
     from titanium.execution.mt5_executor import ExecutionPolicy

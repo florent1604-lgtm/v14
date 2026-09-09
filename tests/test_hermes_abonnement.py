@@ -10,6 +10,7 @@ Ces tests n'emploient que des valeurs factices : aucun secret reel n'est lu.
 """
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -48,6 +49,7 @@ def test_ask_lance_le_cli_sans_cle_api(monkeypatch, tmp_path):
     """Le contrat qui compte : ce que `_ask` passe REELLEMENT au processus."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", FACTICE)
     monkeypatch.setattr(hc, "_hermes_executable", lambda: tmp_path / "hermes.exe")
+    monkeypatch.setattr(hc, "HERMES_PROVIDER", "anthropic")
     monkeypatch.setattr(hc, "HERMES_INTERVALLE_MIN_S", 0.0)
     monkeypatch.setitem(hc._DERNIER_APPEL, "at", 0.0)
     hc._CIRCUIT.update(retry_at=0.0, error="")
@@ -63,6 +65,20 @@ def test_ask_lance_le_cli_sans_cle_api(monkeypatch, tmp_path):
     assert "ANTHROPIC_API_KEY" not in env
     # Et la valeur factice n'a fui par aucune autre variable.
     assert FACTICE not in "".join(env.values())
+
+
+@pytest.mark.unit
+def test_windows_uses_python_entrypoint_instead_of_blocked_shim(monkeypatch, tmp_path):
+    scripts = tmp_path / "hermes" / "hermes-agent" / "venv" / "Scripts"
+    scripts.mkdir(parents=True)
+    python = scripts / "python.exe"
+    python.touch()
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("HERMES_CORTEX_EXECUTABLE", raising=False)
+    monkeypatch.setattr(hc.shutil, "which", lambda name: None)
+    command = hc._hermes_command_prefix()
+    assert Path(command[0]) == python
+    assert command[1:] == ["-c", "from hermes_cli.main import main; main()"]
 
 
 @pytest.mark.unit

@@ -177,7 +177,7 @@ def test_le_ttl_suit_la_duree_de_la_barre():
     # une politique H1 qui vivrait plus longtemps que sa propre barre.
     assert 0 < CORTEX_TTL_FRACTION_BARRE <= 1.0
     # Et le sens du reglage doit rester lisible sur un cas concret.
-    assert policy_ttl_s(cle % "H1") == 1800      # 50 % de 3 600
+    assert policy_ttl_s(cle % "H1") == 3600      # jusqu'a la cloture suivante
 
 
 def test_le_ttl_ne_depasse_jamais_la_barre():

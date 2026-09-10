@@ -14,6 +14,9 @@ def test_demo_cohort_contract_names_broker_symbols_and_utc_start():
         "COFFEE.fs",
         "BTCUSD",
         "SOL-USD",
+        "US30",
+        "XAUUSD",
+        "SWI20",
     )
     assert DEMO_COHORT_START_UTC.tzinfo is timezone.utc
 

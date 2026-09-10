@@ -14,6 +14,7 @@ from titanium.organism.contracts import DecisionIdentity
 from titanium.organism.cortex import (
     build_cortex_policy,
     market_observed_at,
+    policy_is_fresh,
     policy_ttl_s,
     request_is_current,
 )
@@ -45,14 +46,14 @@ def test_barre_depassee_est_refusee(minutes):
 def test_l_ancienne_garde_ecartait_ce_que_la_nouvelle_sert():
     """Le cas exact qui affamait le cortex.
 
-    Barre H1 ouverte a 05:00, cloturee a 06:00, TTL de politique 1800 s. Une
+    Barre H1 ouverte a 05:00, cloturee a 06:00, ancien TTL de politique 1800 s. Une
     demande nee a 06:40 porte encore sur la derniere barre cloturee — aucune
     barre plus recente n'existe avant 07:00 — mais l'ancienne garde la jugeait
     trop vieille de 2400 s.
     """
     demande = _at(100.0)
     observed = market_observed_at(BAR, CTX_H1, demande.isoformat())
-    ancienne = demande <= observed + timedelta(seconds=policy_ttl_s(CTX_H1))
+    ancienne = demande <= observed + timedelta(seconds=1800)
     assert ancienne is False  # l'ancienne garde refusait
     assert request_is_current(BAR, CTX_H1, demande.isoformat(), now=demande)
 
@@ -61,6 +62,38 @@ def test_l_ancienne_garde_ecartait_ce_que_la_nouvelle_sert():
 def test_m15_suit_sa_propre_barre():
     assert request_is_current(BAR, CTX_M15, _at(20).isoformat(), now=_at(20))
     assert not request_is_current(BAR, CTX_M15, _at(31).isoformat(), now=_at(31))
+
+
+@pytest.mark.unit
+def test_reponse_m15_rendue_en_96_secondes_reste_utilisable_avant_barre_suivante():
+    """Regression live: une demande tardive ne doit pas expirer pendant l'inference."""
+    request_at = _at(28.0)
+    response_at = request_at + timedelta(seconds=96)
+    identity = DecisionIdentity(
+        decision_ref="d" * 64,
+        context_digest="c" * 64,
+        symbol="US500",
+        side=-1,
+        bar_time=BAR,
+        model_version="qwen3.5:2b",
+        prompt_version="fundamental-gate-v4-qwen35",
+    )
+    observed = market_observed_at(BAR, CTX_M15, request_at.isoformat())
+    policy = build_cortex_policy(
+        identity,
+        context_key=CTX_M15,
+        action="ALLOW",
+        confidence=0.8,
+        summary="decision fraiche avant la cloture suivante",
+        evidence_digest="e" * 64,
+        producer="hermes-cortex/qwen3.5:2b",
+        source_observed_at=observed.isoformat(),
+        decision_model_version="hermes:qwen3.5:2b",
+        now=response_at,
+    )
+
+    assert policy_is_fresh(policy, now=response_at)
+    assert datetime.fromisoformat(policy.expires_at) == _at(30.0)
 
 
 @pytest.mark.unit
@@ -122,6 +155,6 @@ def test_elargir_l_entree_ne_prolonge_aucune_politique():
     # rien — c'est `observed`, pas `created`, qui borne.
     assert expires <= observed + timedelta(seconds=ttl)
     assert expires < demande + timedelta(seconds=ttl)
-    # Et le TTL reste une demi-barre : la politique ne survit jamais a une
-    # barre entiere apres les faits qui l'ont produite.
-    assert expires <= observed + timedelta(minutes=30)
+    # Le TTL atteint au plus la cloture suivante : une nouvelle barre rendra
+    # ensuite les faits precedents caducs.
+    assert expires <= observed + timedelta(minutes=60)

@@ -146,6 +146,20 @@ Le role persistant est aligne dans `config/hermes_cortex_role.md`. Les prompts
 live doivent rester compacts; un contexte 64k ne doit jamais etre rempli sur le
 chemin d'entree.
 
+## Cohorte d'execution DEMO autorisee le 10 septembre
+
+L'operateur a explicitement demande la reprise de l'execution DEMO et l'ajout de
+Bitcoin et Solana. La boucle est donc restreinte a `USOIL`, `XAGUSD`,
+`COFFEE.fs`, `BTCUSD` et `SOL-USD`. Cette cohorte sert a produire la nouvelle
+preuve forward; elle ne transforme pas les resultats diagnostiques en preuve de
+rentabilite. Le mur DEMO, Hermes, RiskGate, les couts, la microstructure,
+l'idempotence et les limites d'exposition restent obligatoires.
+
+La nouvelle fenetre de pertes commence le 10 septembre 2026 a 14:55 UTC. Le
+journal historique reste intact et la quarantaine precedente est archivee. Les
+seuils de -2 R sur le jour UTC et -6 R sur sept jours glissants s'appliquent a
+toute cloture posterieure a ce debut de cohorte.
+
 ## Axiom Trade
 
 L'integration Axiom est une phase ulterieure et independante. La documentation

@@ -40,6 +40,7 @@ from titanium.avis import (  # noqa: E402
     enregistrer,
     purger,
 )
+from titanium.execution.demo_cohort import DEMO_COHORT_START_UTC  # noqa: E402
 from titanium.organism.contracts import digest  # noqa: E402
 from titanium.organism.cortex import (  # noqa: E402
     build_cortex_policy,
@@ -350,6 +351,7 @@ def _entry_loss_gate():
         return evaluate_live_loss_guard(
             RACINE / "results" / "trades.ndjson",
             account=str(account),
+            not_before=DEMO_COHORT_START_UTC,
         )
     except Exception:  # noqa: BLE001 - une preuve illisible doit rester fail-closed
         return LiveLossVerdict("WAIT", "LIVE_LOSS_GUARD_UNAVAILABLE")

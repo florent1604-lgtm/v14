@@ -46,6 +46,10 @@ from titanium.execution.decision_registry import (  # noqa: E402
     make_decision_id,
     prepare_decision_registry,
 )
+from titanium.execution.demo_cohort import (  # noqa: E402
+    DEMO_COHORT_START_UTC,
+    DEMO_COHORT_SYMBOLS,
+)
 from titanium.execution.execution_ledger import (  # noqa: E402
     execute_recorded,
     reconcile_recorded,
@@ -66,17 +70,11 @@ from titanium.organism.market_jepa import (  # noqa: E402
 )
 from tools.console_output import configure_console_output  # noqa: E402
 
-#: Univers candidat. Chaque tour filtre selon ce que l'equity peut porter.
-#: Univers candidat. Vide ⇒ **tout le catalogue MT5 tradable**.
-#:
-#: L'élargissement est le seul levier d'accélération qui ne change pas la
-#: stratégie. Le capital reste à 5000 EUR ; ce qui limitait l'accumulation
-#: n'était pas lui mais la surface de balayage : 24 actifs pour ~2 setups
-#: S≥3 simultanés sur tout le catalogue.
-#:
-#: L'exposition reste bornée par MAX_POSITIONS et MAX_RISQUE_CUMULE_PCT —
-#: balayer large ne fait pas trader plus, cela fait *choisir* mieux.
-UNIVERS: list = []
+#: Cohorte DEMO explicitement autorisee le 10/09/2026 pour mesurer le moteur
+#: corrige. Les trois premiers sont les priorites du replay diagnostique ;
+#: BTC et Solana sont ajoutes a la demande de l'operateur. Un symbole absent de
+#: cette liste ne peut atteindre ni Hermes ni l'executor pendant la cohorte.
+UNIVERS = list(DEMO_COHORT_SYMBOLS)
 
 #: Repli si le catalogue est illisible.
 UNIVERS_SECOURS = [
@@ -749,7 +747,29 @@ _JOUABLES: set = set()
 def _tradables_connus(courants) -> list:
     """Cumul des actifs jouables rencontrés, pour nourrir l'arbre."""
     _JOUABLES.update(courants)
+    if UNIVERS and len(_JOUABLES) < 20:
+        # A small explicit cohort cannot rebuild a meaningful tree alone. Seed
+        # it from the last broad cache and include temporarily non-portable
+        # cohort members so they are covered when market costs improve.
+        try:
+            from titanium.correlation import charger_cache
+
+            cache = charger_cache()
+            if cache is not None:
+                _JOUABLES.update(cache.par_actif)
+        except Exception:  # noqa: BLE001 - the cluster gate remains fail-closed
+            pass
+        _JOUABLES.update(UNIVERS)
     return sorted(_JOUABLES)
+
+
+def _entry_universe(open_symbols, scanned_symbols) -> list:
+    """Return new-entry candidates without reinforcing outside the cohort."""
+    candidates = list(dict.fromkeys([*open_symbols, *scanned_symbols]))
+    if not UNIVERS:
+        return candidates
+    allowed = {str(symbol).upper() for symbol in UNIVERS}
+    return [symbol for symbol in candidates if str(symbol).upper() in allowed]
 
 
 def rafraichir_grappes(catalogue) -> None:
@@ -1549,7 +1569,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     hors_crypto = [s for s in catalogue
                    if asset_class_of(s) != "crypto" and vivants.get(s, True)]
     phase_crypto_weekend = False
-    if len(hors_crypto) < 10:
+    # Une cohorte explicite peut contenir volontairement moins de dix marches
+    # non crypto. Ne pas la remplacer silencieusement par les seuls cryptos.
+    if not UNIVERS and len(hors_crypto) < 10:
         cryptos = [s for s in catalogue if asset_class_of(s) == "crypto"]
         if cryptos:
             catalogue = cryptos
@@ -1578,7 +1600,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     else:
         tranche = list(catalogue)
 
-    univers = list(dict.fromkeys(portees + tranche))
+    univers = _entry_universe(portees, tranche)
     _compter_tunnel(stats, "flow", "selectionnes", len(univers))
     budgets = tradable_universe(univers, compte.equity, timeframe=LTF)
     tradables = [s for s, b in budgets.items() if b.tradable]
@@ -1783,6 +1805,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     loss_guard = evaluate_live_loss_guard(
         RACINE / "results" / "trades.ndjson",
         account=str(compte.login),
+        not_before=DEMO_COHORT_START_UTC,
     )
     loss_guard = persist_live_loss_quarantine(
         loss_guard,
@@ -2258,6 +2281,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         final_loss_guard = evaluate_live_loss_guard(
             RACINE / "results" / "trades.ndjson",
             account=str(compte.login),
+            not_before=DEMO_COHORT_START_UTC,
         )
         final_loss_guard = persist_live_loss_quarantine(
             final_loss_guard,

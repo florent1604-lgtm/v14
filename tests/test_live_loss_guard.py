@@ -101,6 +101,78 @@ def test_legacy_rows_outside_window_do_not_poison_current_guard(tmp_path):
     assert verdict.rolling_trades == 1
 
 
+def test_operator_cohort_start_excludes_prior_losses(tmp_path):
+    path = tmp_path / "trades.ndjson"
+    cohort_start = NOW - timedelta(minutes=30)
+    write_trades(path, [
+        trade(-8.0, cohort_start - timedelta(minutes=1), ticket="prior"),
+    ])
+
+    verdict = evaluate_live_loss_guard(
+        path,
+        account="123",
+        now=NOW,
+        not_before=cohort_start,
+    )
+
+    assert verdict.action == "ALLOW"
+    assert verdict.reason == "WITHIN_LOSS_LIMITS"
+    assert verdict.rolling_trades == 0
+    assert verdict.rolling_net_r == 0.0
+
+
+def test_operator_cohort_start_keeps_new_losses_guarded(tmp_path):
+    path = tmp_path / "trades.ndjson"
+    cohort_start = NOW - timedelta(minutes=30)
+    write_trades(path, [
+        trade(-8.0, cohort_start - timedelta(minutes=1), ticket="prior"),
+        trade(-2.0, cohort_start, ticket="new"),
+    ])
+
+    verdict = evaluate_live_loss_guard(
+        path,
+        account="123",
+        now=NOW,
+        not_before=cohort_start,
+    )
+
+    assert verdict.action == "BLOCK"
+    assert verdict.reason == "DAILY_LOSS_LIMIT"
+    assert verdict.daily_trades == 1
+    assert verdict.daily_net_r == -2.0
+
+
+def test_invalid_operator_cohort_start_fails_closed(tmp_path):
+    path = tmp_path / "trades.ndjson"
+    write_trades(path, [trade(0.2, NOW - timedelta(minutes=1))])
+
+    naive = evaluate_live_loss_guard(
+        path,
+        account="123",
+        now=NOW,
+        not_before=NOW.replace(tzinfo=None),
+    )
+    future = evaluate_live_loss_guard(
+        path,
+        account="123",
+        now=NOW,
+        not_before=NOW + timedelta(seconds=1),
+    )
+    wrong_type = evaluate_live_loss_guard(
+        path,
+        account="123",
+        now=NOW,
+        not_before="2026-09-09T15:30:00Z",  # type: ignore[arg-type]
+    )
+
+    assert naive.action == "WAIT"
+    assert naive.reason == "LIVE_LOSS_JOURNAL_INVALID"
+    assert future.action == "WAIT"
+    assert future.reason == "LIVE_LOSS_JOURNAL_INVALID"
+    assert wrong_type.action == "WAIT"
+    assert wrong_type.reason == "LIVE_LOSS_JOURNAL_INVALID"
+
+
 def test_malformed_or_untrusted_recent_line_fails_closed(tmp_path):
     path = tmp_path / "trades.ndjson"
     path.write_text("not-json\n", encoding="utf-8")

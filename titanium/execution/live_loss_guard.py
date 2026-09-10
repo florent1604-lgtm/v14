@@ -159,6 +159,7 @@ def evaluate_live_loss_guard(
     *,
     account: str,
     now: datetime | None = None,
+    not_before: datetime | None = None,
 ) -> LiveLossVerdict:
     """Autorise ou bloque les nouvelles entrées selon le PnL live en R.
 
@@ -176,6 +177,13 @@ def evaluate_live_loss_guard(
         return _invalid()
     current = current.astimezone(timezone.utc)
     cutoff = current - timedelta(days=7)
+    if not_before is not None:
+        if not isinstance(not_before, datetime) or not_before.tzinfo is None:
+            return _invalid()
+        cohort_start = not_before.astimezone(timezone.utc)
+        if cohort_start > current:
+            return _invalid()
+        cutoff = max(cutoff, cohort_start)
     expected_account = str(account)
     relevant_account_seen = False
     by_ticket: dict[str, tuple[datetime, float]] = {}

@@ -1,7 +1,11 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from titanium.execution.live_loss_guard import evaluate_live_loss_guard
+from titanium.execution.live_loss_guard import (
+    LiveLossVerdict,
+    evaluate_live_loss_guard,
+    persist_live_loss_quarantine,
+)
 
 NOW = datetime(2026, 9, 9, 16, 0, tzinfo=timezone.utc)
 
@@ -105,3 +109,47 @@ def test_malformed_or_untrusted_recent_line_fails_closed(tmp_path):
 
     assert verdict.action == "WAIT"
     assert verdict.reason == "LIVE_LOSS_JOURNAL_INVALID"
+
+
+def test_loss_quarantine_persists_after_rolling_window_recovers(tmp_path):
+    path = tmp_path / "quarantine.json"
+    blocked = LiveLossVerdict(
+        action="BLOCK",
+        reason="ROLLING_7D_LOSS_LIMIT",
+        rolling_trades=98,
+        rolling_net_r=-15.3292,
+    )
+
+    first = persist_live_loss_quarantine(
+        blocked, path=path, account="10055401", now=NOW,
+    )
+    recovered = persist_live_loss_quarantine(
+        LiveLossVerdict(action="ALLOW", reason="WITHIN_LOSS_LIMITS"),
+        path=path,
+        account="10055401",
+        now=NOW + timedelta(days=8),
+    )
+
+    assert first.action == "BLOCK"
+    assert first.reason == "PERSISTENT_LOSS_QUARANTINE"
+    assert recovered.action == "BLOCK"
+    assert recovered.reason == "PERSISTENT_LOSS_QUARANTINE"
+    assert recovered.rolling_net_r == 0.0
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["account"] == "10055401"
+    assert payload["trigger"]["rolling_net_r"] == -15.3292
+
+
+def test_invalid_or_wrong_account_quarantine_fails_closed(tmp_path):
+    path = tmp_path / "quarantine.json"
+    path.write_text('{"schema": 1, "account": "999"}', encoding="utf-8")
+
+    verdict = persist_live_loss_quarantine(
+        LiveLossVerdict(action="ALLOW", reason="WITHIN_LOSS_LIMITS"),
+        path=path,
+        account="10055401",
+        now=NOW,
+    )
+
+    assert verdict.action == "WAIT"
+    assert verdict.reason == "LIVE_LOSS_QUARANTINE_INVALID"

@@ -50,7 +50,10 @@ from titanium.execution.execution_ledger import (  # noqa: E402
     execute_recorded,
     reconcile_recorded,
 )
-from titanium.execution.live_loss_guard import evaluate_live_loss_guard  # noqa: E402
+from titanium.execution.live_loss_guard import (  # noqa: E402
+    evaluate_live_loss_guard,
+    persist_live_loss_quarantine,
+)
 from titanium.execution.micro_basket import required_improvement_r  # noqa: E402
 from titanium.execution.policy_identity import (  # noqa: E402
     build_policy_identity,
@@ -1781,8 +1784,18 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         RACINE / "results" / "trades.ndjson",
         account=str(compte.login),
     )
+    loss_guard = persist_live_loss_quarantine(
+        loss_guard,
+        path=(RACINE / "data" / "runtime" / "live_loss_quarantine"
+              / f"{compte.login}.json"),
+        account=str(compte.login),
+    )
     stats["live_loss_guard"] = loss_guard.to_dict()
-    if loss_guard.action != "ALLOW":
+    entry_blocked = loss_guard.action != "ALLOW"
+    entry_block_reason = (
+        f"{loss_guard.action}/{loss_guard.reason}" if entry_blocked else ""
+    )
+    if entry_blocked:
         print(
             "    coupe-circuit pertes "
             f"{loss_guard.action}/{loss_guard.reason} "
@@ -1792,7 +1805,6 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         )
         battre(stats, armer=armer and politique.enabled, equity=compte.equity,
                portables=len(tradables))
-        return
 
     risque_engage = 0.0
     try:
@@ -1807,9 +1819,11 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                  else f"budget de risque ({risque_engage:.1f} %)")
         print(f"    {ouvertes} positions · risque engagé {risque_engage:.1f} % — "
               f"{motif} atteint, aucun nouvel ordre", flush=True)
+        entry_blocked = True
+        if not entry_block_reason:
+            entry_block_reason = motif
         battre(stats, armer=armer and politique.enabled, equity=compte.equity,
                portables=len(tradables))
-        return
 
     # ── 3. Balayage.
     # R:R porté de 2.0 à 3.0 — seul réglage que le testeur natif ait validé
@@ -1889,6 +1903,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     _compter_tunnel(stats, "pillar_missing", gate.code or gate.name)
             _compter_tunnel(stats, "gate_verdict", out.gate_verdict)
             _compter_tunnel(stats, "gate_code", out.gate_code or out.reason)
+            _observer_prod(sym, feats, out.gate_verdict)
 
             if tracer and (not phase_crypto_weekend or unite == unite_budget):
                 _tracer_zones(sym, feats, out, cfg)
@@ -1946,6 +1961,15 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         print("    candidats : " + " > ".join(
             f"{c['sym']}[{c['timeframe']}]({c['support']}/4)"
             for c in candidats[:6]), flush=True)
+
+    if entry_blocked:
+        print(
+            f"    observation terminee - entrees bloquees ({entry_block_reason})",
+            flush=True,
+        )
+        battre(stats, armer=armer and politique.enabled, equity=compte.equity,
+               portables=len(tradables))
+        return
 
     # ── PHASE 2 — envoyer, sous tous les garde-fous, par ordre de mérite.
     _journaliser_grappes(candidats, compte.equity)
@@ -2231,6 +2255,27 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         if final_micro.action != "ALLOW":
             _refus(stats, "MICROSTRUCTURE_FINAL", sym, final_micro.reason)
             continue
+        final_loss_guard = evaluate_live_loss_guard(
+            RACINE / "results" / "trades.ndjson",
+            account=str(compte.login),
+        )
+        final_loss_guard = persist_live_loss_quarantine(
+            final_loss_guard,
+            path=(RACINE / "data" / "runtime" / "live_loss_quarantine"
+                  / f"{compte.login}.json"),
+            account=str(compte.login),
+        )
+        stats["live_loss_guard"] = final_loss_guard.to_dict()
+        if final_loss_guard.action != "ALLOW":
+            _refus(stats, "LIVE_LOSS_GUARD_FINAL", sym, final_loss_guard.reason)
+            print(
+                "    coupe-circuit pertes actualise avant envoi - "
+                f"{final_loss_guard.action}/{final_loss_guard.reason}",
+                flush=True,
+            )
+            battre(stats, armer=armer and politique.enabled, equity=compte.equity,
+                   portables=len(tradables))
+            return
         res = execute_recorded(
             _envoi_entree(),
             sym, out.side, budget.risk_money, out.stop_distance or 0.0,

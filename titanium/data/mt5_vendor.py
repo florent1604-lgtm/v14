@@ -25,10 +25,12 @@ que la couche de routage réagisse au comportement (« vendeur indisponible »,
 
 from __future__ import annotations
 
+import os
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from tradingagents.dataflows.errors import (
     NoMarketDataError,
@@ -108,6 +110,23 @@ def _mt5():
     return mt5
 
 
+def _terminal_candidates() -> tuple[Path, ...]:
+    """Terminaux explicites a essayer si la detection native echoue."""
+    configured = os.environ.get("MT5_TERMINAL_PATH", "").strip()
+    raw = (
+        configured,
+        r"C:\Program Files\MetaTrader 5\terminal64.exe",
+        r"C:\Program Files\Axi MT5 Terminal\terminal64.exe",
+        r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
+    )
+    candidates = []
+    for value in raw:
+        path = Path(value) if value else None
+        if path is not None and path.is_file() and path not in candidates:
+            candidates.append(path)
+    return tuple(candidates)
+
+
 @contextmanager
 def mt5_session():
     """Garantit un terminal initialisé pour la durée du bloc, sous verrou.
@@ -138,14 +157,18 @@ def mt5_session():
             except Exception:  # noqa: BLE001
                 pass
             if not vivant:
-                try:
+                with suppress(Exception):
                     mt5.shutdown()
-                except Exception:  # noqa: BLE001
-                    pass
                 _initialized = False
 
         if not _initialized:
-            if not mt5.initialize():
+            initialized = bool(mt5.initialize())
+            if not initialized:
+                for terminal in _terminal_candidates():
+                    if mt5.initialize(path=str(terminal)):
+                        initialized = True
+                        break
+            if not initialized:
                 raise Mt5NotAvailableError(
                     f"terminal MT5 injoignable : {mt5.last_error()}. "
                     "Le terminal doit être ouvert et connecté."

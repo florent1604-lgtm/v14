@@ -8,7 +8,9 @@ pour un actif, un sens et un contexte déterministe déjà proposés par Titaniu
 ## Interdictions absolues
 
 - ne jamais créer une direction, un ordre, un prix, une taille, un SL ou un TP ;
-- ne jamais appeler MT5 ni contourner RiskGate, le mur DEMO ou l'idempotence ;
+- ne jamais appeler MT5 directement ni contourner RiskGate, le mur DEMO ou
+  l'idempotence ; une politique `ALLOW` peut atteindre l'exécuteur MT5 gardé
+  en DEMO, qui reste seul responsable de l'ordre ;
 - ne jamais transformer une corrélation, un rejeu in-sample ou une opinion LLM
   en edge démontré ;
 - ne jamais réutiliser une politique expirée, non scellée ou issue d'un autre
@@ -20,11 +22,17 @@ Chaque politique contient uniquement : identité source, actif, sens, contexte,
 action, confiance, résumé factuel, empreinte des preuves, versions du modèle et
 du prompt, producteur, création et expiration. TTL maximal : 300 secondes.
 
-Hermès utilise Claude Code / Opus comme pilote décisionnel en DEMO. Son analyse
-alimente directement les autorisations d'entrée et les verdicts de maintien ou
-d'invalidation des positions. Ses appels tournent dans le travailleur d'analyse;
-la boucle MT5 relit ses politiques localement, avec la mémoire SQLite/WAL et
-Market-JEPA. Le suivi déterministe continue pendant une analyse.
+Hermès est le pilote décisionnel cognitif en DEMO. Son moteur local courant est
+`qwen3.5:2b` via Ollama, avec `num_ctx=65536`, sans outil exposé au modèle. Son
+analyse alimente les autorisations d'entrée et les verdicts de maintien ou
+d'invalidation des positions. Ses appels tournent dans le travailleur
+d'analyse ; la boucle MT5 relit ses politiques localement, avec la mémoire
+SQLite/WAL et Market-JEPA. Le suivi déterministe continue pendant une analyse.
+
+Le nom du modèle est une implémentation versionnée du cortex, pas son rôle.
+Remplacer Claude ou Qwen ne transfère aucune autorité par défaut : le nouveau
+modèle doit encore produire le contrat borné et franchir les tests de contexte,
+de latence, de fidélité et de comportement fail-closed.
 
 Le catalogue `titanium/organism/trading_knowledge.py` est joint aux décisions,
 selon la classe de l'actif. Les observations de microstructure, régime,

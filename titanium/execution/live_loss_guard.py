@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import tempfile
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -48,6 +51,107 @@ def _parse_closed_at(value: object) -> datetime | None:
     if parsed.tzinfo is None:
         return None
     return parsed.astimezone(timezone.utc)
+
+
+def _quarantine_verdict(
+    verdict: LiveLossVerdict,
+    *,
+    action: str = "BLOCK",
+    reason: str = "PERSISTENT_LOSS_QUARANTINE",
+) -> LiveLossVerdict:
+    return LiveLossVerdict(
+        action=action,
+        reason=reason,
+        daily_trades=verdict.daily_trades,
+        daily_net_r=verdict.daily_net_r,
+        rolling_trades=verdict.rolling_trades,
+        rolling_net_r=verdict.rolling_net_r,
+    )
+
+
+def persist_live_loss_quarantine(
+    verdict: LiveLossVerdict,
+    *,
+    path: str | Path,
+    account: str,
+    now: datetime | None = None,
+) -> LiveLossVerdict:
+    """Verrouille un BLOCK jusqu'a un acquittement operateur explicite.
+
+    Une limite glissante finirait sinon par repasser automatiquement a ALLOW.
+    Le fichier est lie au compte et ecrit atomiquement. Toute preuve existante
+    illisible ou incoherente maintient le moteur en WAIT.
+    """
+
+    quarantine_path = Path(path)
+    expected_account = str(account).strip()
+    if not expected_account:
+        return _quarantine_verdict(
+            verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
+        )
+
+    if quarantine_path.exists():
+        if not quarantine_path.is_file():
+            return _quarantine_verdict(
+                verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
+            )
+        try:
+            payload = json.loads(quarantine_path.read_text(encoding="utf-8"))
+            trigger = payload.get("trigger") if isinstance(payload, dict) else None
+            valid = (
+                payload.get("schema") == 1
+                and str(payload.get("account", "")) == expected_account
+                and _parse_closed_at(payload.get("latched_at_utc")) is not None
+                and isinstance(trigger, dict)
+                and trigger.get("action") == "BLOCK"
+                and isinstance(trigger.get("reason"), str)
+                and bool(trigger["reason"])
+            )
+        except (OSError, json.JSONDecodeError, UnicodeError, AttributeError):
+            valid = False
+        if not valid:
+            return _quarantine_verdict(
+                verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
+            )
+        return _quarantine_verdict(verdict)
+
+    if verdict.action != "BLOCK":
+        return verdict
+
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        return _quarantine_verdict(
+            verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
+        )
+    payload = {
+        "schema": 1,
+        "account": expected_account,
+        "latched_at_utc": current.astimezone(timezone.utc).isoformat(),
+        "trigger": verdict.to_dict(),
+    }
+    temporary: Path | None = None
+    try:
+        quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, raw_temporary = tempfile.mkstemp(
+            prefix=quarantine_path.name + ".",
+            suffix=".tmp",
+            dir=quarantine_path.parent,
+        )
+        temporary = Path(raw_temporary)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(payload, handle, ensure_ascii=True, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, quarantine_path)
+    except OSError:
+        if temporary is not None:
+            with suppress(OSError):
+                temporary.unlink(missing_ok=True)
+        return _quarantine_verdict(
+            verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_WRITE_FAILED",
+        )
+    return _quarantine_verdict(verdict)
 
 
 def evaluate_live_loss_guard(

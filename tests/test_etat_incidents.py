@@ -241,6 +241,18 @@ def test_le_battement_reste_muet_sans_incident(tmp_path, monkeypatch):
     assert d["etat_incidents_total"] == 0
 
 
+def test_le_battement_expose_la_cohorte_demo_autorisee(tmp_path, monkeypatch):
+    from tools import live_demo
+
+    battement = tmp_path / "loop_heartbeat.json"
+    monkeypatch.setattr(live_demo, "BATTEMENT", battement)
+    live_demo.battre({"tours": 1}, armer=True, equity=4000.0)
+
+    d = json.loads(battement.read_text(encoding="utf-8"))
+    assert d["cohort_symbols"] == list(live_demo.DEMO_COHORT_SYMBOLS)
+    assert d["cohort_start_utc"] == live_demo.DEMO_COHORT_START_UTC.isoformat()
+
+
 def test_le_tableau_de_bord_relaie_l_incident(tmp_path, monkeypatch):
     """Dernier saut : le battement porte l'incident, encore faut-il que l'état
     du tableau de bord le recopie. Il ne relaie que des clés nommées — sans ce

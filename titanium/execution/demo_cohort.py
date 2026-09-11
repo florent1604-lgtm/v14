@@ -8,11 +8,11 @@ DEMO_COHORT_SYMBOLS = (
     "COFFEE.fs",
     "BTCUSD",
     "SOL-USD",
-    # Distinct correlation groups selected after the narrow cohort produced
-    # zero ENTER decisions while the same read-only scan found valid setups.
-    "US30",
     "XAUUSD",
-    "SWI20",
+    # Distinct groups retained by the rearmament plan for forward observation.
+    # US30 stays excluded by that plan; SWI20's current exact context is BLOCK.
+    "HK50",
+    "FRA40",
 )
 
 DEMO_COHORT_START_UTC = datetime(2026, 9, 10, 14, 55, tzinfo=timezone.utc)

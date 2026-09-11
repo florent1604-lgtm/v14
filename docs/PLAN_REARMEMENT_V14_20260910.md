@@ -149,11 +149,15 @@ chemin d'entree.
 ## Cohorte d'execution DEMO autorisee le 10 septembre
 
 L'operateur a explicitement demande la reprise de l'execution DEMO et l'ajout de
-Bitcoin et Solana. La boucle est donc restreinte a `USOIL`, `XAGUSD`,
-`COFFEE.fs`, `BTCUSD` et `SOL-USD`. Cette cohorte sert a produire la nouvelle
-preuve forward; elle ne transforme pas les resultats diagnostiques en preuve de
-rentabilite. Le mur DEMO, Hermes, RiskGate, les couts, la microstructure,
-l'idempotence et les limites d'exposition restent obligatoires.
+Bitcoin et Solana. La rotation du 11 septembre conserve `USOIL`, `XAGUSD`,
+`COFFEE.fs`, `BTCUSD`, `SOL-USD` et `XAUUSD`, puis remplace `US30` et `SWI20`
+par `HK50` et `FRA40`. `US30` reste exclu par le diagnostic; le contexte SWI20
+courant est BLOCK. HK50 et FRA40 restent des candidats forward sans statut de
+promotion. SOL-USD reste observe mais sa porte de cout peut le rendre non
+portable. Cette cohorte sert a produire la nouvelle preuve forward; elle ne
+transforme pas les resultats diagnostiques en preuve de rentabilite. Le mur
+DEMO, Hermes, RiskGate, les couts, la microstructure, l'idempotence et les
+limites d'exposition restent obligatoires.
 
 La nouvelle fenetre de pertes commence le 10 septembre 2026 a 14:55 UTC. Le
 journal historique reste intact et la quarantaine precedente est archivee. Les

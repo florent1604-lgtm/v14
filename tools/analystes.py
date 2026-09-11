@@ -86,6 +86,15 @@ ANALYSTES_DEFAUT = ("market", "news")
 ENTRY_BATCH_SIZE = 2
 _GLM_LOCK = threading.Lock()
 
+# Une revue de position locale dure typiquement 35 a 43 secondes sur CPU. La
+# relancer a chaque passage occupait Hermes sans interruption et faisait
+# attendre les nouvelles entrees derriere des instantanes CALM repetitifs.
+# Une revue par minute laisse de la capacite aux entrees tout en permettant
+# deux confirmations de peur dans leur fenetre de 240 secondes.
+POSITION_REVIEW_INTERVAL_S = 60.0
+POSITION_REVIEW_BATCH_SIZE = 1
+_DERNIERE_REVUE_POSITIONS: dict[str, float] = {"at": 0.0}
+
 # Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de
 # trading et toute valeur explicite de configuration reste prioritaire.
 # Un appel fournisseur bloque ne doit pas faire expirer toute la file.
@@ -503,9 +512,21 @@ def _traiter_positions() -> int:
     )
     from titanium.position_sentiment import append_record, pending_reviews
 
-    requests = pending_reviews(POSITION_REQUESTS, POSITION_VERDICTS, limit=8)
+    now = time.monotonic()
+    last = float(_DERNIERE_REVUE_POSITIONS.get("at", 0.0) or 0.0)
+    if last and now - last < POSITION_REVIEW_INTERVAL_S:
+        return 0
+
+    requests = pending_reviews(
+        POSITION_REQUESTS,
+        POSITION_VERDICTS,
+        limit=POSITION_REVIEW_BATCH_SIZE,
+    )
     if not requests:
         return 0
+    # Armer la cadence avant l'appel lent evite une rafale immediate si le
+    # modele expire ou refuse temporairement la requete.
+    _DERNIERE_REVUE_POSITIONS["at"] = now
     with _GLM_LOCK:
         try:
             verdicts = analyse_positions(requests)

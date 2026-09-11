@@ -102,3 +102,39 @@ def test_analyst_worker_publishes_one_glm_batch(monkeypatch, tmp_path):
     assert seen == [["SLOW", "FAST"]]
     assert published == ["SLOW", "FAST"]
     assert call_order == ["entries", "positions"]
+
+
+@pytest.mark.unit
+def test_position_reviews_leave_capacity_for_fresh_entries(monkeypatch, tmp_path):
+    import titanium.hermes_cortex as cortex
+    import titanium.position_sentiment as sentiment
+    import tools.analystes as worker
+
+    request = {"request_ref": "r1", "ticket": "1", "symbol": "XAGUSD"}
+    calls = []
+    clock = {"now": 100.0}
+
+    monkeypatch.setattr(worker, "POSITION_REQUESTS", tmp_path / "requests.ndjson")
+    monkeypatch.setattr(worker, "POSITION_VERDICTS", tmp_path / "verdicts.ndjson")
+    monkeypatch.setattr(worker.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setitem(worker._DERNIERE_REVUE_POSITIONS, "at", 0.0)
+    monkeypatch.setattr(sentiment, "pending_reviews", lambda *_args, **_kwargs: [request])
+    monkeypatch.setattr(sentiment, "append_record", lambda *_args, **_kwargs: True)
+
+    def analyse(requests):
+        calls.append(list(requests))
+        return [{
+            **request,
+            "state": "CALM",
+            "confidence": 0.9,
+        }]
+
+    monkeypatch.setattr(cortex, "analyse_positions", analyse)
+
+    assert worker._traiter_positions() == 1
+    clock["now"] += worker.POSITION_REVIEW_INTERVAL_S - 1
+    assert worker._traiter_positions() == 0
+    clock["now"] += 1
+    assert worker._traiter_positions() == 1
+    assert len(calls) == 2
+    assert all(len(batch) == 1 for batch in calls)

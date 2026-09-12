@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +13,11 @@ from itertools import product
 from pathlib import Path
 from typing import Any
 
+from titanium.execution_sim.adaptive import (
+    ADAPTIVE_POLICIES,
+    SEQUENTIAL_ADAPTIVE_POLICIES,
+)
+from titanium.execution_sim.fills import FillBudget, Mode
 from titanium.execution_sim.matching import MatchingSimulator
 from titanium.execution_sim.metrics import aggregate_rankings, execution_metrics, pareto_front
 from titanium.execution_sim.models import (
@@ -163,8 +169,72 @@ def _snapshots(scenario: Scenario) -> list[MarketSnapshot]:
     return snapshots
 
 
+def axes_adaptation(scenario: Scenario) -> dict[str, float]:
+    """Axes d'adaptation de la famille adaptative, derives du scenario.
+
+    Trois axes que les techniques declarent observer, et que le harnais
+    historique ne variait PAS : inventaire, urgence, horizon. Consequence
+    mesuree avant ce correctif : ``adapt_inventory_skew`` rendait un resultat
+    identique au bit pres a ``adapt_join_touch`` sur 864/864 scenarios, parce
+    que son inclinaison valait toujours zero. Une technique dont l'axe n'est
+    jamais varie ne peut pas s'adapter : ce n'est pas une technique.
+
+    Les axes sont derives du ``seed`` du scenario, donc identiques d'une
+    technique a l'autre : deux techniques comparees voient exactement les memes
+    entrees, comme pour les autres axes.
+    """
+    rng = random.Random(scenario.seed ^ 0xAD4A)
+    # Inventaire en fraction du plafond, avec un palier nul : l'inclinaison
+    # doit changer de plusieurs ticks, pas d'un arrondi.
+    inventory_ratio = (-0.75, 0.0, 0.75)[rng.randrange(3)]
+    urgency = (0.15, 0.5, 0.9)[rng.randrange(3)]
+    horizon_ms = (8_000, 20_000, 60_000)[rng.randrange(3)]
+    return {
+        "inventory_ratio": inventory_ratio,
+        "urgency": float(urgency),
+        "horizon_ms": float(horizon_ms),
+    }
+
+
+def _context_adaptatif(
+    policy_name: str,
+    scenario: Scenario,
+    config: dict[str, Any],
+    override: dict[str, float] | None = None,
+) -> tuple[dict[str, Any] | None, float, dict[str, Any]]:
+    """Traduit les axes en entrees reelles, pour la SEULE famille adaptative.
+
+    L'arene historique est exclue volontairement : ``market_making`` lit
+    ``PolicyContext.inventory``, et lui injecter un inventaire changerait la
+    matrice des quinze politiques deja publiee. Les quinze restent donc
+    exactement comparables a elles-memes ; seules les techniques qui declarent
+    dependre de ces axes les recoivent.
+    """
+    if policy_name not in ADAPTIVE_POLICIES:
+        return None, 0.0, {}
+    axes = axes_adaptation(scenario)
+    if override:
+        axes = {**axes, **override}
+    plafond = float(config["execution"].get("adapt", {}).get("_shared", {}).get(
+        "max_inventory", 10.0
+    ))
+    inventory = axes["inventory_ratio"] * plafond
+    metadata = {"urgency": axes["urgency"], "horizon_ms": int(axes["horizon_ms"])}
+    return metadata, inventory, axes
+
+
 def _policy_config(name: str, config: dict[str, Any]) -> dict[str, Any]:
     execution = config["execution"]
+    if name in ADAPTIVE_POLICIES:
+        # Les techniques adaptatives lisent leur section dediee et heritent des
+        # valeurs partagees (reference de spread, inventaire) et des frais, dont
+        # depend la comparaison economie passif / anti-selection.
+        adapt = execution.get("adapt", {})
+        section = dict(adapt.get("_shared", {}))
+        section.update(adapt.get(name, {}))
+        section.setdefault("maker_bps", float(execution["fees"]["maker_bps"]))
+        section.setdefault("taker_bps", float(execution["fees"]["taker_bps"]))
+        return section
     aliases = {
         "limit_passive": "passive",
         "cancel_replace": "passive",
@@ -337,6 +407,143 @@ def _executer_politique_evenementielle(
     return executed
 
 
+def _index_activation(
+    offset_ms: int,
+    latency_ms: int,
+    seconds_per_snapshot: float,
+    count: int,
+    *,
+    plafond_si_differe: bool = False,
+) -> int:
+    """Index du premier evenement qu'un ordre differe peut consommer.
+
+    Proprietaire unique de cette discretisation. Les deux familles sequentielles
+    ont des exigences differentes, et c'est dit ici plutot que duplique :
+
+    * arene historique -- arrondi vers le BAS. Un ordre au marche s'execute sur
+      l'evenement d'arrivee, comme le temoin ``market`` ;
+    * famille adaptative -- arrondi vers le HAUT des que le decalage est
+      strictement positif : une tranche programmee a 800 ms ne doit pas se
+      remplir sur un evenement anterieur a son horaire.
+
+    Un decalage nul garde la discretisation basse dans les deux cas.
+    """
+    span = max(seconds_per_snapshot, 1e-9)
+    if plafond_si_differe and offset_ms > 0:
+        index = math.ceil((offset_ms + latency_ms) / 1000.0 / span)
+    else:
+        index = int((offset_ms + latency_ms) / 1000.0 / span)
+    return min(count - 1, max(0, index))
+
+
+@dataclass(frozen=True)
+class ProfilSequentiel:
+    """Les quatre choix qui distinguent les deux familles sequentielles.
+
+    Tout le reste du chemin est commun. Ces differences ont ete payees deux fois
+    a l'origine : deux machines a etats paralleles, dont une seule bornait le
+    remplissage. Elles sont nommees ici, en un seul endroit.
+
+    ``quantite``
+        ``reliquat`` -- la quantite du plan est remplacee par le reliquat (un
+        escalier d'agressivite vise la totalite de ce qui reste).
+        ``plan_borne`` -- la quantite du plan est bornee au reliquat (une
+        echelle de tranches porte sa propre taille).
+    ``annulation``
+        ``ordre_ouvert`` -- annule tout ordre precedent encore ouvert.
+        ``drapeau`` -- n'annule que si le plan le demande (``cancel_previous``).
+    ``soumission``
+        ``arrivee`` -- horodatage de soumission = instant d'arrivee.
+        ``activation`` -- horodatage = instant d'activation de la tranche.
+    ``discretisation``
+        ``plancher`` / ``plafond`` -- voir ``_index_activation``.
+    """
+
+    quantite: str
+    annulation: str
+    soumission: str
+    discretisation: str
+
+
+#: Arene ``adaptive`` historique : son comportement est fige, la matrice des
+#: quinze politiques depend de chacun de ces choix.
+PROFIL_ADAPTIVE_HISTORIQUE = ProfilSequentiel("reliquat", "ordre_ouvert", "arrivee", "plancher")
+
+#: Famille adaptative : tranches bornees, annulation demandee par le plan,
+#: horodatage a l'activation, aucun evenement anterieur consomme.
+PROFIL_ADAPTATIF = ProfilSequentiel("plan_borne", "drapeau", "activation", "plafond")
+
+
+def _executer_politique_sequentielle(
+    orders: list[Order],
+    snapshots: list[MarketSnapshot],
+    intent: ExecutionIntent,
+    *,
+    latency_ms: int,
+    oms: OrderManager,
+    portfolio: Portfolio,
+    risk: RiskEngine,
+    matcher: MatchingSimulator,
+    seconds_per_snapshot: float,
+    profil: ProfilSequentiel,
+) -> list[Order]:
+    """Execute une politique qui envoie ses ordres L'UN APRES L'AUTRE.
+
+    Deux familles passent ici et ne different que par ``ProfilSequentiel``. Le
+    remplissage est borne par ``FillBudget``, proprietaire unique de la regle
+    « jamais plus que la quantite voulue ».
+    """
+    posted: set[str] = set()
+    executed: list[Order] = []
+    budget = FillBudget(intent.quantity)
+    mode = Mode.RELIQUAT if profil.quantite == "reliquat" else Mode.PLAN
+    precedent: Order | None = None
+    for planned in orders:
+        if budget.epuise:
+            break
+        planned.quantity = budget.autoriser(planned.quantity, mode=mode)
+        if planned.quantity <= 1e-12:
+            continue
+        annuler = (
+            precedent is not None
+            and not precedent.is_terminal
+            and (
+                profil.annulation == "ordre_ouvert"
+                or bool(planned.metadata.get("cancel_previous"))
+            )
+        )
+        if annuler:
+            oms.request_cancel(precedent.client_order_id, snapshots[0].timestamp)
+            oms.ack_cancel(precedent.client_order_id, True, snapshots[0].timestamp)
+            planned.replaces = precedent.client_order_id
+            planned.queue_ahead = 0.0
+        try:
+            checked = risk.validate(planned, portfolio, oms)
+        except RiskRejected:
+            continue
+        start_index = _index_activation(
+            checked.scheduled_offset_ms,
+            latency_ms,
+            seconds_per_snapshot,
+            len(snapshots),
+            plafond_si_differe=profil.discretisation == "plafond",
+        )
+        if profil.soumission == "activation":
+            oms.submit(checked, snapshots[start_index].timestamp)
+        else:
+            oms.submit(checked, checked.created_at)
+        executed.append(checked)
+        checked.metadata["simulated_latency_ms"] = latency_ms
+        for snapshot in snapshots[start_index:]:
+            matcher.match(checked, snapshot, oms)
+            _post_new_fills(portfolio, checked, posted)
+            if checked.is_terminal:
+                break
+        budget.enregistrer(checked.filled_quantity)
+        precedent = checked
+    return executed
+
+
 def executer_sur_snapshots(
     policy_name: str,
     snapshots: list[MarketSnapshot],
@@ -347,6 +554,7 @@ def executer_sur_snapshots(
     latency_ms: int,
     tick_size: float,
     historical_volumes: tuple[float, ...] = (),
+    inventory: float = 0.0,
     fee_multiplier: float = 1.0,
     initial_cash: float = 100_000.0,
     seconds_per_snapshot: float = 1.0,
@@ -373,6 +581,7 @@ def executer_sur_snapshots(
         snapshot=snapshots[0],
         tick_size=tick_size,
         historical_volumes=historical_volumes,
+        inventory=inventory,
     )
     policy = get_policy(policy_name, _policy_config(policy_name, config))
     if policy_name == "multi_leg_simultaneous":
@@ -431,21 +640,35 @@ def executer_sur_snapshots(
             risk=risk,
             matcher=matcher,
         )
+    if policy_name == "adaptive":
+        return _executer_politique_sequentielle(
+            orders,
+            snapshots,
+            intent,
+            latency_ms=latency_ms,
+            oms=oms,
+            portfolio=portfolio,
+            risk=risk,
+            matcher=matcher,
+            seconds_per_snapshot=seconds_per_snapshot,
+            profil=PROFIL_ADAPTIVE_HISTORIQUE,
+        )
+    if policy_name in SEQUENTIAL_ADAPTIVE_POLICIES:
+        return _executer_politique_sequentielle(
+            orders,
+            snapshots,
+            intent,
+            latency_ms=latency_ms,
+            oms=oms,
+            portfolio=portfolio,
+            risk=risk,
+            matcher=matcher,
+            seconds_per_snapshot=seconds_per_snapshot,
+            profil=PROFIL_ADAPTATIF,
+        )
     posted: set[str] = set()
     executed: list[Order] = []
-    filled_target = 0.0
-    previous_open: Order | None = None
     for planned in orders:
-        if policy_name == "adaptive":
-            remaining = max(0.0, quantity - filled_target)
-            if remaining <= 1e-12:
-                break
-            planned.quantity = remaining
-            if previous_open is not None and not previous_open.is_terminal:
-                oms.request_cancel(previous_open.client_order_id, snapshots[0].timestamp)
-                oms.ack_cancel(previous_open.client_order_id, True, snapshots[0].timestamp)
-                planned.replaces = previous_open.client_order_id
-                planned.queue_ahead = 0.0
         try:
             checked = risk.validate(planned, portfolio, oms)
         except RiskRejected:
@@ -467,9 +690,6 @@ def executer_sur_snapshots(
             _post_new_fills(portfolio, checked, posted)
             if checked.is_terminal:
                 break
-        filled_target += checked.filled_quantity
-        previous_open = checked
-
         if iceberg_state is not None:
             policy.record_fill(iceberg_state, checked.filled_quantity)
             if checked.status is OrderStatus.FILLED:
@@ -511,13 +731,29 @@ def executer_sur_snapshots(
 
 
 def _run_case(
-    policy_name: str, scenario: Scenario, config: dict[str, Any], initial_cash: float
+    policy_name: str,
+    scenario: Scenario,
+    config: dict[str, Any],
+    initial_cash: float,
+    axes_override: dict[str, float] | None = None,
 ) -> dict[str, Any]:
+    """Execute un cas. ``axes_override`` sert a SONDER une technique isolement.
+
+    Defaut ``None`` : les axes sont derives du scenario, comme dans toute
+    execution normale. Le forcage existe pour qu'un outil puisse repondre a
+    « cet axe change-t-il quoi que ce soit ? » au lieu de le postuler -- une
+    technique dont l'axe est inerte ne s'adapte pas.
+    """
     started = time.perf_counter()
     snapshots = _snapshots(scenario)
     quantity = 1.0 if scenario.size == "small" else 8.0
     side = Side.BUY if scenario.trend != "down" else Side.SELL
-    intent = ExecutionIntent(f"alpha:{scenario.scenario_id}", "SYNTH", side, quantity)
+    metadata, inventory, axes = _context_adaptatif(
+        policy_name, scenario, config, axes_override
+    )
+    intent = ExecutionIntent(
+        f"alpha:{scenario.scenario_id}", "SYNTH", side, quantity, metadata=metadata or {}
+    )
     profile = historical_volume_profile(
         scenario,
         sessions=int(config["execution"]["vwap"].get("profile_lookback_sessions", 5)),
@@ -537,6 +773,7 @@ def _run_case(
         latency_ms=scenario_latency_ms,
         tick_size=0.01,
         historical_volumes=profile.volumes,
+        inventory=inventory,
         fee_multiplier=2.0 if scenario.fees == "adverse" else 1.0,
         initial_cash=initial_cash,
     )
@@ -554,6 +791,9 @@ def _run_case(
     return {
         "policy": policy_name,
         **asdict(scenario),
+        # Axes d'adaptation, presents uniquement pour la famille adaptative :
+        # l'arene historique garde exactement ses colonnes.
+        **{f"adapt_{key}": value for key, value in axes.items()},
         "parameter_selection_eligible": scenario.split != "final_oos",
         "data_fidelity": "synthetic_l1",
         "ohlcv_limitations": "L1/depth and intrabar path are synthetic; no real FIFO/L2 fidelity",
@@ -564,7 +804,7 @@ def _run_case(
 def run_matrix(spec: MatrixSpec, config: dict[str, Any]) -> list[dict[str, Any]]:
     if config["execution"].get("live_enabled") is not False:
         raise ValueError("execution matrix is dry-run only")
-    unknown = set(spec.policies) - set(ALL_POLICIES)
+    unknown = set(spec.policies) - set(ALL_POLICIES) - set(ADAPTIVE_POLICIES)
     if unknown:
         raise ValueError(f"unknown policies: {sorted(unknown)}")
     scenarios = generate_scenarios(seed=spec.seed, quick=spec.quick)

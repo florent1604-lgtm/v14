@@ -49,6 +49,11 @@ from titanium.macro.feed import MacroFeed
 from titanium.macro.gate import MACRO_BLOCK_KEYS, macro_block, macro_features
 from titanium.macro.policy import MacroPolicy
 from titanium.macro.risk import evaluate_macro_risk
+from titanium.macro.service import (
+    MacroService,
+    macro_bloc_indisponible,
+    macro_publication,
+)
 from titanium.macro.sources import (
     FileMacroSource,
     HttpMacroSource,
@@ -72,6 +77,7 @@ __all__ = [
     "MacroImpact",
     "MacroPolicy",
     "MacroRisk",
+    "MacroService",
     "MacroSource",
     "MacroState",
     "UnavailableMacroSource",
@@ -80,8 +86,10 @@ __all__ = [
     "evaluate_macro_risk",
     "get_cache",
     "load_policy",
+    "macro_bloc_indisponible",
     "macro_block",
     "macro_features",
+    "macro_publication",
     "macro_risk",
     "macro_telemetry",
     "parse_events",

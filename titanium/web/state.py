@@ -319,6 +319,23 @@ def _const_boucle(nom: str, defaut):
     return defaut
 
 
+def _battement() -> tuple[dict, float, float] | None:
+    """Le battement de la boucle, son age et sa limite. ``None`` s'il n'existe pas.
+
+    UN SEUL lecteur. `loop()` et `macro()` lisent le meme fichier : deux
+    lectures separees finiraient par en tirer deux conclusions de fraicheur
+    differentes, et le tableau de bord afficherait « la boucle tourne » a cote
+    d'un verdict macro qu'elle n'a plus publie depuis une heure.
+    """
+    f = RACINE / "results" / "loop_heartbeat.json"
+    if not f.exists():
+        return None
+    b = json.loads(f.read_text(encoding="utf-8"))
+    battu = datetime.fromisoformat(b["at"])
+    age = (datetime.now(timezone.utc) - battu).total_seconds()
+    return b, age, float(b.get("intervalle", 60)) * TOLERANCE_BATTEMENT
+
+
 def loop() -> dict:
     """La boucle d'amorçage tourne-t-elle, et qu'a-t-elle fait ?
 
@@ -351,16 +368,13 @@ def loop() -> dict:
         "etat_incidents": [], "etat_incidents_total": 0,
     }
 
-    f = RACINE / "results" / "loop_heartbeat.json"
-    if not f.exists():
+    lu = _battement()
+    if lu is None:
         out["reason"] = "aucun battement — la boucle n'a jamais tourné"
         return out
 
     try:
-        b = json.loads(f.read_text(encoding="utf-8"))
-        battu = datetime.fromisoformat(b["at"])
-        age = (datetime.now(timezone.utc) - battu).total_seconds()
-        limite = float(b.get("intervalle", 60)) * TOLERANCE_BATTEMENT
+        b, age, limite = lu
         out.update(
             last_beat=b["at"], age_s=round(age, 1),
             stats=b.get("stats", {}), equity=b.get("equity"),
@@ -584,10 +598,10 @@ def cortex() -> dict:
 def macro() -> dict:
     """Verdict macro courant, en jauges affichables — ne lève jamais.
 
-    Le bloc est DÉJÀ normalisé par ``titanium.macro.telemetry`` : l'interface
-    n'a pas à lire de texte ni à interpréter un état. Une configuration
-    illisible devient ici un bloc rouge visible, jamais un tableau de bord
-    silencieusement optimiste.
+    Le bloc est DÉJÀ normalisé par ``titanium.macro`` : l'interface n'a pas à
+    lire de texte ni à interpréter un état. Une configuration illisible devient
+    ici un bloc rouge visible, jamais un tableau de bord silencieusement
+    optimiste.
 
     **Ordre de lecture.** D'abord ce que la BOUCLE ARMÉE a publié dans son
     battement : c'est le seul verdict qui décide, puisque c'est le sien. À
@@ -595,28 +609,20 @@ def macro() -> dict:
     reste alors lisible même si la boucle ne tourne pas, et il le DIT
     (``source``), pour qu'on ne prenne pas un verdict local pour le sien.
     """
-    publié = _macro_publie()
-    if publié is not None:
-        return publié
+    publie = _macro_publie()
+    if publie is not None:
+        return publie
 
     try:
-        from titanium.macro import get_cache, load_policy, macro_risk
-        from titanium.macro.telemetry import macro_telemetry
+        from titanium.macro import macro_bloc_indisponible, macro_publication
 
-        politique = load_policy()
-        cache = get_cache()
-        bloc = macro_telemetry(
-            macro_risk(policy=politique, cache=cache), policy=politique, view=cache.view()
-        )
-        bloc["source"] = "processus"
+        bloc = macro_publication()
     except Exception as exc:  # noqa: BLE001 — une sonde ne noircit pas le tableau
-        return {"disponible": False, "enabled": False, "state": "UNKNOWN",
-                "label": "Inconnu", "severity": "crit", "allows_new_risk": False,
-                "score_pct": 100, "freshness_pct": 0, "imminence_pct": 0,
-                "reasons": ["flux macro illisible"], "source": "processus",
-                "error": f"{type(exc).__name__}: {exc}"}
-    bloc["disponible"] = True
-    bloc["enabled"] = politique.enabled
+        from titanium.macro import macro_bloc_indisponible
+
+        return {**macro_bloc_indisponible(f"{type(exc).__name__}: {exc}"),
+                "source": "processus"}
+    bloc["source"] = "processus"
     return bloc
 
 
@@ -627,16 +633,21 @@ def _macro_publie() -> dict | None:
     ``loop()`` relit. Rien de nouveau à surveiller, donc : si le battement est
     vieux, ``loop()`` le dit déjà, et la fraîcheur du calendrier est portée par
     le bloc lui-même.
+
+    Un bloc périmé est RENDU tel quel, jamais retiré : il porte son propre âge
+    et sa sévérité. Le remplacer par un verdict local ferait afficher « calme »
+    à l'instant précis où la boucle ne dit plus rien.
     """
     try:
-        brut = _config()
-        battement = Path(brut.get("results_dir", "results")).parent / "loop_heartbeat.json"
-        if not battement.is_file():
+        lu = _battement()
+        if lu is None:
             return None
-        publie = json.loads(battement.read_text(encoding="utf-8")).get("macro")
+        publie = lu[0].get("macro")
         if not isinstance(publie, dict) or not publie:
             return None
-        return {**publie, "disponible": True, "source": "boucle"}
+        age, limite = round(lu[1], 1), round(lu[2], 1)
+        return {**publie, "disponible": True, "source": "boucle",
+                "publie_age_s": age, "perime": age > limite}
     except Exception:  # noqa: BLE001 — un battement illisible n'est pas un verdict
         return None
 

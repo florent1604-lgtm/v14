@@ -80,11 +80,38 @@ class MacroFeed:
             if self._stop.is_set():
                 break
             try:
-                await asyncio.wait_for(self._sleep(self._delai_suivant()), timeout=None)
+                await self._attendre(self._delai_suivant())
             except asyncio.CancelledError:
                 raise
 
+    async def _attendre(self, delai_s: float) -> None:
+        """Dort ``delai_s``, ou jusqu'a l'arret — le premier des deux.
+
+        La difference n'est pas cosmetique. Avec un simple ``await sleep``,
+        ``stop()`` ne prendrait effet qu'au reveil naturel : jusqu'a
+        ``max_backoff_s``, soit une heure, et l'arret du processus traînerait
+        d'autant. Courir les deux taches borne l'arret a la latence d'un
+        reveil d'evenement.
+        """
+        boucle = asyncio.get_running_loop()
+        sommeil = boucle.create_task(self._sleep(max(0.0, float(delai_s))))
+        reveil = boucle.create_task(self._stop.wait())  # type: ignore[union-attr]
+        try:
+            faites, _ = await asyncio.wait(
+                {sommeil, reveil}, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            for tache in (sommeil, reveil):
+                if not tache.done():
+                    tache.cancel()
+            # Consomme les annulations : une tache annulee jamais attendue
+            # laisserait un avertissement a la fermeture de la boucle.
+            await asyncio.gather(sommeil, reveil, return_exceptions=True)
+        for tache in faites:  # une exception du sommeil se propage ici
+            tache.result()
+
     def stop(self) -> None:
+        """Demande l'arret. Depuis un autre fil, passer par ``MacroService``."""
         if self._stop is not None:
             self._stop.set()
 

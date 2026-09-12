@@ -464,6 +464,7 @@ def test_passage_cloture_apres_deux_peurs_glm_distinctes(tmp_path):
         "ticket": "1",
         "state": "FEAR",
         "confidence": 0.91,
+        "observed_at": datetime.now(timezone.utc).isoformat(),
         "rendered_at": datetime.now(timezone.utc).isoformat(),
         "model_version": CORTEX_DECISION_MODEL_VERSION,
     }) + "\n", encoding="utf-8")
@@ -480,6 +481,32 @@ def test_passage_cloture_apres_deux_peurs_glm_distinctes(tmp_path):
     assert r["exit_sent"] == 1
     assert m.envois[0]["comment"] == "titanium-v14-fear-exit"
     assert "sl" not in m.envois[0] and "tp" not in m.envois[0]
+
+
+def test_ancien_snapshot_de_peur_ne_declenche_aucune_sortie(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    from titanium.organism.contracts import CORTEX_DECISION_MODEL_VERSION
+
+    now = datetime.now(timezone.utc)
+    state_path = tmp_path / "state.json"
+    verdict_path = tmp_path / "verdicts.ndjson"
+    save_state(state_path, {"1": etat(sentiment_ref="fear-1", fear_streak=1)})
+    verdict_path.write_text(json.dumps({
+        "request_ref": "fear-2", "ticket": "1", "state": "FEAR", "confidence": 0.91,
+        "observed_at": (now - timedelta(seconds=500)).isoformat(),
+        "rendered_at": now.isoformat(), "model_version": CORTEX_DECISION_MODEL_VERSION,
+    }) + "\n", encoding="utf-8")
+    broker = FakeMt5(positions=(FakePos(current=1.0950),))
+    result = manage_once(
+        broker, policy=ARMEE, params=P, state_path=state_path, account=compte_demo(),
+        manage_stops=False, manage_trailing=False, manage_exits=True,
+        sentiment_request_path=tmp_path / "requests.ndjson",
+        sentiment_verdict_path=verdict_path,
+    )
+    assert result["fear_exit_sent"] == 0
+    assert broker.envois == []
+    assert load_state(state_path)["1"].fear_streak == 0
 
 
 def test_observation_continue_de_memoriser_le_pic_sans_ordre(tmp_path):

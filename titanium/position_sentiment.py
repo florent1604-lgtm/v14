@@ -25,7 +25,7 @@ def _utc(value: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            return None
         return parsed.astimezone(timezone.utc)
     except (TypeError, ValueError):
         return None
@@ -124,7 +124,7 @@ def pending_reviews(request_path: Path, verdict_path: Path, *, limit: int = 8,
         observed = _utc(str(row.get("observed_at", "")))
         if not ref or not ticket or ref in rendered or observed is None:
             continue
-        if (current - observed).total_seconds() > max_age_s:
+        if not 0 <= (current - observed).total_seconds() <= max_age_s:
             continue
         latest[ticket] = row
     never = datetime.min.replace(tzinfo=timezone.utc)
@@ -179,9 +179,17 @@ def confirm_fear(verdict: dict[str, Any] | None, *, last_ref: str,
         confidence = 0.0
     rendered = _utc(str(verdict.get("rendered_at", "")))
     current = now or datetime.now(timezone.utc)
-    if rendered is None or abs((current - rendered).total_seconds()) > max_age_s:
+    if rendered is None or not 0 <= (current - rendered).total_seconds() <= max_age_s:
         return FearConfirmation(state=state, confidence=confidence, streak=0,
                                 last_ref=ref, reason="VERDICT_PERIME")
+    # Le calcul ne rafraichit pas les faits : l'age inclut l'attente des lots
+    # et la latence du fournisseur. Un ancien verdict sans date source attend
+    # un nouvel instantane, jamais une migration qui inventerait sa fraicheur.
+    observed = _utc(str(verdict.get("observed_at", "")))
+    if (observed is None or observed > rendered
+            or not 0 <= (current - observed).total_seconds() <= max_age_s):
+        return FearConfirmation(state=state, confidence=confidence, streak=0,
+                                last_ref=ref, reason="INSTANTANE_PERIME_OU_INVALIDE")
     if str(verdict.get("model_version", "")) != CORTEX_DECISION_MODEL_VERSION:
         return FearConfirmation(state=state, confidence=confidence, streak=0,
                                 last_ref=ref, reason="MODELE_INATTENDU")

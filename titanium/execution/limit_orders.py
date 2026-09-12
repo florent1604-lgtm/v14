@@ -189,7 +189,10 @@ def place_limit_order(symbol: str, side: int, risk_money: float,
             r.acknowledged_at = datetime.now(timezone.utc).isoformat()
             if res is None:
                 r.reason = "ORDER_SEND_NUL"
-                r._add("send", False, f"last_error={mt5.last_error()}")
+                error = mt5.last_error()
+                if isinstance(error, (tuple, list)) and error and type(error[0]) is int:
+                    r.terminal_error_code = error[0]
+                r._add("send", False, f"last_error={error}")
                 return r
 
             r.retcode = int(res.retcode)

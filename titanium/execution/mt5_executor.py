@@ -42,7 +42,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from titanium.data.mt5_vendor import SymbolSpec, ensure_symbol, mt5_session, account_snapshot
+from titanium.data.mt5_vendor import SymbolSpec, account_snapshot, ensure_symbol, mt5_session
 
 # Codes de refus — stables, journalisables, testables.
 WALL_DISARMED = "EXEC_DISARMED"
@@ -88,7 +88,7 @@ class ExecutionPolicy:
     REAL_ACCOUNT_PHRASE = "I_UNDERSTAND_THIS_IS_REAL_MONEY"
 
     @classmethod
-    def from_config(cls, config: dict | None = None) -> "ExecutionPolicy":
+    def from_config(cls, config: dict | None = None) -> ExecutionPolicy:
         """Construit la politique depuis LA config de V14 (`DEFAULT_CONFIG`).
 
         Une seule source de vérité : les variables ``TITANIUM_*`` du `.env` sont
@@ -153,6 +153,7 @@ class OrderResult:
     acknowledged_at: str = ""
     trace_id: str = ""
     trace_state: str = ""
+    terminal_error_code: int | None = None
 
     def _add(self, gate: str, passed: bool, detail: str = "") -> None:
         self.checks.append({"gate": gate, "passed": bool(passed), "detail": detail})
@@ -407,7 +408,10 @@ def place_market_order(symbol: str, side: int, risk_money: float,
 
             if res is None:
                 r.reason = "ORDER_SEND_NUL"
-                r._add("send", False, f"last_error={mt5.last_error()}")
+                error = mt5.last_error()
+                if isinstance(error, (tuple, list)) and error and type(error[0]) is int:
+                    r.terminal_error_code = error[0]
+                r._add("send", False, f"last_error={error}")
                 return r
 
             r.retcode = int(res.retcode)

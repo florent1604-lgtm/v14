@@ -40,15 +40,15 @@ def compte(trade_mode=0, login=DEMO_LOGIN, server="Axi-US50-Demo") -> AccountSna
 
 
 def spec(**over) -> SymbolSpec:
-    base = dict(name="EURUSD", digits=5, point=1e-5, volume_min=0.01,
-                volume_max=100.0, volume_step=0.01, trade_contract_size=100_000.0,
-                spread=12, tick_value=1.0, tick_size=1e-5)
+    base = {"name": "EURUSD", "digits": 5, "point": 1e-5, "volume_min": 0.01,
+                "volume_max": 100.0, "volume_step": 0.01, "trade_contract_size": 100_000.0,
+                "spread": 12, "tick_value": 1.0, "tick_size": 1e-5}
     base.update(over)
     return SymbolSpec(**base)
 
 
 def armee(**over) -> ExecutionPolicy:
-    base = dict(enabled=True, expected_demo_login=DEMO_LOGIN)
+    base = {"enabled": True, "expected_demo_login": DEMO_LOGIN}
     base.update(over)
     return ExecutionPolicy(**base)
 
@@ -258,9 +258,9 @@ class FakeMt5:
         self.requetes = []
 
     def symbol_info(self, s):
-        class I:
+        class SymbolInfo:
             filling_mode = self._filling
-        return I()
+        return SymbolInfo()
 
     def symbol_info_tick(self, s):
         if not self._tick:
@@ -310,6 +310,16 @@ def test_ordre_nominal(terminal):
     assert req["sl"] == pytest.approx(1.0952)   # ask 1.1002 − 0.005
     assert req["tp"] == pytest.approx(1.1102)   # ask 1.1002 + 0.010
     assert req["magic"] == 14_000
+
+
+def test_terminal_error_code_survives_missing_ack(terminal, monkeypatch):
+    m = terminal()
+    monkeypatch.setattr(m, "order_send", lambda request: None)
+    monkeypatch.setattr(m, "last_error", lambda: (-2, "invalid parameters"))
+    result = place_market_order("EURUSD", 1, 100., .005, policy=armee())
+    assert result.reason == "ORDER_SEND_NUL"
+    assert result.request_attempted and not result.sent
+    assert result.terminal_error_code == -2
 
 
 def test_partial_fill_is_exposure_not_rejection(terminal):
@@ -432,7 +442,7 @@ def test_cle_non_memorisee_si_lordre_echoue(terminal):
     """Un ordre refusé doit pouvoir être retenté sous la même clé."""
     terminal(mt5=FakeMt5(retcode=10016))
     place_market_order("EURUSD", 1, 100.0, 0.005, policy=armee(), idempotency_key="k")
-    m = terminal(mt5=FakeMt5(retcode=10009))
+    terminal(mt5=FakeMt5(retcode=10009))
     r = place_market_order("EURUSD", 1, 100.0, 0.005, policy=armee(), idempotency_key="k")
     assert r.sent is True
 

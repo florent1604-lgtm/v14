@@ -22,11 +22,11 @@ from titanium.execution.position_manager import TrackedState, load_state, save_s
 
 
 def spec(**over) -> SymbolSpec:
-    base = dict(
-        name="EURUSD", digits=5, point=1e-5, volume_min=0.01,
-        volume_max=100.0, volume_step=0.01, trade_contract_size=100_000.0,
-        spread=20, tick_value=1.0, tick_size=1e-5,
-    )
+    base = {
+        "name": "EURUSD", "digits": 5, "point": 1e-5, "volume_min": 0.01,
+        "volume_max": 100.0, "volume_step": 0.01, "trade_contract_size": 100_000.0,
+        "spread": 20, "tick_value": 1.0, "tick_size": 1e-5,
+    }
     base.update(over)
     return SymbolSpec(**base)
 
@@ -105,6 +105,16 @@ def test_plan_buy_limit_reste_passif_et_capture_le_spread():
     assert plan.saving_vs_market == pytest.approx(0.0002)
     assert plan.spread_r == pytest.approx(0.04)
     assert plan.ttl_seconds == 600
+
+
+def test_limit_missing_ack_keeps_terminal_code(monkeypatch):
+    terminal = install(monkeypatch)
+    monkeypatch.setattr(terminal, "order_send", lambda request: None)
+    monkeypatch.setattr(terminal, "last_error", lambda: (-2, "invalid parameters"))
+    result = place_limit_order("EURUSD", 1, 100., .005, policy=policy())
+    assert result.reason == "ORDER_SEND_NUL"
+    assert result.request_attempted and not result.sent
+    assert result.terminal_error_code == -2
 
 
 def test_plan_spread_couteux_exige_un_prix_meilleur_et_expire_vite():

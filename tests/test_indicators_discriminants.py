@@ -20,7 +20,6 @@ import pytest
 
 from titanium.analysis.discriminants import (
     DELTA_NEGLIGEABLE,
-    MIN_PAR_GROUPE,
     analyser,
     cliff_delta,
     depuis_journal,

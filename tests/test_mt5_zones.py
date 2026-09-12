@@ -24,7 +24,9 @@ class TestMultiSymboles:
 
     def test_blocs_separes(self, tmp_path):
         from titanium.bridge.mt5_zones import (
-            NOM_FICHIER, SEPARATEUR, ecrire_multi,
+            NOM_FICHIER,
+            SEPARATEUR,
+            ecrire_multi,
         )
         ecrire_multi([self._charge(s) for s in ("EURUSD", "XAUUSD")], tmp_path)
         txt = (tmp_path / NOM_FICHIER).read_text(encoding="utf-8")
@@ -35,7 +37,9 @@ class TestMultiSymboles:
         import json
 
         from titanium.bridge.mt5_zones import (
-            NOM_FICHIER, SEPARATEUR, ecrire_multi,
+            NOM_FICHIER,
+            SEPARATEUR,
+            ecrire_multi,
         )
         ecrire_multi([self._charge(s) for s in ("EURUSD", "XAUUSD")], tmp_path)
         txt = (tmp_path / NOM_FICHIER).read_text(encoding="utf-8")
@@ -46,7 +50,9 @@ class TestMultiSymboles:
         """Si le séparateur pouvait apparaître dans un bloc, la découpe
         couperait au milieu d'un objet."""
         from titanium.bridge.mt5_zones import (
-            NOM_FICHIER, SEPARATEUR, ecrire_multi,
+            NOM_FICHIER,
+            SEPARATEUR,
+            ecrire_multi,
         )
         c = self._charge("EURUSD")
         c.note = "===TITANIUM=== injecté"
@@ -61,7 +67,9 @@ class TestMultiSymboles:
         import json
 
         from titanium.bridge.mt5_zones import (
-            NOM_FICHIER, SEPARATEUR, ecrire_multi,
+            NOM_FICHIER,
+            SEPARATEUR,
+            ecrire_multi,
         )
         ecrire_multi([self._charge(s) for s in ("A", "B", "C")], tmp_path)
         txt = (tmp_path / NOM_FICHIER).read_text(encoding="utf-8")
@@ -110,7 +118,9 @@ class TestMultiSymboles:
     def test_le_marqueur_survit_a_la_lecture_ligne_a_ligne(self, tmp_path):
         """Simule la lecture MQL5 : lignes concaténées sans fin de ligne."""
         from titanium.bridge.mt5_zones import (
-            MARQUEUR, NOM_FICHIER, ecrire_multi,
+            MARQUEUR,
+            NOM_FICHIER,
+            ecrire_multi,
         )
         ecrire_multi([self._charge(s) for s in ("EURUSD", "XAUUSD")], tmp_path)
         brut = (tmp_path / NOM_FICHIER).read_text(encoding="utf-8")

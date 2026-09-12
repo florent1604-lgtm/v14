@@ -35,7 +35,12 @@ RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 from titanium.selection import (  # noqa: E402
-    FORCES, RANG_A, RANG_B, RANG_C, Fiche, ecrire,
+    FORCES,
+    RANG_A,
+    RANG_B,
+    RANG_C,
+    Fiche,
+    ecrire,
 )
 
 SORTIE = RACINE / "results" / "selection_actifs.json"
@@ -153,7 +158,7 @@ def main() -> int:
                         (RANG_C, "1 tour / 10", 300)):
         print(f"  {r:3} {len(rangs[r]):>4}  {cad:<14} {bar} barres")
 
-    print(f"\nRang A — espérance positive ET stable sur ≥2 segments :")
+    print("\nRang A — espérance positive ET stable sur ≥2 segments :")
     for f in rangs[RANG_A][:20]:
         print(f"  {f.symbol:12} {f.classe:8} {f.motif}")
 

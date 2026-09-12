@@ -22,6 +22,7 @@ def verdict(ref: str, state: str = "FEAR", confidence: float = 0.9,
         "state": state,
         "confidence": confidence,
         "rendered_at": rendered_at.isoformat(),
+        "observed_at": rendered_at.isoformat(),
         "model_version": CORTEX_DECISION_MODEL_VERSION,
     }
 

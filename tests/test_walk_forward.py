@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
-from titanium.backtest import Resultat, Trade
 from titanium.analysis.walk_forward import analyser_resultat, ecrire_rapport
+from titanium.backtest import Resultat, Trade
 from tools.walk_forward import build_parser
 
 

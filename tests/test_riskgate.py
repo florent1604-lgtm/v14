@@ -33,14 +33,14 @@ from titanium.risk.riskgate import (
 
 def inp(**overrides) -> RiskInput:
     """Une entrée saine : long, données valides, aucun véto, confiance pleine."""
-    base = dict(
-        side=1, price=100.0, atr=2.0, equity=10_000.0, risk_pct=1.0,
-        halted=False, circuit_breaker=False,
-        fundamentals_block=False, fundamentals_reduce=False,
-        trend=1, gross_exposure_pct=0.0,
-        emotion_available=True, emotion_would_block=False,
-        confidence=1.0, timeframe="H4", roundtrip_cost=0.8,
-    )
+    base = {
+        "side": 1, "price": 100.0, "atr": 2.0, "equity": 10_000.0, "risk_pct": 1.0,
+        "halted": False, "circuit_breaker": False,
+        "fundamentals_block": False, "fundamentals_reduce": False,
+        "trend": 1, "gross_exposure_pct": 0.0,
+        "emotion_available": True, "emotion_would_block": False,
+        "confidence": 1.0, "timeframe": "H4", "roundtrip_cost": 0.8,
+    }
     base.update(overrides)
     return RiskInput(**base)
 

@@ -16,7 +16,6 @@ from pathlib import Path
 
 from titanium.collab_tasks import snapshot as tasks_snapshot
 
-
 RACINE = Path(__file__).resolve().parent.parent.parent
 V12 = Path(os.environ.get("TITANIUM_V12_ROOT", RACINE.parent / "v12"))
 BUS_STREAM = V12 / "collab" / "messages" / "stream.ndjson"

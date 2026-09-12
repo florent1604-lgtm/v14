@@ -24,10 +24,15 @@ from typing import Any
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-from titanium.microstructure import FRESHNESS_MS, VenueSnapshot, aggregate_snapshots  # noqa: E402
+from titanium.microstructure import (  # noqa: E402
+    COLLECTOR_INTERVAL_MS,
+    FRESHNESS_MS,
+    VenueSnapshot,
+    aggregate_snapshots,
+)
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
-INTERVAL_S = 5.0
+INTERVAL_S = COLLECTOR_INTERVAL_MS / 1_000.0
 DEPTH = 25
 TRADE_LIMIT = 100
 OUTPUT = RACINE / "results" / "microstructure"

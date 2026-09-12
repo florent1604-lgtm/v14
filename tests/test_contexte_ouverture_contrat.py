@@ -52,7 +52,7 @@ def test_toute_cle_de_stratification_est_acceptee_par_trackedstate():
 
 
 def test_trackedstate_se_construit_avec_la_stratification_complete():
-    valeurs = {c: "" for c in _cles_de_stratification()}
+    valeurs = dict.fromkeys(_cles_de_stratification(), "")
     valeurs.update(quorum=2, support_pillars=3)
     etat = TrackedState(r=0.005, symbol="EURUSD", side=1, **valeurs)
     assert TrackedState.from_dict(etat.to_dict()) == etat

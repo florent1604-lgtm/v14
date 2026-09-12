@@ -37,6 +37,7 @@ import sys
 import threading
 import time
 from collections import deque
+from contextlib import suppress
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -646,10 +647,8 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is not None:
-        try:
+        with suppress(OSError, ValueError):
             reconfigure(encoding="utf-8", errors="replace")
-        except (OSError, ValueError):
-            pass
 
     # ThreadingHTTPServer est obligatoire : un serveur mono-thread serait
     # entièrement bloqué par le premier client SSE, qui ne raccroche jamais.

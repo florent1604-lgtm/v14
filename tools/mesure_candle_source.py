@@ -32,15 +32,14 @@ import json
 import math
 import sys
 from collections import defaultdict
+from contextlib import suppress
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-try:
+with suppress(AttributeError, ValueError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except (AttributeError, ValueError):  # pragma: no cover
-    pass
 
 JOURNAL = RACINE / "results" / "trades.ndjson"
 
@@ -133,7 +132,7 @@ def rapport(trades: list[dict]) -> str:
     if formes["n"] < N_MINIMAL or depl["n"] < N_MINIMAL:
         manque_f = max(0, N_MINIMAL - formes["n"])
         manque_d = max(0, N_MINIMAL - depl["n"])
-        w(f"  AUCUN VERDICT — échantillon insuffisant.")
+        w("  AUCUN VERDICT — échantillon insuffisant.")
         w(f"  Il manque {manque_f} clôture(s) « formes » et {manque_d} "
           f"« displacement » pour atteindre {N_MINIMAL} par branche.")
         w("")

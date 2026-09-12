@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
-import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -179,12 +178,12 @@ def main():
 
     state = load_state()
 
-    print(f"V14 Collab Worker")
+    print("V14 Collab Worker")
     print(f"  Hub : {HUB_HOST}:{HUB_PORT}")
     print(f"  Intervalle : {args.interval}s")
     print(f"  Notifications : {NOTIF_DIR}")
     print(f"  Dernier offset : {state['last_offset']}")
-    print(f"  Cout tokens : 0 (pur HTTP, aucun LLM)")
+    print("  Cout tokens : 0 (pur HTTP, aucun LLM)")
     print()
 
     if args.once:

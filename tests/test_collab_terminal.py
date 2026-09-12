@@ -1,25 +1,22 @@
 """Tests du V14 Collab Terminal v2."""
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 import pytest
 
-RACINE = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(RACINE))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.collab_terminal.server import (
-    _compute_task_scores,
     _agent_performance,
-    _validation_matrix,
-    _read_chat,
     _append_chat,
+    _compute_task_scores,
+    _read_chat,
     _redact,
+    _validation_matrix,
     api_full_state,
     dispatch_message,
-    AGENTS,
 )
 
 

@@ -21,12 +21,12 @@ from tools import rejeu_breakeven as rb
 
 
 def _trade(**kw) -> rb.Trade:
-    base = dict(
-        symbol="TEST", side=1, entry=100.0, sl_initial=99.0,
-        tp_initial=103.0, r_unit=1.0,
-        ts_open=datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc),
-        ts_exit=datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc),
-        pnl_r=0.0, mae_r=0.0, mfe_r=0.0, exit_reason="", context="")
+    base = {
+        "symbol": "TEST", "side": 1, "entry": 100.0, "sl_initial": 99.0,
+        "tp_initial": 103.0, "r_unit": 1.0,
+        "ts_open": datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc),
+        "ts_exit": datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc),
+        "pnl_r": 0.0, "mae_r": 0.0, "mfe_r": 0.0, "exit_reason": "", "context": ""}
     base.update(kw)
     return rb.Trade(**base)
 

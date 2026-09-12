@@ -286,8 +286,7 @@ def test_chaque_porte_est_tracee():
 def test_le_rank_ne_decide_jamais():
     """Un rank élevé ne rattrape pas un pilier manquant en prod."""
     fort = feats(fair_value=False, liquidity=0,
-                 strengths={k: 10.0 for k in
-                            ["trend_sr", "fair_value", "liquidity", "ote_ob", "candle_confirmed"]})
+                 strengths=dict.fromkeys(["trend_sr", "fair_value", "liquidity", "ote_ob", "candle_confirmed"], 10.0))
     assert evaluate(fort, require_edge=True, decided_at=FIXED_AT).verdict == "BLOCK"
 
 

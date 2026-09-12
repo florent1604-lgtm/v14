@@ -20,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def main() -> int:
     try:
-        from titanium.execution.mt5_executor import ExecutionPolicy
         from titanium.data.mt5_vendor import account_snapshot
+        from titanium.execution.mt5_executor import ExecutionPolicy
 
         c = account_snapshot()
         attendu = ExecutionPolicy.from_config().expected_demo_login

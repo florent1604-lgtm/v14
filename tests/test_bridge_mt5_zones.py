@@ -46,11 +46,11 @@ def bougies(n=400, freq="15min") -> pd.DataFrame:
 
 
 def charge(**over) -> ZonePayload:
-    base = dict(symbol="EURUSD", timeframe="M15", verdict="ENTER",
-                code="ENTER_CONFLUENCE",
-                pillars=[{"name": f"g{i}", "passed": i < 4} for i in range(6)],
-                zones=[Zone("sr", 1.1495, 1.1509, "support", 1.0)],
-                plan=Plan(side=1, entry=1.1523, sl=1.1495, tp=1.1579))
+    base = {"symbol": "EURUSD", "timeframe": "M15", "verdict": "ENTER",
+                "code": "ENTER_CONFLUENCE",
+                "pillars": [{"name": f"g{i}", "passed": i < 4} for i in range(6)],
+                "zones": [Zone("sr", 1.1495, 1.1509, "support", 1.0)],
+                "plan": Plan(side=1, entry=1.1523, sl=1.1495, tp=1.1579)}
     base.update(over)
     return ZonePayload(**base)
 

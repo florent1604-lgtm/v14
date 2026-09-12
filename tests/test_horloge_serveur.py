@@ -80,10 +80,11 @@ def test_les_barres_sont_publiees_en_vrai_utc(monkeypatch):
     journal en vrai UTC produit des fenetres decalees. Un rejeu des trades
     clos ecartait 12 trades sur 37 faute d'intersection.
     """
+    from contextlib import contextmanager
+
     import numpy as np
 
     import titanium.data.mt5_vendor as vendor
-    from contextlib import contextmanager
 
     debut_serveur = int(datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc).timestamp())
     decalage = 3 * 3600
@@ -118,8 +119,9 @@ def test_les_barres_sont_publiees_en_vrai_utc(monkeypatch):
 
 def test_l_horloge_n_est_pas_remesuree_a_chaque_barre(monkeypatch):
     """Une mesure par barre lue paierait un appel MT5 sur le chemin critique."""
-    import titanium.data.mt5_vendor as vendor
     from contextlib import contextmanager
+
+    import titanium.data.mt5_vendor as vendor
 
     appels = {"n": 0}
 
@@ -145,8 +147,9 @@ def test_l_horloge_n_est_pas_remesuree_a_chaque_barre(monkeypatch):
 
 def test_une_horloge_illisible_laisse_les_barres_intactes(monkeypatch):
     """Terminal muet : mieux vaut un index non corrige qu'un index invente."""
-    import titanium.data.mt5_vendor as vendor
     from contextlib import contextmanager
+
+    import titanium.data.mt5_vendor as vendor
 
     @contextmanager
     def session():

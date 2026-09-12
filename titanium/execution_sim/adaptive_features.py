@@ -19,6 +19,11 @@ from typing import Any
 from titanium.execution_sim.models import ExecutionIntent
 from titanium.execution_sim.policies import PolicyContext
 
+# La regle de completude du bloc macro a UN seul proprietaire : la porte de
+# confluence et le contexte d'arrivee doivent refuser sur le meme critere, sinon
+# un bloc accepte par l'une serait refuse par l'autre sans que rien ne le dise.
+from titanium.macro.gate import MACRO_BLOCK_KEYS
+
 MAX_DECIMALES = 10
 
 
@@ -73,6 +78,12 @@ class AdaptiveFeatures:
     urgency_source: str
     baseline_spread_bps: float | None = None
     horizon_ms: int = 0
+    # ── Contexte macro. Valeurs NEUTRES par defaut : absentes, elles donnent
+    #    exactement le comportement d'avant l'arrivee du flux, ce qui rend la
+    #    non-regression de la matrice adaptative demontrable plutot que promise.
+    macro_allows_new_risk: bool = True
+    macro_conservative: bool = False
+    macro_score: float = 0.0
 
 
 def build_features(
@@ -125,6 +136,21 @@ def build_features(
     inventory = 0.0 if not fini(context.inventory) else float(context.inventory)
     inventory_ratio = inventory / max_inventory if max_inventory > 0 else 0.0
 
+    # ── Macro : refuse de planifier quand le calendrier interdit le risque neuf.
+    #    Un bloc PRESENT mais incomplet est traite comme un refus, jamais comme
+    #    un laissez-passer — c'est la meme regle qu'a la porte de confluence.
+    macro = getattr(context, "macro", None)
+    if macro is not None:
+        if not isinstance(macro, dict) or not MACRO_BLOCK_KEYS.issubset(macro):
+            return None
+        if macro.get("allows_new_risk") is not True:
+            return None
+    conservateur = bool(macro.get("conservative")) if isinstance(macro, dict) else False
+    try:
+        macro_score = float(macro.get("score") or 0.0) if isinstance(macro, dict) else 0.0
+    except (TypeError, ValueError):
+        return None
+
     metadata = dict(intent.metadata or {})
     urgency_declaree = metadata.get("urgency")
     if fini(urgency_declaree):
@@ -158,4 +184,8 @@ def build_features(
         urgency_source=urgency_source,
         baseline_spread_bps=baseline_spread_bps,
         horizon_ms=horizon_ms,
+        # Vrai par construction : on a rendu None ci-dessus sinon.
+        macro_allows_new_risk=True,
+        macro_conservative=conservateur,
+        macro_score=macro_score,
     )

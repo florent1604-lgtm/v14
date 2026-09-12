@@ -1956,6 +1956,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 feats = build_feats(
                     ltf_rates, htf_rates, with_indicators=False,
                     marche_continu=asset_class_of(sym) == "crypto",
+                    symbol=sym,
                 )
                 _marquer_echelle(feats, unite, haute)
             except Exception as exc:  # noqa: BLE001

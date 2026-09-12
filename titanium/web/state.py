@@ -581,6 +581,66 @@ def cortex() -> dict:
     return snapshot(root=RACINE)
 
 
+def macro() -> dict:
+    """Verdict macro courant, en jauges affichables — ne lève jamais.
+
+    Le bloc est DÉJÀ normalisé par ``titanium.macro.telemetry`` : l'interface
+    n'a pas à lire de texte ni à interpréter un état. Une configuration
+    illisible devient ici un bloc rouge visible, jamais un tableau de bord
+    silencieusement optimiste.
+
+    **Ordre de lecture.** D'abord ce que la BOUCLE ARMÉE a publié dans son
+    battement : c'est le seul verdict qui décide, puisque c'est le sien. À
+    défaut, on calcule ici sur le cache de ce processus — le tableau de bord
+    reste alors lisible même si la boucle ne tourne pas, et il le DIT
+    (``source``), pour qu'on ne prenne pas un verdict local pour le sien.
+    """
+    publié = _macro_publie()
+    if publié is not None:
+        return publié
+
+    try:
+        from titanium.macro import get_cache, load_policy, macro_risk
+        from titanium.macro.telemetry import macro_telemetry
+
+        politique = load_policy()
+        cache = get_cache()
+        bloc = macro_telemetry(
+            macro_risk(policy=politique, cache=cache), policy=politique, view=cache.view()
+        )
+        bloc["source"] = "processus"
+    except Exception as exc:  # noqa: BLE001 — une sonde ne noircit pas le tableau
+        return {"disponible": False, "enabled": False, "state": "UNKNOWN",
+                "label": "Inconnu", "severity": "crit", "allows_new_risk": False,
+                "score_pct": 100, "freshness_pct": 0, "imminence_pct": 0,
+                "reasons": ["flux macro illisible"], "source": "processus",
+                "error": f"{type(exc).__name__}: {exc}"}
+    bloc["disponible"] = True
+    bloc["enabled"] = politique.enabled
+    return bloc
+
+
+def _macro_publie() -> dict | None:
+    """Bloc macro publié par la boucle armée, ou ``None`` s'il est absent.
+
+    Le canal est le battement de cœur que la boucle écrit déjà — celui que
+    ``loop()`` relit. Rien de nouveau à surveiller, donc : si le battement est
+    vieux, ``loop()`` le dit déjà, et la fraîcheur du calendrier est portée par
+    le bloc lui-même.
+    """
+    try:
+        brut = _config()
+        battement = Path(brut.get("results_dir", "results")).parent / "loop_heartbeat.json"
+        if not battement.is_file():
+            return None
+        publie = json.loads(battement.read_text(encoding="utf-8")).get("macro")
+        if not isinstance(publie, dict) or not publie:
+            return None
+        return {**publie, "disponible": True, "source": "boucle"}
+    except Exception:  # noqa: BLE001 — un battement illisible n'est pas un verdict
+        return None
+
+
 def state() -> dict:
     """État complet. Chaque bloc est isolé : un échec n'en emporte pas d'autres."""
     return {
@@ -604,6 +664,7 @@ def state() -> dict:
             "status": "unknown", "label": "Hermes non mesure",
             "memory": {}, "refusals": {}, "communication": {},
         }),
+        "macro": _safe(macro, {"disponible": False, "severity": "crit"}),
     }
 
 
@@ -650,6 +711,7 @@ def scan(symboles: list[str] | None = None, *, prod: bool = False,
                 get_rates(sym, ltf, bars),
                 get_rates(sym, htf, bars),
                 marche_continu=asset_class_of(sym) == "crypto",
+                symbol=sym,
             )
         except Exception as exc:  # noqa: BLE001
             ligne.update(error=f"{type(exc).__name__}", verdict="—",
@@ -754,7 +816,7 @@ def chart(symbole: str, *, timeframe: str = "M15", barres: int = 180) -> dict:
                 "error": f"{sym} illisible — {type(derniere).__name__}. "
                          "MT5 est saturé par le balayage ; réessaie."}
 
-    feats = build_feats(ltf, htf, with_indicators=True)
+    feats = build_feats(ltf, htf, with_indicators=True, symbol=symbole)
     d = cg.evaluate(feats, require_edge=False)
     trace = feats.get("_trace") or {}
     prix = float(trace.get("price") or 0.0)

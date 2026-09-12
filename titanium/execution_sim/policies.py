@@ -17,6 +17,10 @@ class PolicyContext:
     tick_size: float
     historical_volumes: tuple[float, ...] = ()
     inventory: float = 0.0
+    #: Bloc macro (voir `titanium.macro.gate`), ou None. Ajoute en DERNIER avec
+    #: un defaut : toute construction positionnelle existante reste valide, donc
+    #: la matrice historique et ses 864 scenarios ne bougent pas d'un bit.
+    macro: dict[str, Any] | None = None
 
 
 class ExecutionPolicy:

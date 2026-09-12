@@ -39,7 +39,6 @@ elle ne rend AUCUN ordre. Voir ``adaptive_features.build_features``.
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from titanium.execution_sim.adaptive_base import AdaptiveTechnique
 from titanium.execution_sim.adaptive_features import MAX_DECIMALES, AdaptiveFeatures
@@ -762,10 +761,3 @@ ADAPTIVE_CATALOG: tuple[dict[str, str], ...] = tuple(
 AXE_DECLARE: dict[str, str] = {
     cls.name: cls.axis for cls in TECHNIQUES if cls.axis
 }
-
-
-def get_adaptive_technique(name: str, config: dict[str, Any] | None = None) -> AdaptiveTechnique:
-    try:
-        return ADAPTIVE_POLICY_REGISTRY[name](config)
-    except KeyError as exc:
-        raise ValueError(f"unknown adaptive technique: {name}") from exc

@@ -21,6 +21,7 @@ from titanium.execution_sim.adaptive import (
 )
 from titanium.execution_sim.adaptive_features import build_features
 from titanium.execution_sim.config import load_config
+from titanium.execution_sim.engine import BacktestExecutionEngine
 from titanium.execution_sim.models import (
     BookLevel,
     ExecutionIntent,
@@ -281,21 +282,105 @@ def test_l_urgence_declaree_prime_sur_le_defaut():
     assert derive.urgency == pytest.approx(0.9)
 
 
-def test_le_runner_ne_remplit_pas_plus_que_la_quantite_voulue():
+def _marbres(n=10, debut=100.0):
+    """Snapshots plats et liquides, communs aux DEUX entrees.
+
+    Un seul jeu pour le runner et pour le moteur : sinon, comparer les deux
+    entrees comparerait aussi deux marches differents.
+    """
+    return [
+        MarketSnapshot(
+            timestamp=NOW + timedelta(seconds=index),
+            symbol="SYNTH",
+            bid=debut + index * 0.01,
+            ask=debut + 0.02 + index * 0.01,
+            bid_levels=(BookLevel(debut + index * 0.01, 50.0),),
+            ask_levels=(BookLevel(debut + 0.02 + index * 0.01, 50.0),),
+            open=debut,
+            high=debut + 0.1,
+            low=debut - 0.1,
+            close=debut,
+            volume=500.0,
+            volatility_bps=6.0,
+            event_id=f"m{index}",
+        )
+        for index in range(n)
+    ]
+
+
+def test_aucune_entree_ne_remplit_plus_que_la_quantite_voulue():
     """Jamais de sur-remplissage, verifie sur la QUANTITE remplie, pas un ratio.
 
-    La version precedente n'assertait que ``0 <= fill_ratio <= 1``, vrai par
-    construction (``fill_ratio`` vaut ``min(1, rempli/voulu)``) : elle ne
-    pouvait pas detecter un sur-remplissage.
+    ``fill_ratio`` vaut ``min(1, rempli/voulu)`` (``metrics``) : affirmer
+    ``fill_ratio * voulu <= voulu`` est donc vrai par construction et ne peut
+    detecter AUCUN sur-remplissage. La porte porte ici sur
+    ``sum(order.filled_quantity)``, et couvre les deux entrees, le runner et le
+    moteur generique.
     """
     config = load_config()
-    scenarios = generate_scenarios(seed=14_082_026, quick=True)
-    for name in SEQUENTIAL_ADAPTIVE_POLICIES:
-        for scenario in scenarios:
-            voulu = 1.0 if scenario.size == "small" else 8.0
-            row = _run_case(name, scenario, config, 100_000.0)
-            rempli = row["fill_ratio"] * voulu
-            assert rempli <= voulu + 1e-9
+    total = 0.0
+    for name in sorted(SEQUENTIAL_ADAPTIVE_POLICIES):
+        for voulu in (1.0, 6.0, 9.0):
+            par_runner = executer_sur_snapshots(
+                name,
+                _marbres(),
+                intent(qty=voulu),
+                config=config,
+                seed=1,
+                latency_ms=10,
+                tick_size=0.01,
+            )
+            rempli = sum(order.filled_quantity for order in par_runner)
+            assert rempli <= voulu + 1e-9, f"{name}: runner {rempli} pour {voulu}"
+            par_moteur = BacktestExecutionEngine(policy=name, seed=1).execute(
+                intent(qty=voulu), _marbres(), tick_size=0.01
+            )
+            rempli_moteur = sum(order.filled_quantity for order in par_moteur)
+            assert rempli_moteur <= voulu + 1e-9, f"{name}: moteur {rempli_moteur} pour {voulu}"
+            total += rempli_moteur
+    # Sans cela, la porte passerait aussi sur un executeur qui ne remplit rien.
+    assert total > 0
+
+
+def test_les_deux_entrees_suivent_le_meme_ordonnancement():
+    """Une tranche differee ne se remplit pas avant son horaire, des deux cotes.
+
+    Le moteur generique remplissait chaque ordre des le PREMIER evenement : une
+    tranche programmee a t + 3 s s'executait a t0, et le meme plan rendait deux
+    resultats selon l'entree. Les deux passent desormais par le meme
+    proprietaire de l'ordonnancement.
+    """
+    config = load_config()
+    # La fenetre doit couvrir TOUT l'echange : un ordre programme au-dela du
+    # dernier evenement est ramene au dernier evenement disponible (borne de
+    # ``index_activation``), et la porte comparerait alors un remplissage a une
+    # activation hors fenetre. L'echeance par defaut dure 20 s par tranches de
+    # 6,7 s : 24 snapshots d'une seconde la contiennent.
+    jeux = _marbres(24)
+    par_runner = executer_sur_snapshots(
+        "adapt_deadline_ladder",
+        jeux,
+        intent(qty=6.0),
+        config=config,
+        seed=1,
+        latency_ms=0,
+        tick_size=0.01,
+    )
+    par_moteur = BacktestExecutionEngine(
+        policy="adapt_deadline_ladder",
+        policy_config={"slices": 3, "horizon_ms": 9_000},
+        seed=1,
+    ).execute(intent(qty=6.0), jeux, tick_size=0.01)
+    for entree, ordres in (("runner", par_runner), ("moteur", par_moteur)):
+        differes = [order for order in ordres if order.scheduled_offset_ms > 0]
+        assert differes, f"{entree}: aucun ordre differe, la porte ne prouverait rien"
+        for order in differes:
+            activation = jeux[0].timestamp + timedelta(milliseconds=order.scheduled_offset_ms)
+            for fill in order.fills:
+                assert fill.timestamp >= activation, (
+                    f"{entree}: ordre programme a {order.scheduled_offset_ms} ms "
+                    f"rempli a {fill.timestamp}, avant son activation {activation}"
+                )
 
 
 def test_le_moteur_generique_ne_sur_remplit_pas_non_plus():
@@ -306,8 +391,6 @@ def test_le_moteur_generique_ne_sur_remplit_pas_non_plus():
     runner la bornait deja. Le defaut etait invisible depuis le seul chemin
     teste jusqu'ici.
     """
-    from titanium.execution_sim.engine import BacktestExecutionEngine
-
     snapshots = [
         MarketSnapshot(
             timestamp=NOW + timedelta(seconds=index),

@@ -17,7 +17,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA = "v14.microstructure.v1"
-FRESHNESS_MS = 8_000.0
+# One collection begins every five seconds. The oldest of three venues can be
+# another 1-3 seconds behind, so three full cycles cover the measured p90/max
+# without accepting a stopped collector indefinitely.
+COLLECTOR_INTERVAL_MS = 5_000.0
+VENUE_FRESHNESS_MS = COLLECTOR_INTERVAL_MS + 3_000.0
+FRESHNESS_MS = 3 * COLLECTOR_INTERVAL_MS
 TRADE_WINDOW_MS = 60_000.0
 MIN_CONFIRMING_VENUES = 2
 ADVERSE_PRESSURE = 0.35
@@ -75,8 +80,8 @@ def aggregate_snapshots(snapshots: Iterable[VenueSnapshot], *,
         received = float(venue.received_ms)
         event = float(venue.event_ms)
         if (not math.isfinite(received) or not math.isfinite(event)
-                or not -1_000.0 <= now - received <= FRESHNESS_MS
-                or not -1_000.0 <= now - event <= FRESHNESS_MS
+                or not -1_000.0 <= now - received <= VENUE_FRESHNESS_MS
+                or not -1_000.0 <= now - event <= VENUE_FRESHNESS_MS
                 or venue.venue in seen):
             continue
         if valid and venue.symbol != valid[0][0].symbol:

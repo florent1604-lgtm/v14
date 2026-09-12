@@ -54,6 +54,13 @@ from titanium.execution.mt5_executor import (
     _pick_filling_mode,
     assert_can_trade,
 )
+from titanium.execution.weekend_flat import (
+    WeekendFlatDecision,
+    WeekendFlatParams,
+    decide_weekend_flat,
+    heure_serveur_mt5,
+    marche_cote,
+)
 
 PHASE_INIT = "init"
 PHASE_BREAKEVEN = "breakeven"
@@ -1321,14 +1328,16 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                 manage_trailing: bool = True,
                 manage_exits: bool = False,
                 sentiment_request_path: Path | None = None,
-                sentiment_verdict_path: Path | None = None) -> dict:
+                sentiment_verdict_path: Path | None = None,
+                weekend_flat: WeekendFlatParams | None = None) -> dict:
     """Un passage sur toutes NOS positions. Ne lève jamais.
 
     Returns:
         ``{"managed": n, "moved": n, "reason": str, "details": [...]}``
     """
     rapport = {"managed": 0, "moved": 0, "exit_sent": 0,
-               "fear_exit_sent": 0, "basket_exit_sent": 0, "sentiment": {},
+               "fear_exit_sent": 0, "basket_exit_sent": 0,
+               "weekend_exit_sent": 0, "sentiment": {},
                "reason": "", "details": []}
 
     # Le mur complet ne protège que la branche qui MODIFIE les stops. Le mode
@@ -1408,6 +1417,16 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
             decisions_panier[symbole] = decision_panier
             nouveaux_pics[symbole] = decision_panier.peak_r
 
+    # Horloge serveur lue UNE seule fois par passage. La relire position par
+    # position coûterait un appel terminal chacune et, si un tick tombait
+    # entre deux lectures, deux positions du même passage pourraient se voir
+    # de part et d'autre de la frontière du vendredi soir.
+    params_weekend = weekend_flat or WeekendFlatParams()
+    serveur_maintenant = (
+        heure_serveur_mt5(mt5)
+        if (manage_exits and params_weekend.actif) else None
+    )
+
     for pos in positions:
         if not _is_ours(pos, policy.magic):
             continue
@@ -1450,6 +1469,20 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                 st.history_missing_attempts = 0
 
             sortie = decide_adaptive_exit(snap, st, params)
+
+            # Mise à plat hors crypto avant la fermeture hebdomadaire : une
+            # position d'indice ou de FX portée jusqu'au dimanche soir ne
+            # travaille pas, son stop ne peut pas être géré, et le swap court.
+            from titanium.edge import asset_class_of
+            sortie_weekend = decide_weekend_flat(
+                asset_class_of(snap.symbol), serveur_maintenant, params_weekend,
+            )
+            # Un marché endormi n'accepte aucun ordre : insister ferait partir
+            # une demande refusée à chaque tour jusqu'à la réouverture.
+            if sortie_weekend.should_exit and not marche_cote(
+                    mt5, snap.symbol, serveur_maintenant):
+                sortie_weekend = WeekendFlatDecision(False, "MARCHE_FERME")
+
             peur_confirmee = False
             peur_ref = ""
             if sentiment_request_path is not None:
@@ -1512,11 +1545,15 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
 
             panier = decisions_panier.get(snap.symbol)
             sortie_panier = bool(panier is not None and panier.should_exit)
-            demande_sortie = sortie.should_exit or peur_confirmee or sortie_panier
+            demande_sortie = (sortie.should_exit or peur_confirmee
+                              or sortie_panier or sortie_weekend.should_exit)
             if manage_exits and demande_sortie:
+                # Le week-end prime : c'est le seul motif qui ne dépend pas de
+                # la trajectoire de la position et qu'attendre n'améliore pas.
                 motif = (
-                    "fear" if peur_confirmee
-                    else ("basket" if sortie_panier else "adaptive")
+                    "weekend" if sortie_weekend.should_exit
+                    else ("fear" if peur_confirmee
+                          else ("basket" if sortie_panier else "adaptive"))
                 )
                 res = _envoyer_sortie_adaptative(
                     mt5,
@@ -1530,7 +1567,15 @@ def manage_once(mt5, *, policy: ExecutionPolicy, params: ManageParams,
                 if res is not None and getattr(res, "retcode", None) in {
                         done, done_partial}:
                     rapport["exit_sent"] += 1
-                    if peur_confirmee:
+                    if sortie_weekend.should_exit:
+                        rapport["weekend_exit_sent"] += 1
+                        classe = asset_class_of(snap.symbol) or "classe inconnue"
+                        rapport["details"].append(
+                            f"{snap.symbol} #{snap.ticket}: mise à plat week-end "
+                            f"demandée ({classe}, serveur "
+                            f"{serveur_maintenant:%a %d/%m %H:%M})"
+                        )
+                    elif peur_confirmee:
                         st.fear_exit_sent_ref = peur_ref
                         rapport["fear_exit_sent"] += 1
                         rapport["details"].append(

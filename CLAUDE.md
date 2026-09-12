@@ -344,6 +344,58 @@ position en erreur n'interrompt pas la boucle · le mur s'applique aussi (gérer
 un SL est un ordre). Le pic favorable est un **cliquet** : il ne redescend
 jamais, sinon le trailing rendrait du gain déjà sécurisé.
 
+### Mise à plat hors crypto le week-end (12/09/2026)
+
+`titanium/execution/weekend_flat.py` + `MISE_A_PLAT_WEEKEND` dans
+`tools/live_demo.py`. Décision de Florent : **aucune position hors crypto ne
+passe le week-end, même perdante.**
+
+Le chiffre qui l'a déclenchée : `DAX40.fs` #108485347 portée du vendredi au
+samedi — **+6.38 EUR de gain brut contre −45.25 EUR de swap**. Le portage a
+rendu perdante une position gagnante, sur un marché fermé où le stop ne
+pouvait de toute façon pas être géré. Le coût du portage est certain ; le
+retour du prix ne l'est pas.
+
+Fenêtre par défaut, en **heure serveur** : vendredi 22:00 → lundi 01:00. Le
+début n'est pas collé à la fermeture (23:58 serveur) : les dernières minutes
+du vendredi sont les moins liquides de la semaine. 22:00 serveur = 15:00 à
+New York, séance pleine, spread normal.
+
+La crypto est **exemptée** — mesuré le 12/09 : 29 marchés ouverts sur 149, et
+les 29 sont des cryptos. La mettre à plat reviendrait à fermer le seul marché
+du week-end.
+
+Quatre points de conception, tous payés par un piège connu :
+
+1. **L'heure vient du serveur, et on la LIT au lieu de la calculer.** Un
+   calcul contre l'horloge locale décale de trois heures (Axi = GMT+3) et la
+   clôture partirait après la fermeture, donc jamais. Le tick d'un actif
+   continu porte déjà l'heure serveur. Estimer un *décalage* ne suffit pas :
+   `decalage_serveur` rend `0` quand la mesure échoue, et `0` est
+   indiscernable d'un serveur réellement en UTC.
+2. **Horloge illisible ⇒ aucune clôture. Classe inconnue ⇒ clôture.** Les
+   deux sens sont opposés et c'est délibéré : un ordre est irréversible, donc
+   on ne l'émet pas sur une horloge inconnue ; à l'inverse une crypto mal
+   classée serait reprise au tour suivant, quand un indice gardé par erreur
+   saigne 48 h sans gestion possible.
+3. **Un marché endormi n'est pas sollicité** (`marche_cote`, seuil 20 min
+   comme `sizing.RETARD_MAX_MIN`). Sans cette garde, une position hors crypto
+   encore ouverte le samedi ferait partir une demande refusée toutes les dix
+   secondes pendant trente-six heures — plus de douze mille ordres inutiles.
+4. **L'étage d'entrée refuse aussi** (`WEEKEND_FLAT` dans `refus_live`) :
+   rouvrir ce que la gestion vient de fermer paierait deux spreads pour rien.
+
+`decide_weekend_flat()` est **pure** — aucun MT5, aucun fichier, aucune
+horloge locale — comme `decide_new_sl`. L'I/O tient dans deux coquilles
+minces (`heure_serveur_mt5`, `marche_cote`). 39 tests, dont le câblage réel
+de `manage_once` : un `TRADE_ACTION_DEAL` doit partir, et son témoin marché-
+fermé ne doit rien envoyer.
+
+⚠️ `manage_once` est en risque **HIGH** au rayon d'explosion GitNexus
+(6 symboles impactés, 2 processus). La modification est additive — un
+paramètre optionnel et une quatrième source de sortie — mais toute évolution
+future de cette fonction touche la boucle armée.
+
 ### Orchestrateur — les trois règles en code
 
 ```

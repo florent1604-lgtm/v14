@@ -59,6 +59,11 @@ from titanium.execution.live_loss_guard import (  # noqa: E402
     persist_live_loss_quarantine,
 )
 from titanium.execution.micro_basket import required_improvement_r  # noqa: E402
+from titanium.execution.weekend_flat import (  # noqa: E402
+    WeekendFlatParams,
+    decide_weekend_flat,
+    heure_serveur_mt5,
+)
 from titanium.execution.policy_identity import (  # noqa: E402
     build_policy_identity,
     snapshot_code_identity,
@@ -104,6 +109,15 @@ INTERVALLE = 10.0        # s entre deux balayages
 MODIFIER_STOPS_EXISTANTS = True
 ACTIVER_TRAILING = False
 GERER_SORTIES_ADAPTATIVES = True
+
+#: Instruction opérateur du 12/09/2026 : aucune position hors crypto ne passe
+#: le week-end. Mesuré sur DAX40.fs #108485347 le 12/09 — +6.38 EUR de gain
+#: brut contre −45.25 EUR de swap : le portage a rendu perdante une position
+#: gagnante, sur un marché fermé où le stop ne pouvait pas être géré.
+#: La clôture part donc MÊME EN PERTE, le coût du portage étant certain quand
+#: le retour du prix ne l'est pas. La crypto est exemptée : elle cote seule le
+#: week-end. Fenêtre et garde-fous : `titanium/execution/weekend_flat.py`.
+MISE_A_PLAT_WEEKEND = True
 
 #: Actifs examinés PAR TOUR. Le catalogue est parcouru par rotation.
 #:
@@ -1766,6 +1780,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 manage_exits=GERER_SORTIES_ADAPTATIVES,
                 sentiment_request_path=POSITION_REVIEW_REQUESTS,
                 sentiment_verdict_path=POSITION_REVIEW_VERDICTS,
+                weekend_flat=WeekendFlatParams(actif=MISE_A_PLAT_WEEKEND),
             )
             stats["journal_coverage"] = _journal_coverage(
                 r.get("history_recovery"),
@@ -1784,6 +1799,9 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             stats["sorties_micro_panier"] = int(
                 stats.get("sorties_micro_panier", 0) or 0
             ) + int(r.get("basket_exit_sent", 0) or 0)
+            stats["sorties_weekend"] = int(
+                stats.get("sorties_weekend", 0) or 0
+            ) + int(r.get("weekend_exit_sent", 0) or 0)
             stats["sentiment_positions"] = dict(r.get("sentiment") or {})
             if deplaces or sorties:
                 print(
@@ -1893,6 +1911,21 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     from titanium.echelle import cout_relatif_stop
     from titanium.gates import confluence_gate as _cg
     from titanium.selection import barres_pour
+
+    # Horloge serveur du tour, pour la fenêtre de mise à plat. Lue une seule
+    # fois : elle sert à refuser les entrées hors crypto pendant que la
+    # gestion ferme les positions correspondantes. Rouvrir ce que l'autre
+    # étage vient de fermer paierait deux spreads pour rien.
+    serveur_weekend = None
+    if MISE_A_PLAT_WEEKEND:
+        try:
+            import MetaTrader5 as _mt5_horloge  # noqa: N813
+
+            from titanium.data.mt5_vendor import mt5_lock, mt5_session
+            with mt5_lock, mt5_session():
+                serveur_weekend = heure_serveur_mt5(_mt5_horloge)
+        except Exception:  # noqa: BLE001 — dater ne casse jamais un tour
+            serveur_weekend = None
 
     candidats = []
     for sym in tradables:
@@ -2026,6 +2059,21 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         #    suspension des shorts : quand tout le FX est écarté, le motif
         #    rendu doit être le vrai, sinon le journal raconte une décision qui
         #    n'a pas eu lieu.
+        # ── Fenêtre de mise à plat week-end. Placée AVANT les autres
+        # suspensions : pendant que la gestion ferme les positions hors
+        # crypto, l'étage d'entrée ne doit pas en rouvrir une.
+        if MISE_A_PLAT_WEEKEND:
+            from titanium.edge import asset_class_of as _classe
+
+            _wk = decide_weekend_flat(_classe(sym), serveur_weekend)
+            if _wk.should_exit:
+                _refus(stats, "WEEKEND_FLAT", sym,
+                       "hors crypto pendant la fenetre de mise a plat",
+                       side=int(getattr(out, "side", 0) or 0))
+                print(f"    {sym:8} ENTER ignoré — mise à plat week-end "
+                      f"(hors crypto)", flush=True)
+                continue
+
         if FX_SUSPENDU:
             from titanium.edge import asset_class_of as _classe
 

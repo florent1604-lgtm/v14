@@ -70,11 +70,8 @@ from titanium.organism.market_jepa import (  # noqa: E402
 )
 from tools.console_output import configure_console_output  # noqa: E402
 
-#: Cohorte DEMO explicitement autorisee le 10/09/2026 pour mesurer le moteur
-#: corrige. Les trois premiers sont les priorites du replay diagnostique ;
-#: BTC et Solana sont ajoutes a la demande de l'operateur. Un symbole absent de
-#: cette liste ne peut atteindre ni Hermes ni l'executor pendant la cohorte.
-UNIVERS = list(DEMO_COHORT_SYMBOLS)
+#: Liste vide : le catalogue complet du courtier est parcouru par rotation.
+UNIVERS: list[str] = []
 
 #: Bascule temporaire : le moteur déterministe dimensionne seul les entrées.
 ACTIVER_CORTEX = False

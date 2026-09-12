@@ -21,14 +21,22 @@ def test_demo_cohort_contract_names_broker_symbols_and_utc_start():
     assert DEMO_COHORT_START_UTC.tzinfo is timezone.utc
 
 
-def test_inherited_position_outside_cohort_is_not_a_new_entry_candidate():
+def test_full_catalogue_keeps_all_symbols_as_new_entry_candidates():
     assert live._entry_universe(
         ["AUDUSD", "BTCUSD"],
         ["USOIL", "SOL-USD"],
-    ) == ["BTCUSD", "USOIL", "SOL-USD"]
+    ) == ["AUDUSD", "BTCUSD", "USOIL", "SOL-USD"]
 
 
-def test_explicit_cohort_seeds_correlation_with_large_cached_catalogue(monkeypatch):
+def test_full_catalogue_accepts_every_scanned_symbol_for_new_entries():
+    assert live.UNIVERS == []
+    assert live._entry_universe(
+        ["AUDUSD", "BTCUSD"],
+        ["USOIL", "SOL-USD"],
+    ) == ["AUDUSD", "BTCUSD", "USOIL", "SOL-USD"]
+
+
+def test_full_catalogue_does_not_seed_correlation_from_a_legacy_cohort(monkeypatch):
     cached = {f"S{i}": "g1" for i in range(20)}
     monkeypatch.setattr(live, "_JOUABLES", set())
     monkeypatch.setattr(
@@ -40,7 +48,7 @@ def test_explicit_cohort_seeds_correlation_with_large_cached_catalogue(monkeypat
     symbols = live._tradables_connus(DEMO_COHORT_SYMBOLS)
 
     assert set(DEMO_COHORT_SYMBOLS) <= set(symbols)
-    assert set(cached) <= set(symbols)
+    assert not (set(cached) & set(symbols))
 
 
 def test_worker_loss_gate_uses_common_demo_cohort_start(monkeypatch):

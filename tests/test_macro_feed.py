@@ -12,7 +12,9 @@ Ce que ces tests protegent, dans l'ordre d'importance :
 
 from __future__ import annotations
 
+import asyncio
 import json
+import sys
 import threading
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta, timezone
@@ -362,6 +364,174 @@ def test_fournisseur_par_defaut_echoue_ferme():
         source.fetch()
     with pytest.raises(ValueError, match="fournisseur macro inconnu"):
         build_source(politique(provider="magique"))
+
+
+# ═══════════════════════ 6bis. fournisseur HTTP ════════════════════════════
+#
+# Le chemin reseau etait livre mais jamais parcouru : cinquante-trois tests
+# couvraient le fichier, l'horloge et le cache, et AUCUN ne construisait
+# `HttpMacroSource`. Trois pannes y sont donc exercees ici — cle absente, delai
+# depasse, charge utile illisible — et chacune doit finir en refus.
+
+class FauxRequests:
+    """Double minimal de `requests` : on n'exerce QUE ce que le code utilise."""
+
+    def __init__(self, reponse=None, panne: Exception | None = None) -> None:
+        self.appels: list[tuple[str, dict]] = []
+        self.reponse = reponse
+        self.panne = panne
+
+    def get(self, url: str, **kwargs):
+        self.appels.append((url, kwargs))
+        if self.panne is not None:
+            raise self.panne
+        return self.reponse
+
+
+class Reponse:
+    def __init__(self, payload, *, status: int = 200) -> None:
+        self._payload = payload
+        self.status_code = status
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+class DelaiDepasse(Exception):
+    """Meme nom et meme role que `requests.exceptions.Timeout`."""
+
+
+def source_http(monkeypatch, faux: FauxRequests, *,
+                api_key_env: str = "V14_MACRO_API_KEY", timeout_s: float = 8.0):
+    from titanium.macro.sources import HttpMacroSource
+
+    monkeypatch.setitem(sys.modules, "requests", faux)
+    return HttpMacroSource("https://exemple.test/calendrier", api_key_env=api_key_env,
+                           timeout_s=timeout_s)
+
+
+def payload_valide(*, dans_minutes: int = 10) -> dict:
+    quand = datetime.now(timezone.utc) + timedelta(minutes=dans_minutes)
+    return {"events": [{"title": "FOMC", "currency": "USD",
+                        "scheduled_at": quand.isoformat(), "impact": "High"}]}
+
+
+def test_http_cle_absente_echoue_sans_toucher_le_reseau(monkeypatch):
+    """Le nom de la variable manquante suffit a reparer ; l'appel, lui, n'a pas lieu."""
+    monkeypatch.delenv("V14_MACRO_API_KEY", raising=False)
+    faux = FauxRequests(Reponse(payload_valide()))
+    source = source_http(monkeypatch, faux)
+
+    with pytest.raises(ValueError, match="V14_MACRO_API_KEY"):
+        source.fetch()
+    assert faux.appels == [], "aucune requete ne doit partir sans cle"
+
+    # Echec ferme : le cache n'a rien recu, donc le risque neuf est refuse.
+    cache = MacroCache()
+    flux = MacroFeed(source, cache, policy=politique())
+    assert asyncio.run(flux.refresh_once()) is False
+    assert cache.view().has_data is False
+    verdict = risque(cache)
+    assert verdict.state is MacroState.UNKNOWN
+    assert verdict.allows_new_risk is False
+    porte = evaluate(features_parfaites(macro=macro_block(verdict)))
+    assert porte.verdict == "BLOCK"
+    assert porte.code == "BLOCK_MACRO_BLACKOUT"
+
+
+def test_http_delai_depasse_devient_une_panne_de_source(monkeypatch):
+    """Un fournisseur muet ne doit ni bloquer la boucle ni effacer la lecture connue."""
+    monkeypatch.setenv("V14_MACRO_API_KEY", "cle-de-test")
+    faux = FauxRequests(panne=DelaiDepasse("read timeout"))
+    source = source_http(monkeypatch, faux, timeout_s=2.5)
+    cache = cache_avec((evenement(),))
+    flux = MacroFeed(source, cache, policy=politique())
+
+    assert asyncio.run(flux.refresh_once()) is False
+    assert len(faux.appels) == 1
+    assert faux.appels[0][1]["timeout"] == 2.5, "le delai doit etre celui de la politique"
+    vue = cache.view()
+    assert vue.has_data is True, "la derniere lecture connue survit a la panne"
+    assert vue.total_failures == 1
+    assert "DelaiDepasse" in vue.last_error
+
+    # La lecture survit, mais c'est la FRAICHEUR qui la juge : perimee, elle refuse.
+    verdict = risque(cache, quand=MAINTENANT + timedelta(seconds=3600),
+                     policy=politique(ttl_s=900.0))
+    assert verdict.state is MacroState.STALE
+    assert verdict.allows_new_risk is False
+    assert evaluate(features_parfaites(macro=macro_block(verdict))).verdict == "BLOCK"
+
+
+def test_http_charge_utile_illisible_n_enregistre_rien(monkeypatch):
+    """Une ligne cassee invalide tout le calendrier : rien n'est publie, tout est refuse."""
+    monkeypatch.setenv("V14_MACRO_API_KEY", "cle-de-test")
+    casse = {"events": [
+        {"title": "OK", "currency": "USD",
+         "scheduled_at": "2026-09-17T18:00:00+00:00", "impact": "High"},
+        {"title": "CASSE", "currency": "", "impact": "High"},
+    ]}
+    faux = FauxRequests(Reponse(casse))
+    source = source_http(monkeypatch, faux)
+    cache = MacroCache()
+    flux = MacroFeed(source, cache, policy=politique())
+
+    assert asyncio.run(flux.refresh_once()) is False
+    assert cache.view().has_data is False
+    assert "CASSE" in cache.view().last_error
+    verdict = risque(cache)
+    assert verdict.allows_new_risk is False
+    assert evaluate(features_parfaites(macro=macro_block(verdict))).verdict == "BLOCK"
+
+
+def test_http_calendrier_valide_traverse_toute_la_chaine(monkeypatch):
+    """Le chemin nominal existe, et va jusqu'a la porte : CLEAR autorise, gel refuse."""
+    monkeypatch.setenv("V14_MACRO_API_KEY", "cle-de-test")
+    faux = FauxRequests(Reponse(payload_valide(dans_minutes=10)))
+    source = source_http(monkeypatch, faux)
+    cache = MacroCache()
+    flux = MacroFeed(source, cache, policy=politique())
+
+    assert asyncio.run(flux.refresh_once()) is True
+    assert cache.view().has_data is True
+
+    # Le fournisseur HTTP horodate `fetched_at` avec l'horloge REELLE : on juge
+    # donc a l'instant reel, pas a `MAINTENANT` qui est une date de laboratoire.
+    maintenant = datetime.now(timezone.utc)
+    verdict = risque(cache, quand=maintenant, symbole="EURUSD")
+    assert verdict.state is MacroState.BLACKOUT
+    assert verdict.allows_new_risk is False
+    assert "FOMC" in verdict.reasons[0]
+    porte = evaluate(features_parfaites(macro=macro_block(verdict)))
+    assert porte.verdict == "BLOCK"
+    assert porte.code == "BLOCK_MACRO_BLACKOUT"
+
+    # Le meme fournisseur, une publication lointaine : le risque neuf repasse.
+    faux.reponse = Reponse({"events": [{
+        "title": "FOMC", "currency": "USD", "impact": "High",
+        "scheduled_at": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(),
+    }]})
+    assert asyncio.run(flux.refresh_once()) is True
+    verdict = risque(cache, quand=datetime.now(timezone.utc), symbole="EURUSD")
+    assert verdict.state is MacroState.CLEAR
+    assert evaluate(features_parfaites(macro=macro_block(verdict))).verdict == "ENTER"
+
+
+def test_http_erreur_serveur_devient_une_panne(monkeypatch):
+    """Un 500 ne doit pas remonter en exception brute dans la boucle."""
+    monkeypatch.setenv("V14_MACRO_API_KEY", "cle-de-test")
+    faux = FauxRequests(Reponse(None, status=500))
+    source = source_http(monkeypatch, faux)
+    cache = MacroCache()
+    assert asyncio.run(MacroFeed(source, cache, policy=politique()).refresh_once()) is False
+    assert cache.view().has_data is False
+    assert risque(cache).allows_new_risk is False
 
 
 # ═══════════════════════════ 7. service de rafraichissement ════════════════

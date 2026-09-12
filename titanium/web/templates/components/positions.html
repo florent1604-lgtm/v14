@@ -1,0 +1,78 @@
+<h2>Positions</h2>
+{% set d = b.data or {} %}
+{% if b.erreur %}
+  <p class="rouge">Lecture impossible — {{ b.erreur }}</p>
+{% elif b.jamais_lu %}
+  <p class="gris">Première lecture en cours…</p>
+{% else %}
+  {% set lignes = d.positions or [] %}
+  <table class="{{ 'perime' if b.stale else '' }}">
+    <thead><tr>
+      <th>Ticket</th><th>Actif</th><th>Sens</th><th>Vol</th>
+      <th>Entrée</th><th>Courant</th><th>SL</th><th>TP</th>
+      <th>P&amp;L</th><th>Phase</th><th>R</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for p in lignes %}
+      <tr>
+        <td class="gris">{{ p.ticket }}</td>
+        <td>{{ p.symbol }}</td>
+        <td class="{{ 'vert' if p.side > 0 else 'rouge' }}">
+          {{ 'LONG' if p.side > 0 else 'SHORT' }}</td>
+        <td>{{ p.volume }}</td>
+        <td>{{ '%.2f'|format(p.entry) }}</td>
+        <td>{{ '%.2f'|format(p.current) }}</td>
+        <td class="gris">{{ '%.2f'|format(p.sl) if p.sl else '—' }}</td>
+        <td class="gris">{{ '%.2f'|format(p.tp) if p.tp else '—' }}</td>
+        <td class="{{ 'vert' if p.profit >= 0 else 'rouge' }}">
+          {{ '%+.2f'|format(p.profit) }}</td>
+        <td class="gris">{{ p.phase }}</td>
+        <td class="gris">{{ p.fav_r if p.fav_r is not none else '—' }}</td>
+        <td>
+          {% if p.ticket|string in tickets_en_attente %}
+            <span class="badge ambre">DEMANDÉE</span>
+          {% else %}
+            <button class="bouton danger petit" type="button"
+                    data-ticket="{{ p.ticket|e }}" data-symbol="{{ p.symbol|e }}"
+                    onclick="demanderCloture(this)">
+              Clôturer
+            </button>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="12" class="gris vide">Aucune position ouverte.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {% set attentes = d.pending or [] %}
+  {% if attentes %}
+    <h2 style="margin-top:12px">Ordres en attente</h2>
+    <table><tbody>
+      {% for o in attentes %}
+        <tr><td class="gris">{{ o.ticket }}</td><td>{{ o.symbol }}</td>
+            <td>{{ o.kind }}</td><td>{{ o.price }}</td></tr>
+      {% endfor %}
+    </tbody></table>
+  {% endif %}
+
+  {% set en_attente = intentions.en_attente or [] %}
+  {% if en_attente %}
+    <div class="intentions">
+      <b>{{ en_attente|length }} intention(s) en attente d’arbitrage moteur</b>
+      {% for i in en_attente %}
+        <span class="badge ambre">#{{ i.ticket }} · {{ i.symbol or '—' }}</span>
+      {% endfor %}
+      <small>Expiration automatique après {{ intentions.peremption_s // 60 }} min.</small>
+    </div>
+  {% endif %}
+
+  <p class="gris" style="margin:8px 0 0;font-size:11px">
+    {% if b.stale %}
+      <span class="rouge">DONNÉE PÉRIMÉE</span> — {{ b.age_s }} s. Ne pas décider dessus.
+    {% else %}
+      Lu il y a {{ b.age_s }} s · cache 5 s pour épargner le verrou MT5 de la boucle.
+    {% endif %}
+  </p>
+{% endif %}

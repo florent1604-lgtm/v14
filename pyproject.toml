@@ -98,6 +98,20 @@ target-version = "py310"
 extend-exclude = [
     "results", "worklog",
     ".agents", ".claude", ".codex", ".hermes",
+    # Sources hashed into replay artifacts. Generic `ruff check --fix <tree>`
+    # must not silently invalidate a corpus; lint_gate.sh still checks them
+    # explicitly without applying fixes.
+    "tools/rejeu_univers.py",
+    "titanium/backtest.py",
+    "titanium/data/archive_barres.py",
+    "titanium/edge.py",
+    "titanium/features/builder.py",
+    "titanium/features/candlesticks.py",
+    "titanium/features/indicators.py",
+    "titanium/features/smc.py",
+    "titanium/features/structure.py",
+    "titanium/features/ict_structure.py",
+    "titanium/gates/confluence_gate.py",
 ]
 
 [tool.ruff.lint]

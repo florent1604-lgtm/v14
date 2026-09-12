@@ -1,0 +1,34 @@
+<h2>Compte &amp; mur</h2>
+{% set c = compte.data or {} %}
+{% set m = mur.data or {} %}
+
+{% if compte.erreur %}
+  <p class="rouge">MT5 illisible — {{ compte.erreur }}</p>
+{% else %}
+  <table class="{{ 'perime' if compte.stale else '' }}">
+    <tr><td class="gris">Mode</td>
+        <td class="{{ 'vert' if c.is_demo else 'rouge' }}"><b>{{ c.mode_label }}</b></td></tr>
+    <tr><td class="gris">Login</td><td>{{ c.login }}</td></tr>
+    <tr><td class="gris">Serveur</td><td>{{ c.server }}</td></tr>
+    <tr><td class="gris">Solde</td><td>{{ '%.2f'|format(c.balance or 0) }} {{ c.currency }}</td></tr>
+    <tr><td class="gris">Équité</td><td>{{ '%.2f'|format(c.equity or 0) }} {{ c.currency }}</td></tr>
+    <tr><td class="gris">Marge libre</td><td>{{ '%.2f'|format(c.margin_free or 0) }}</td></tr>
+  </table>
+{% endif %}
+
+<h2 style="margin-top:14px">Mur démo ↔ réel</h2>
+<table>
+  <tr><td class="gris">Armement</td>
+      <td class="{{ 'vert' if m.armed else 'gris' }}">
+        {{ 'ARMÉ' if m.armed else 'DÉSARMÉ' }}</td></tr>
+  <tr><td class="gris">État</td>
+      <td class="{{ 'vert' if m.open else 'rouge' }}">{{ m.code or '—' }}</td></tr>
+  <tr><td class="gris">Réel autorisé</td>
+      <td class="{{ 'rouge' if m.real_allowed else 'vert' }}">
+        {{ 'OUI' if m.real_allowed else 'NON' }}</td></tr>
+  <tr><td class="gris">Login attendu</td><td>{{ m.expected_login or '—' }}</td></tr>
+</table>
+{% if m.detail %}<p class="gris" style="font-size:11px">{{ m.detail }}</p>{% endif %}
+<p class="gris" style="font-size:11px;margin-top:8px">
+  Affichage seul. La bascule vers le réel ne passe pas par cette interface.
+</p>

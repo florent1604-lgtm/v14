@@ -1,0 +1,14 @@
+{% for e in lignes %}
+  <div>
+    <span class="gris">{{ e.ts }}</span>
+    <span class="{{ 'rouge' if e.niveau in ('ERROR','WARNING') else 'gris' }}">
+      [{{ e.niveau }}]</span>
+    {{ e.message }}
+  </div>
+{% else %}
+  <div class="gris">Journal vide — aucun incident de lecture.</div>
+{% endfor %}
+<script>
+  (function(){ var j = document.getElementById('journal');
+               if (j) j.scrollTop = j.scrollHeight; })();
+</script>

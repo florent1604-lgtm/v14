@@ -400,7 +400,7 @@ def test_contexte_accepte_par_le_riskgate():
 def test_niveaux_sr_tries_par_force():
     niveaux = compute_sr_levels(_normalize(bougies(400)))
     assert niveaux
-    assert all(a.strength >= b.strength for a, b in zip(niveaux, niveaux[1:]))
+    assert all(a.strength >= b.strength for a, b in zip(niveaux, niveaux[1:], strict=False))
     assert all(lv.kind in ("support", "resistance") for lv in niveaux)
 
 

@@ -335,10 +335,10 @@ def marches_ouverts(symboles) -> dict:
                     continue
     except Exception:  # noqa: BLE001
         # Sans mesure, on n'affirme pas qu'un marché est fermé.
-        return {s: True for s in symboles}
+        return dict.fromkeys(symboles, True)
 
     if not derniers:
-        return {s: True for s in symboles}
+        return dict.fromkeys(symboles, True)
 
     reference = max(derniers.values())
     limite = RETARD_MAX_MIN * 60.0

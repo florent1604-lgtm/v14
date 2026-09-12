@@ -24,9 +24,9 @@ from titanium.sizing import (
 
 def spec(**over) -> SymbolSpec:
     """EURUSD : lot min 0.01, pas 0.01, tick 1e-5 valant 1 USD."""
-    base = dict(name="EURUSD", digits=5, point=1e-5, volume_min=0.01,
-                volume_max=100.0, volume_step=0.01, trade_contract_size=100_000.0,
-                spread=12, tick_value=1.0, tick_size=1e-5)
+    base = {"name": "EURUSD", "digits": 5, "point": 1e-5, "volume_min": 0.01,
+                "volume_max": 100.0, "volume_step": 0.01, "trade_contract_size": 100_000.0,
+                "spread": 12, "tick_value": 1.0, "tick_size": 1e-5}
     base.update(over)
     return SymbolSpec(**base)
 
@@ -249,7 +249,7 @@ class TestPorteDeCout:
         12,5 % réels. On conserve ce comportement jusqu'à calibration.
         """
         from titanium.sizing import MAX_COUT_SPREAD_PCT
-        assert MAX_COUT_SPREAD_PCT == pytest.approx(0.125)
+        assert pytest.approx(0.125) == MAX_COUT_SPREAD_PCT
 
     def test_actif_bon_marche_accepte(self, monkeypatch):
         # 10 points de spread = 0.0001 sur un stop de 0.0030 : 3,3 %.

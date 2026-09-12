@@ -107,7 +107,7 @@ class ManageLoop:
             self.tick()
             self._stop.wait(self.interval)
 
-    def start(self) -> "ManageLoop":
+    def start(self) -> ManageLoop:
         """Démarre la boucle dans un thread démon."""
         if self._thread and self._thread.is_alive():
             return self

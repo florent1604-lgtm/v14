@@ -30,7 +30,6 @@ from titanium.edge import TradeJournal
 from titanium.execution.mt5_executor import ExecutionPolicy
 from titanium.execution.pending_context import limit_lifecycle_summary
 from titanium.execution.position_manager import (
-    PHASE_BREAKEVEN,
     PHASE_INIT,
     PHASE_TRAILING,
     ManageParams,
@@ -48,11 +47,11 @@ P = ManageParams(breakeven_r=0.8, trail_start_r=1.2, trail_dist_r=0.8)
 
 def etat(**over) -> TrackedState:
     """Position long EURUSD, R = 0.0100, contexte complet."""
-    base = dict(r=0.0100, phase=PHASE_INIT, peak_fav_r=0.0, symbol="EURUSD",
-                side=1, entry=1.1000, sl_initial=1.0900, tp_initial=1.1200,
-                context_key="EURUSD|long|continuation|3p",
-                indicators={"ltf_rsi_14": 55.2}, ts_open="2026-08-07T04:00:00+00:00",
-                mae_r=0.0, timeframe="H1", risque_devise=100.0)
+    base = {"r": 0.0100, "phase": PHASE_INIT, "peak_fav_r": 0.0, "symbol": "EURUSD",
+                "side": 1, "entry": 1.1000, "sl_initial": 1.0900, "tp_initial": 1.1200,
+                "context_key": "EURUSD|long|continuation|3p",
+                "indicators": {"ltf_rsi_14": 55.2}, "ts_open": "2026-08-07T04:00:00+00:00",
+                "mae_r": 0.0, "timeframe": "H1", "risque_devise": 100.0}
     base.update(over)
     return TrackedState(**base)
 
@@ -344,11 +343,11 @@ class FakeMt5:
         return self._positions
 
     def symbol_info(self, s):
-        class I:
+        class SymbolInfo:
             point = 1e-5
             digits = 5
             trade_stops_level = 10
-        return I()
+        return SymbolInfo()
 
     def symbol_info_tick(self, s):
         class T:
@@ -746,9 +745,9 @@ def test_journal_par_defaut_a_cote_de_letat(tmp_path):
 
 class TestFraisReels:
     def _deal(self, **kw):
-        d = dict(time=1_800_000_000, price=1.11, profit=0.0,
-                 commission=0.0, swap=0.0, fee=0.0,
-                 position_id=1, symbol="EURUSD", entry=1)
+        d = {"time": 1_800_000_000, "price": 1.11, "profit": 0.0,
+                 "commission": 0.0, "swap": 0.0, "fee": 0.0,
+                 "position_id": 1, "symbol": "EURUSD", "entry": 1}
         d.update(kw)
         return type("Deal", (), d)()
 
@@ -914,7 +913,9 @@ class TestFraisReels:
         """Contrat de `ClosedTrade` : pnl_r est NET, comme au backtest."""
         from titanium.edge import TradeJournal
         from titanium.execution.position_manager import (
-            PHASE_TRAILING, TrackedState, journaliser_cloture,
+            PHASE_TRAILING,
+            TrackedState,
+            journaliser_cloture,
         )
         j = tmp_path / "t.ndjson"
         st = TrackedState(r=0.01, phase=PHASE_TRAILING, symbol="EURUSD",
@@ -930,7 +931,9 @@ class TestFraisReels:
         """MT5 rend la commission négative ; c'est une charge, pas un gain."""
         from titanium.edge import TradeJournal
         from titanium.execution.position_manager import (
-            PHASE_TRAILING, TrackedState, journaliser_cloture,
+            PHASE_TRAILING,
+            TrackedState,
+            journaliser_cloture,
         )
         j = tmp_path / "t.ndjson"
         st = TrackedState(r=0.01, phase=PHASE_TRAILING, symbol="EURUSD",
@@ -942,7 +945,9 @@ class TestFraisReels:
 
     def test_risque_devise_survit_au_disque(self, tmp_path):
         from titanium.execution.position_manager import (
-            TrackedState, load_state, save_state,
+            TrackedState,
+            load_state,
+            save_state,
         )
         p = tmp_path / "pos.json"
         save_state(p, {"1": TrackedState(
@@ -956,6 +961,7 @@ class TestFraisReels:
     def test_etat_ancien_sans_risque_devise(self, tmp_path):
         """Une mise à jour du code, positions ouvertes, ne doit rien casser."""
         import json
+
         from titanium.execution.position_manager import load_state
         p = tmp_path / "pos.json"
         p.write_text(json.dumps({"1": {"r": 0.01, "phase": "init"}}),
@@ -974,9 +980,9 @@ class TestVoieExacte:
 
     def _etat(self, **kw):
         from titanium.execution.position_manager import PHASE_TRAILING, TrackedState
-        d = dict(r=0.01, phase=PHASE_TRAILING, symbol="EURUSD", side=1,
-                 entry=1.1000, context_key="EURUSD|long|continuation|3p",
-                 risque_devise=50.0)
+        d = {"r": 0.01, "phase": PHASE_TRAILING, "symbol": "EURUSD", "side": 1,
+                 "entry": 1.1000, "context_key": "EURUSD|long|continuation|3p",
+                 "risque_devise": 50.0}
         d.update(kw)
         return TrackedState(**d)
 

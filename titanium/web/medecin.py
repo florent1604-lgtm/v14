@@ -22,7 +22,6 @@ Quatre états seulement, pour que la lecture reste immédiate :
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -80,8 +79,8 @@ def _lignes(chemin: Path) -> int:
     try:
         if not chemin.exists():
             return 0
-        return sum(1 for l in chemin.read_text(encoding="utf-8").splitlines()
-                   if l.strip())
+        return sum(1 for ligne in chemin.read_text(encoding="utf-8").splitlines()
+                   if ligne.strip())
     except Exception:  # noqa: BLE001
         return 0
 
@@ -98,7 +97,7 @@ def ausculter() -> Bilan:
     from titanium.web import state as S
 
     b = Bilan()
-    O, A = b.organes.append, b.arteres.append
+    ajouter_organe, A = b.organes.append, b.arteres.append
 
     # ── Ce qu'on lit une fois, et qui sert à plusieurs organes.
     compte = S._safe(S.account, {"connected": False})
@@ -111,12 +110,11 @@ def ausculter() -> Bilan:
     fant = S._safe(S.prod_fantome, {"actif": False})
     risq = S._safe(S.risque, {"disponible": False})
 
-    battement = boucle.get("age_s")
     vivante = bool(boucle.get("running")) and not boucle.get("stale")
 
     # ═══ PERCEPTION ═══════════════════════════════════════════════════
     connecte = bool(compte.get("connected"))
-    O(Organe("mt5", "Terminal MT5", "perception",
+    ajouter_organe(Organe("mt5", "Terminal MT5", "perception",
              SAIN if connecte else BOUCHE,
              f"{compte.get('login', '—')} · {compte.get('mode_label', '')}"
              if connecte else "injoignable",
@@ -124,13 +122,13 @@ def ausculter() -> Bilan:
              1.0 if connecte else 0.0))
 
     portables = boucle.get("portables") or 0
-    O(Organe("marche", "Observateur de marché", "perception",
+    ajouter_organe(Organe("marche", "Observateur de marché", "perception",
              SAIN if portables > 0 else (RALENTI if connecte else BOUCHE),
              f"{portables} actifs portables",
              "" if portables else "Aucun actif dimensionnable par l'équité.",
              min(1.0, portables / 24)))
 
-    O(Organe("features", "Détecteurs & features", "perception",
+    ajouter_organe(Organe("features", "Détecteurs & features", "perception",
              SAIN if vivante else (RALENTI if boucle.get("running") else BOUCHE),
              f"{(boucle.get('stats') or {}).get('evalues', 0)} évaluations",
              "", 1.0 if vivante else 0.0))
@@ -139,7 +137,7 @@ def ausculter() -> Bilan:
     st = boucle.get("stats") or {}
     enter = st.get("enter", 0)
     evalues = st.get("evalues", 0) or 1
-    O(Organe("portes", "Portes de confluence", "decision",
+    ajouter_organe(Organe("portes", "Portes de confluence", "decision",
              SAIN if vivante else BOUCHE,
              f"{enter} ENTER sur {st.get('evalues', 0)} évalués",
              "", min(1.0, enter / max(1, evalues) * 8)))
@@ -147,7 +145,7 @@ def ausculter() -> Bilan:
     prod_enter = fant.get("prod_aurait_entre", 0)
     quorum_atteint = fant.get("quorum_atteint", prod_enter)
     lignes_f = fant.get("lignes", 0)
-    O(Organe("strict", "Quorum strict (fantôme)", "decision",
+    ajouter_organe(Organe("strict", "Quorum strict (fantôme)", "decision",
              SAIN if quorum_atteint else (RALENTI if lignes_f else INCONNU),
              f"quorum 3 atteint {quorum_atteint} fois sur {lignes_f} observations",
              ("Le quorum 3 ne se déclenche jamais : la strate PROD est "
@@ -159,7 +157,7 @@ def ausculter() -> Bilan:
 
     n_avis = ana.get("n_avis", 0)
     attente = ana.get("en_attente", 0)
-    O(Organe("analystes", "Analystes LLM", "decision",
+    ajouter_organe(Organe("analystes", "Analystes LLM", "decision",
              BOUCHE if (ana.get("actif") and attente > 40 and not n_avis)
              else RALENTI if attente > 8
              else SAIN if n_avis else INCONNU,
@@ -178,7 +176,7 @@ def ausculter() -> Bilan:
                   and noyau.get("proposals", 0) > 0
                   else BOUCHE if noyau.get("state") == "FAILED"
                   else RALENTI)
-    O(Organe(
+    ajouter_organe(Organe(
         "noyau", "Noyau & memoire centrale", "decision", etat_noyau,
         f"{noyau.get('events', 0)} faits · "
         f"{noyau.get('proposals', 0)} propositions · "
@@ -191,7 +189,7 @@ def ausculter() -> Bilan:
 
     # ═══ RISQUE ═══════════════════════════════════════════════════════
     occ = risq.get("occupation", 0) if risq.get("disponible") else 0
-    O(Organe("riskgate", "RiskGate & sizing", "risque",
+    ajouter_organe(Organe("riskgate", "RiskGate & sizing", "risque",
              BOUCHE if occ >= 100 else RALENTI if occ >= 80 else SAIN,
              f"{risq.get('engage_pct', 0)} % sur {risq.get('budget_pct', 0)} %"
              if risq.get("disponible") else "indisponible",
@@ -200,7 +198,7 @@ def ausculter() -> Bilan:
              min(1.0, occ / 100)))
 
     ouvert = bool(mur.get("open"))
-    O(Organe("mur", "Mur démo ↔ réel", "risque",
+    ajouter_organe(Organe("mur", "Mur démo ↔ réel", "risque",
              SAIN if ouvert else RALENTI,
              mur.get("code", "—"), mur.get("detail", ""),
              1.0 if ouvert else 0.0))
@@ -208,13 +206,13 @@ def ausculter() -> Bilan:
     # ═══ ACTION ═══════════════════════════════════════════════════════
     n_pos = len(pos.get("positions") or [])
     envoyes = st.get("envoyes", 0)
-    O(Organe("executeur", "Exécuteur MT5", "action",
+    ajouter_organe(Organe("executeur", "Exécuteur MT5", "action",
              SAIN if (ouvert and vivante) else RALENTI if ouvert else BOUCHE,
              f"{envoyes} ordre(s) · {n_pos} position(s)",
              "", min(1.0, n_pos / 8)))
 
     stops_actifs = bool(boucle.get("manage_stops", False))
-    O(Organe("gestion", "Gestion de position", "action",
+    ajouter_organe(Organe("gestion", "Gestion de position", "action",
              SAIN if vivante else BOUCHE,
              (f"BE +{boucle.get('breakeven_r', '—')} R · "
               f"trail +{boucle.get('trail_start_r', '—')} R")
@@ -225,9 +223,8 @@ def ausculter() -> Bilan:
               if not stops_actifs else ""),
              min(1.0, n_pos / 8)))
 
-    zones = RESULTATS.parent / "results"          # placeholder de cohérence
     age_z = _age(Path(RACINE / "results" / "loop_heartbeat.json"))
-    O(Organe("tracer", "Tracé sur MT5", "action",
+    ajouter_organe(Organe("tracer", "Tracé sur MT5", "action",
              SAIN if (age_z is not None and age_z < 180) else RALENTI,
              "zones publiées" if age_z is not None else "aucune publication",
              "", 0.6 if age_z is not None else 0.0))
@@ -235,7 +232,7 @@ def ausculter() -> Bilan:
     # ═══ MÉMOIRE ══════════════════════════════════════════════════════
     journal = RACINE / "results" / "trades.ndjson"
     n_trades = _lignes(journal)
-    O(Organe("journal", "Journal des clôtures", "memoire",
+    ajouter_organe(Organe("journal", "Journal des clôtures", "memoire",
              SAIN if n_trades else (RALENTI if n_pos else INCONNU),
              f"{n_trades} trade(s) clos",
              "Aucune clôture enregistrée : rien n'est mesurable."
@@ -243,7 +240,7 @@ def ausculter() -> Bilan:
              min(1.0, n_trades / 30)))
 
     contextes = len(reg.get("contexts") or [])
-    O(Organe("edge", "Registre d'edge", "memoire",
+    ajouter_organe(Organe("edge", "Registre d'edge", "memoire",
              SAIN if contextes else (RALENTI if n_trades else INCONNU),
              f"{contextes} contexte(s) · seuil {reg.get('min_samples', 20)}",
              "", min(1.0, contextes / 10)))
@@ -251,7 +248,7 @@ def ausculter() -> Bilan:
     cellules = prom.get("cellules") or []
     eligibles = sum(1 for c in cellules if c.get("eligible"))
     haute = prom.get("strate_haute", 0)
-    O(Organe("promotion", "Promotion vers le réel", "memoire",
+    ajouter_organe(Organe("promotion", "Promotion vers le réel", "memoire",
              SAIN if eligibles else (RALENTI if haute else INCONNU),
              f"{haute} trade(s) en strate S≥3 · "
              f"{len(cellules)} cellule(s)",

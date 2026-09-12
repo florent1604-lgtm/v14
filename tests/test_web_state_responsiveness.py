@@ -27,11 +27,10 @@ def test_meta_affiche_hermes_comme_cortex_principal(monkeypatch, tmp_path):
 
 
 def test_scan_traite_la_crypto_comme_un_marche_continu(monkeypatch, tmp_path):
-    from titanium import edge
+    from titanium import edge, orchestrator
     from titanium.data import mt5_vendor
     from titanium.features import builder
     from titanium.gates import confluence_gate
-    from titanium import orchestrator
 
     vus = []
     monkeypatch.setattr(state, "_config", lambda: {"results_dir": tmp_path / "runs"})

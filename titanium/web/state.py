@@ -474,12 +474,12 @@ def analystes() -> dict:
         if not f.exists():
             return []
         out = []
-        for l in f.read_text(encoding="utf-8").splitlines():
-            l = l.strip()
-            if not l:
+        for ligne in f.read_text(encoding="utf-8").splitlines():
+            ligne = ligne.strip()
+            if not ligne:
                 continue
             try:
-                out.append(json.loads(l))
+                out.append(json.loads(ligne))
             except json.JSONDecodeError:
                 continue
         return out
@@ -519,9 +519,9 @@ def fenetres() -> dict:
     f = d / NOM_FICHIER_CHARTS
     syms = []
     if f.exists():
-        syms = [l.strip() for l in f.read_text(encoding="ascii",
+        syms = [ligne.strip() for ligne in f.read_text(encoding="ascii",
                                                errors="ignore").splitlines()
-                if l.strip() and not l.startswith("#")]
+                if ligne.strip() and not ligne.startswith("#")]
     return {"disponible": True, "dossier": str(d), "symboles": syms,
             "maxi": MAX_FENETRES,
             "ecrit_a": (datetime.fromtimestamp(f.stat().st_mtime,
@@ -536,14 +536,18 @@ def risque() -> dict:
     qui la borne, et c'est donc lui qu'il faut regarder.
     """
     from titanium.confiance import (
-        MAX_RISK_PCT, RISQUE_MAX_PCT, RISQUE_MIN_PCT, RISQUE_PIVOT_PCT,
+        MAX_RISK_PCT,
+        RISQUE_MAX_PCT,
+        RISQUE_MIN_PCT,
+        RISQUE_PIVOT_PCT,
     )
     budget = _const_boucle("MAX_RISQUE_CUMULE_PCT", 0.0)
     engage = 0.0
     n = 0
     try:
-        from titanium.data.mt5_vendor import mt5_session
         import MetaTrader5 as mt5  # noqa: N813
+
+        from titanium.data.mt5_vendor import mt5_session
         with mt5_session():
             info = mt5.account_info()
             eq = float(info.equity) if info else 0.0

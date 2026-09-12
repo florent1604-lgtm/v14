@@ -58,9 +58,7 @@ def is_promoted(chemin, cell_key: str) -> bool:
             return False
         if int(entree.get("rung", 0) or 0) < ECHELON_MIN:
             return False
-        if not str(entree.get("approved_by", "") or "").strip():
-            return False
-        return True
+        return bool(str(entree.get("approved_by", "") or "").strip())
     except Exception:  # noqa: BLE001 — toute surprise ferme la porte
         return False
 

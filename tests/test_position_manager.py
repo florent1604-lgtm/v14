@@ -11,6 +11,7 @@ suit bien. Les deux sont là, dans cet ordre.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -34,14 +35,14 @@ P = ManageParams(breakeven_r=0.8, trail_start_r=1.2, trail_dist_r=0.8)
 
 def pos(**over) -> PositionSnapshot:
     """Long à 1.1000, stop initial 1.0900 → R = 0.0100."""
-    base = dict(ticket="1", symbol="EURUSD", side=1, entry=1.1000, current=1.1000,
-                sl=1.0900, tp=1.1200, digits=5, min_stop_distance=0.0002, spread=0.0001)
+    base = {"ticket": "1", "symbol": "EURUSD", "side": 1, "entry": 1.1000, "current": 1.1000,
+                "sl": 1.0900, "tp": 1.1200, "digits": 5, "min_stop_distance": 0.0002, "spread": 0.0001}
     base.update(over)
     return PositionSnapshot(**base)
 
 
 def etat(**over) -> TrackedState:
-    base = dict(r=0.0100, phase=PHASE_INIT, peak_fav_r=0.0, symbol="EURUSD", side=1)
+    base = {"r": 0.0100, "phase": PHASE_INIT, "peak_fav_r": 0.0, "symbol": "EURUSD", "side": 1}
     base.update(over)
     return TrackedState(**base)
 
@@ -342,12 +343,7 @@ class FakeMt5:
         return self._positions
 
     def symbol_info(self, s):
-        class I:
-            point = 1e-5
-            digits = 5
-            trade_stops_level = 10
-            filling_mode = 2
-        return I()
+        return SimpleNamespace(point=1e-5, digits=5, trade_stops_level=10, filling_mode=2)
 
     def symbol_info_tick(self, s):
         class T:

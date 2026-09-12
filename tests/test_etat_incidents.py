@@ -165,7 +165,11 @@ class TestSignalement:
         pm.load_state(p)
         jrn = tmp_path / "etat_incidents.ndjson"
         assert jrn.exists()
-        lignes = [json.loads(l) for l in jrn.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lignes = [
+            json.loads(ligne)
+            for ligne in jrn.read_text(encoding="utf-8").splitlines()
+            if ligne.strip()
+        ]
         assert lignes[-1]["genre"] == "illisible"
 
     def test_le_journal_est_append_only(self, tmp_path):
@@ -174,7 +178,9 @@ class TestSignalement:
             _ecrire(p, "{cassé")
             pm.load_state(p)
         jrn = tmp_path / "etat_incidents.ndjson"
-        assert len([l for l in jrn.read_text(encoding="utf-8").splitlines() if l.strip()]) == 3
+        assert len([
+            ligne for ligne in jrn.read_text(encoding="utf-8").splitlines() if ligne.strip()
+        ]) == 3
 
     def test_incidents_etat_rend_une_copie(self, tmp_path):
         """Un appelant ne doit pas pouvoir vider le registre par inadvertance."""

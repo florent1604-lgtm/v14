@@ -16,8 +16,18 @@ from dataclasses import dataclass, field
 import pytest
 
 from titanium.bridge.metatester import (
-    ENTETE, NOM_EA, NOM_SIGNAUX, Passe, Plage, _epoch, _flottant,
-    combinaisons, ecrire_ini, exporter_signaux, lire_rapport, retenir,
+    ENTETE,
+    NOM_EA,
+    NOM_SIGNAUX,
+    Passe,
+    Plage,
+    _epoch,
+    _flottant,
+    combinaisons,
+    ecrire_ini,
+    exporter_signaux,
+    lire_rapport,
+    retenir,
 )
 
 
@@ -66,8 +76,8 @@ class TestExport:
             FauxTrade(bar_entree="2026-03-01T10:00:00"),
             FauxTrade(bar_entree="2026-03-03T10:00:00"),
         ], f)
-        epochs = [int(l.split(";")[1])
-                  for l in f.read_text().strip().split("\n")[1:]]
+        epochs = [int(ligne.split(";")[1])
+                  for ligne in f.read_text().strip().split("\n")[1:]]
         assert epochs == sorted(epochs)
 
     def test_rejette_r_unit_nul(self, tmp_path):
@@ -89,8 +99,8 @@ class TestExport:
         n = exporter_signaux(
             [FauxTrade(symbol="XAUUSD"), FauxTrade(symbol="EURUSD")], f)
         assert n == 2
-        syms = {l.split(";")[0]
-                for l in f.read_text().strip().split("\n")[1:]}
+        syms = {ligne.split(";")[0]
+                for ligne in f.read_text().strip().split("\n")[1:]}
         assert syms == {"XAUUSD", "EURUSD"}
 
     def test_cree_le_dossier(self, tmp_path):
@@ -147,9 +157,9 @@ class TestPlage:
 
 class TestIni:
     def _ini(self, tmp_path, **kw):
-        d = dict(symbol="XAUUSD", periode="M15", depuis="2025.01.01",
-                 jusqua="2026.01.01", plages=[Plage("InpSLmult", 1.0, 0.5, 3.0)],
-                 rapport="r")
+        d = {"symbol": "XAUUSD", "periode": "M15", "depuis": "2025.01.01",
+                 "jusqua": "2026.01.01", "plages": [Plage("InpSLmult", 1.0, 0.5, 3.0)],
+                 "rapport": "r"}
         d.update(kw)
         p = ecrire_ini(tmp_path / "t.ini", **d)
         return p.read_text(encoding="utf-16")
@@ -189,9 +199,9 @@ class TestIni:
 def _xml(lignes: list[list[str]]) -> str:
     ns = "urn:schemas-microsoft-com:office:spreadsheet"
     corps = ""
-    for l in lignes:
+    for ligne in lignes:
         cells = "".join(
-            f'<Cell><Data ss:Type="String">{v}</Data></Cell>' for v in l)
+            f'<Cell><Data ss:Type="String">{v}</Data></Cell>' for v in ligne)
         corps += f"<Row>{cells}</Row>"
     return (f'<?xml version="1.0"?><Workbook xmlns="{ns}" xmlns:ss="{ns}">'
             f"<Worksheet><Table>{corps}</Table></Worksheet></Workbook>")
@@ -285,7 +295,7 @@ class TestFlottant:
 
 class TestRetenir:
     def _p(self, **kw):
-        d = dict(trades=50, profit_factor=1.5, esperance_r=0.2)
+        d = {"trades": 50, "profit_factor": 1.5, "esperance_r": 0.2}
         d.update(kw)
         return Passe(**d)
 
@@ -319,6 +329,7 @@ class TestContratEA:
 
     def _source(self):
         from pathlib import Path
+
         import titanium.bridge as b
         return (Path(b.__file__).parent / f"{NOM_EA}.mq5").read_text(
             encoding="utf-8", errors="replace")

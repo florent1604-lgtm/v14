@@ -85,7 +85,7 @@ class ManageParams:
     exit_min_retention: float = 0.35
 
     @classmethod
-    def from_config(cls, config: dict | None = None) -> "ManageParams":
+    def from_config(cls, config: dict | None = None) -> ManageParams:
         if config is None:
             from tradingagents.default_config import DEFAULT_CONFIG
             config = DEFAULT_CONFIG
@@ -269,7 +269,7 @@ class TrackedState:
                 "fear_exit_sent_ref": self.fear_exit_sent_ref}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "TrackedState":
+    def from_dict(cls, d: dict) -> TrackedState:
         """Relit un état. **Tolérant aux états anciens** : un fichier écrit
         avant l'ajout du contexte se relit sans erreur, avec des champs vides —
         le gestionnaire doit survivre à une mise à jour du code alors que des
@@ -287,7 +287,7 @@ class TrackedState:
             ts_open=str(d.get("ts_open", "")),
             mae_r=float(d.get("mae_r", 0.0) or 0.0),
             risque_devise=float(d.get("risque_devise", 0.0) or 0.0),
-            spread_r=(None if d.get("spread_r", None) is None
+            spread_r=(None if d.get("spread_r") is None
                       else float(d.get("spread_r"))),
             spread_exact=bool(d.get("spread_exact", False)),
             mode=str(d.get("mode", "explore")),
@@ -871,14 +871,10 @@ def _cloture_depuis_historique(
         sortie = None
         for d in deals:
             for champ in ("commission", "swap", "fee"):
-                try:
+                with contextlib.suppress(TypeError, ValueError):
                     frais += float(getattr(d, champ, 0.0) or 0.0)
-                except (TypeError, ValueError):
-                    pass
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 brut += float(getattr(d, "profit", 0.0) or 0.0)
-            except (TypeError, ValueError):
-                pass
             # DEAL_ENTRY_OUT == 1. Plus sûr que « le dernier deal » : une
             # position peut être clôturée en plusieurs fois, et un deal de
             # correction postérieur porterait un prix qui n'est pas la sortie.

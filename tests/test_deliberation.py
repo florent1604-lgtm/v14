@@ -20,7 +20,6 @@ from titanium.deliberation import (
 )
 from titanium.orchestrator import run_once
 
-
 # ════════════════════════ le rôle du graphe est borné ════════════════════════
 
 @pytest.mark.parametrize("note", list(RATING_BIAS))
@@ -204,11 +203,11 @@ def feats() -> dict:
 
 
 def ctx() -> dict:
-    return dict(price=1.1540, atr=0.0020, equity=10_000.0, risk_pct=1.0,
-                halted=False, circuit_breaker=False, fundamentals_block=False,
-                fundamentals_reduce=False, trend=1, gross_exposure_pct=0.0,
-                emotion_available=True, emotion_would_block=False,
-                timeframe="H4", roundtrip_cost=0.8)
+    return {"price": 1.1540, "atr": 0.0020, "equity": 10_000.0, "risk_pct": 1.0,
+                "halted": False, "circuit_breaker": False, "fundamentals_block": False,
+                "fundamentals_reduce": False, "trend": 1, "gross_exposure_pct": 0.0,
+                "emotion_available": True, "emotion_would_block": False,
+                "timeframe": "H4", "roundtrip_cost": 0.8}
 
 
 def test_graphe_daccord_donne_une_grosse_taille():

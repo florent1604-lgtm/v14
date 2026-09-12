@@ -9,13 +9,21 @@ le pont ne peut pas faire.
 from __future__ import annotations
 
 import json
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from titanium.avis import (
-    NEUTRE, PEREMPTION_S, Avis, Demande, conviction_pour, demandes_en_attente,
-    dernier_avis, deposer, enregistrer,
+    NEUTRE,
+    PEREMPTION_S,
+    Avis,
+    Demande,
+    conviction_pour,
+    demandes_en_attente,
+    deposer,
+    dernier_avis,
+    enregistrer,
 )
 
 
@@ -24,9 +32,9 @@ def _iso(decalage_s: float = 0.0) -> str:
             + timedelta(seconds=decalage_s)).isoformat()
 
 
-DEM = dict(symbol="XAUUSD", side=1, verdict="ENTER", code="OK",
-           piliers=3, famille="continuation", prix=2050.0,
-           stop_distance=10.0, rr=3.0, bar_time="2026-08-07T10:00:00")
+DEM = {"symbol": "XAUUSD", "side": 1, "verdict": "ENTER", "code": "OK",
+           "piliers": 3, "famille": "continuation", "prix": 2050.0,
+           "stop_distance": 10.0, "rr": 3.0, "bar_time": "2026-08-07T10:00:00"}
 
 
 class TestDepot:
@@ -334,10 +342,9 @@ class TestContexteAtteintLeGraphe:
             "get_past_context": lambda s, n: ""})()
         g.resolve_instrument_context = lambda n, a: "IDENTITE-XAUUSD"
         g.graph = type("G", (), {"invoke": lambda s, *a, **k: {}})()
-        try:
+        # Seul l'état initial nous intéresse.
+        with suppress(Exception):
             g._run_graph("XAUUSD", "2026-08-07", extra_context="BRIEF-TITANIUM")
-        except Exception:  # noqa: BLE001 — seul l'état initial nous intéresse
-            pass
 
         assert "IDENTITE-XAUUSD" in vu.get("ctx", ""), "identité effacée"
         assert "BRIEF-TITANIUM" in vu.get("ctx", ""), "brief non transmis"

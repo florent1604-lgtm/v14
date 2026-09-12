@@ -118,8 +118,24 @@ class ReplayEdgeMemory:
         # Adaptation live conservative : trois pertes consecutives sur le
         # contexte suspendent les nouvelles entrees. Les SL existants restent
         # strictement intacts; seule l'admission suivante est concernee.
+        #
+        # Mais la serie perdante ne PRIME PAS sur une esperance mesuree.
+        # `_recent_live` n'a aucune fenetre de recence : il prend les vingt
+        # dernieres clotures du contexte, quelle que soit leur date. Sans la
+        # subordination ci-dessous, trois pertes vieilles de douze jours
+        # suspendaient indefiniment un contexte que des centaines de clotures
+        # donnent gagnant. Mesure du 08/09/2026 : 24 contextes suspendus, dont
+        # 21 a esperance positive — jusqu'a E=+0.199 R et PF 1.53 sur 407
+        # clotures. La regle inconditionnelle eteignait en priorite les
+        # contextes les plus rentables, ce qui est l'inverse de son but.
+        # Elle continue de bloquer partout ou l'esperance ne la contredit pas :
+        # edge negatif, ou echantillon trop court pour en juger.
         recent = self._recent_live(context)
-        if len(recent) >= 3 and all(value <= 0 for value in recent[-3:]):
+        serie_perdante = (len(recent) >= 3
+                          and all(value <= 0 for value in recent[-3:]))
+        edge_positif = (n >= minimum and expectancy > self.threshold_r
+                        and pf > 1.0)
+        if serie_perdante and not edge_positif:
             return MemoryVerdict("BLOCK", "3 pertes live consecutives",
                                  len(recent), round(sum(recent) / len(recent), 4),
                                  round(_stats(recent)[2], 4), "live_recent")

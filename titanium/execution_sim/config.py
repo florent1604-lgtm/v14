@@ -51,6 +51,69 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "stages": ["post_only", "passive", "midpoint", "aggressive_limit", "ioc"],
             "max_reprices": 4,
         },
+        # Parametres par defaut de la famille adaptative. Ils sont ici, et non
+        # caches dans le code, pour qu'un balayage soit un fichier de config
+        # versionne et non une modification du moteur.
+        "adapt": {
+            # Valeurs partagees, injectees dans chaque section de technique par
+            # ``runner._policy_config``. La reference de spread absolue est un
+            # parametre, pas une constante cachee : sans elle
+            # ``adapt_spread_expansion`` echoue ferme au lieu d'inventer un seuil.
+            "_shared": {"baseline_spread_bps": 3.0, "max_inventory": 10.0},
+            "adapt_spread_budget": {"spread_budget_bps": 6.0, "ttl_seconds": 30.0},
+            "adapt_volatility_scale": {
+                "offset_k": 0.35,
+                "max_offset_bps": 8.0,
+                "ttl_seconds": 30.0,
+            },
+            "adapt_depth_guard": {"min_depth_ratio": 1.5, "ttl_seconds": 30.0},
+            "adapt_urgency_ladder": {
+                "high_urgency": 0.66,
+                "medium_urgency": 0.33,
+                "default_urgency": 0.5,
+                "horizon_reference_ms": 60_000.0,
+                "ttl_seconds": 30.0,
+            },
+            "adapt_deadline_ladder": {"slices": 3, "horizon_ms": 20_000},
+            "adapt_microprice_anchor": {"ttl_seconds": 30.0},
+            "adapt_inventory_skew": {"skew_bps": 6.0, "max_inventory": 10.0, "ttl_seconds": 30.0},
+            "adapt_cost_benefit": {
+                "horizon_ms": 5_000,
+                "adverse_vol_factor": 0.5,
+                "ttl_seconds": 30.0,
+            },
+            "adapt_volatility_abort": {"warn_bps": 8.0, "hard_bps": 25.0, "ttl_seconds": 30.0},
+            "adapt_depth_slice": {
+                "depth_fraction": 0.25,
+                "interval_ms": 800,
+                "max_slices": 6,
+                "min_slice": 0.01,
+            },
+            "adapt_improve_touch": {"improve_ticks": 1, "ttl_seconds": 30.0},
+            "adapt_join_touch": {"ttl_seconds": 30.0},
+            # Remplace adapt_spread_expansion : son seuil (3,0 x 2,0 = 6,0 bps)
+            # etait identique a ``spread_budget_bps``, donc les deux techniques
+            # etaient indiscernables au bit pres sur 864/864 scenarios.
+            "adapt_spread_participation": {
+                "expansion_factor": 2.0,
+                "max_slices": 5,
+                "interval_ms": 700,
+            },
+            "adapt_size_patience": {
+                "small_size": 2.0,
+                "depth_fraction": 0.25,
+                "interval_ms": 800,
+                "max_slices": 6,
+                "min_slice": 0.01,
+            },
+            "adapt_midpoint_aggressive": {"wide_ticks": 4.0, "ttl_seconds": 30.0},
+            "adapt_ladder_maker_taker": {"slices": 2, "horizon_ms": 10_000},
+            "adapt_selector": {
+                "min_depth_ratio": 1.5,
+                "high_urgency": 0.6,
+                "abort_volatility_bps": 25.0,
+            },
+        },
     },
     "risk": {
         "max_order_size": 10.0,

@@ -668,7 +668,19 @@ POLICY_REGISTRY = {
 
 
 def get_policy(name: str, config: dict[str, Any] | None = None) -> ExecutionPolicy:
+    """Rend une politique de l'arene historique, sinon une technique adaptative.
+
+    Le repli est paresseux : ``policies`` est importe par ``adaptive``, un import
+    au niveau module creerait un cycle. ``POLICY_REGISTRY`` n'est jamais
+    modifie, donc l'arene a quinze politiques reste exactement reproductible.
+    """
     try:
         return POLICY_REGISTRY[name](config)
+    except KeyError:
+        pass
+    from titanium.execution_sim.adaptive import ADAPTIVE_POLICY_REGISTRY
+
+    try:
+        return ADAPTIVE_POLICY_REGISTRY[name](config)
     except KeyError as exc:
         raise ValueError(f"unknown execution policy: {name}") from exc

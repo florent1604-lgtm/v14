@@ -7,41 +7,51 @@ from typing import Any
 
 from titanium.execution_sim.models import MarketSnapshot, Order, OrderStatus
 
-COMPLEXITY = {
-    "market": 1.0,
-    "limit_passive": 2.0,
-    "post_only": 2.0,
-    "ioc": 2.0,
-    "fok": 2.0,
-    "cancel_replace": 4.0,
-    "pegged": 4.0,
-    "iceberg": 5.0,
-    "twap": 4.0,
-    "vwap": 5.0,
-    "pov": 5.0,
-    "adaptive": 6.0,
-    "market_making": 9.0,
-    "multi_leg_simultaneous": 8.0,
-    "maker_then_hedge_taker": 9.0,
+#: Complexite et fidelite de l'ARENE HISTORIQUE, (complexite, fidelite).
+#: Une seule table : les deux dictionnaires paralleles d'avant devaient etre
+#: tenus synchronises a la main, et rien ne signalait un desaccord.
+#:
+#: La famille adaptative n'est PAS listee ici : chaque technique declare sa
+#: propre complexite et sa propre fidelite, et ``_profils()`` les lit. Ajouter
+#: une technique ne touche donc plus ce fichier.
+_PROFILS_HISTORIQUES: dict[str, tuple[float, float]] = {
+    "market": (1.0, 0.90),
+    "limit_passive": (2.0, 0.60),
+    "post_only": (2.0, 0.60),
+    "ioc": (2.0, 0.75),
+    "fok": (2.0, 0.75),
+    "cancel_replace": (4.0, 0.50),
+    "pegged": (4.0, 0.50),
+    "iceberg": (5.0, 0.45),
+    "twap": (4.0, 0.70),
+    "vwap": (5.0, 0.65),
+    "pov": (5.0, 0.60),
+    "adaptive": (6.0, 0.55),
+    "market_making": (9.0, 0.35),
+    "multi_leg_simultaneous": (8.0, 0.40),
+    "maker_then_hedge_taker": (9.0, 0.35),
 }
 
-FIDELITY = {
-    "market": 0.90,
-    "limit_passive": 0.60,
-    "post_only": 0.60,
-    "ioc": 0.75,
-    "fok": 0.75,
-    "cancel_replace": 0.50,
-    "pegged": 0.50,
-    "iceberg": 0.45,
-    "twap": 0.70,
-    "vwap": 0.65,
-    "pov": 0.60,
-    "adaptive": 0.55,
-    "market_making": 0.35,
-    "multi_leg_simultaneous": 0.40,
-    "maker_then_hedge_taker": 0.35,
-}
+
+def _profils() -> dict[str, tuple[float, float]]:
+    """Profils complets : arene historique + famille adaptative declaree.
+
+    L'import est differe pour que ``policies.py``, qui importe ce module par
+    ``runner``, ne declenche pas le chargement du catalogue a son propre import.
+    """
+    profils = dict(_PROFILS_HISTORIQUES)
+    from titanium.execution_sim.adaptive import ADAPTIVE_POLICY_REGISTRY
+
+    for name, cls in ADAPTIVE_POLICY_REGISTRY.items():
+        profils[name] = (cls.complexity, cls.fidelity)
+    return profils
+
+
+_PROFILS = _profils()
+
+#: Vues derivees, conservees pour les appelants historiques.
+COMPLEXITY: dict[str, float] = {name: c for name, (c, _) in _PROFILS.items()}
+FIDELITY: dict[str, float] = {name: f for name, (_, f) in _PROFILS.items()}
 
 
 def _safe_mean(values: list[float]) -> float:

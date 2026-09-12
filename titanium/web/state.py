@@ -212,45 +212,44 @@ def positions() -> dict:
 
         from titanium.data.mt5_vendor import mt5_lock, mt5_session
 
-        with mt5_lock:
-            with mt5_session():
-                for pos in (mt5.positions_get() or ()):
-                    if int(getattr(pos, "magic", 0) or 0) != p.magic:
-                        continue
-                    st = suivi.get(str(pos.ticket))
-                    entree, courant = float(pos.price_open), float(pos.price_current)
-                    side = 1 if int(pos.type) == 0 else -1
-                    fav = ((courant - entree) / st.r * side) if (st and st.r) else None
-                    lignes.append({
-                        "ticket": str(pos.ticket), "symbol": pos.symbol,
-                        "side": side, "volume": float(pos.volume),
-                        "entry": entree, "current": courant,
-                        "sl": float(pos.sl) if pos.sl else None,
-                        "tp": float(pos.tp) if pos.tp else None,
-                        "profit": float(getattr(pos, "profit", 0.0)),
-                        "phase": st.phase if st else "non suivi",
-                        "fav_r": round(fav, 3) if fav is not None else None,
-                        "peak_r": round(st.peak_fav_r, 3) if st else None,
-                    })
-                for ordre in (mt5.orders_get() or ()):
-                    if int(getattr(ordre, "magic", 0) or 0) != p.magic:
-                        continue
-                    ordre_type = int(getattr(ordre, "type", -1) or -1)
-                    buy_limit = int(mt5.ORDER_TYPE_BUY_LIMIT)
-                    sell_limit = int(mt5.ORDER_TYPE_SELL_LIMIT)
-                    if ordre_type not in (buy_limit, sell_limit):
-                        continue
-                    side = 1 if ordre_type == buy_limit else -1
-                    attentes.append({
-                        "ticket": str(ordre.ticket), "symbol": ordre.symbol,
-                        "side": side,
-                        "volume": float(getattr(ordre, "volume_initial", 0.0) or 0.0),
-                        "price": float(getattr(ordre, "price_open", 0.0) or 0.0),
-                        "sl": float(ordre.sl) if getattr(ordre, "sl", 0.0) else None,
-                        "tp": float(ordre.tp) if getattr(ordre, "tp", 0.0) else None,
-                        "expires": int(getattr(ordre, "time_expiration", 0) or 0),
-                        "kind": "BUY_LIMIT" if side > 0 else "SELL_LIMIT",
-                    })
+        with mt5_lock, mt5_session():
+            for pos in (mt5.positions_get() or ()):
+                if int(getattr(pos, "magic", 0) or 0) != p.magic:
+                    continue
+                st = suivi.get(str(pos.ticket))
+                entree, courant = float(pos.price_open), float(pos.price_current)
+                side = 1 if int(pos.type) == 0 else -1
+                fav = ((courant - entree) / st.r * side) if (st and st.r) else None
+                lignes.append({
+                    "ticket": str(pos.ticket), "symbol": pos.symbol,
+                    "side": side, "volume": float(pos.volume),
+                    "entry": entree, "current": courant,
+                    "sl": float(pos.sl) if pos.sl else None,
+                    "tp": float(pos.tp) if pos.tp else None,
+                    "profit": float(getattr(pos, "profit", 0.0)),
+                    "phase": st.phase if st else "non suivi",
+                    "fav_r": round(fav, 3) if fav is not None else None,
+                    "peak_r": round(st.peak_fav_r, 3) if st else None,
+                })
+            for ordre in (mt5.orders_get() or ()):
+                if int(getattr(ordre, "magic", 0) or 0) != p.magic:
+                    continue
+                ordre_type = int(getattr(ordre, "type", -1) or -1)
+                buy_limit = int(mt5.ORDER_TYPE_BUY_LIMIT)
+                sell_limit = int(mt5.ORDER_TYPE_SELL_LIMIT)
+                if ordre_type not in (buy_limit, sell_limit):
+                    continue
+                side = 1 if ordre_type == buy_limit else -1
+                attentes.append({
+                    "ticket": str(ordre.ticket), "symbol": ordre.symbol,
+                    "side": side,
+                    "volume": float(getattr(ordre, "volume_initial", 0.0) or 0.0),
+                    "price": float(getattr(ordre, "price_open", 0.0) or 0.0),
+                    "sl": float(ordre.sl) if getattr(ordre, "sl", 0.0) else None,
+                    "tp": float(ordre.tp) if getattr(ordre, "tp", 0.0) else None,
+                    "expires": int(getattr(ordre, "time_expiration", 0) or 0),
+                    "kind": "BUY_LIMIT" if side > 0 else "SELL_LIMIT",
+                })
     except Exception as exc:  # noqa: BLE001
         return {"error": f"{type(exc).__name__}: {exc}", "positions": [],
                 "pending": [], "params": params.__dict__}

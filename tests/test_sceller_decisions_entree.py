@@ -3,6 +3,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
+
+import pytest
 
 from tools import banc_ab_entrees as banc
 from tools.sceller_cohorte_p1a import atomic_write, canonical_bytes
@@ -42,7 +45,8 @@ def test_scelleur_inclut_les_ouvertes_et_bloque_la_phase_un(tmp_path):
     registry = tmp_path / "decision_registry.ndjson"
     _write(registry, [
         _decided("epoch-a:1", "2026-08-26T08:00:00+00:00"),
-        {"event": "resolved", "decision_id": "epoch-a:1", "pnl_r": 1.0,
+        {"event": "resolved", "decision_id": "epoch-a:1",
+         "execution_ticket": 1, "symbol": "BTCUSD", "pnl_r": 1.0,
          "closed_at": "2026-08-26T09:00:00+00:00",
          "ts_exit": "2026-08-26T09:00:00+00:00", "exit_reason": "trailing",
          "giveback_r": 0.2, "mae_r": -0.1, "mfe_r": 1.2},
@@ -87,8 +91,66 @@ def test_scelleur_ne_pool_jamais_deux_epoques(tmp_path):
         ),
     ])
 
-    import pytest
     with pytest.raises(ValueError, match="plusieurs politiques"):
+        build_sealed_decisions(
+            registry, decision_cutoff="2026-08-26T10:00:00+00:00",
+        )
+
+
+def _resolved(**overrides):
+    row = {
+        "event": "resolved", "decision_id": "epoch-a:1",
+        "execution_ticket": 1, "symbol": "BTCUSD",
+        "closed_at": "2026-08-26T09:00:00+00:00",
+        "ts_exit": "2026-08-26T09:00:00+00:00",
+        "pnl_r": 1.0, "mae_r": -0.1, "mfe_r": 1.2,
+        "giveback_r": 0.2, "exit_reason": "trailing",
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.mark.parametrize(
+    ("resolution", "message"),
+    [
+        (_resolved(execution_ticket=999), "execution_ticket incohérent"),
+        (_resolved(symbol="EURUSD"), "symbol incohérent"),
+        (
+            _resolved(
+                closed_at="2026-08-26T07:59:00+00:00",
+                ts_exit="2026-08-26T07:59:00+00:00",
+            ),
+            "sortie antérieure",
+        ),
+        (_resolved(pnl_r=math.inf), "pnl_r non fini"),
+    ],
+)
+def test_scelleur_refuse_une_resolution_mal_jointe_ou_incomplete(
+    tmp_path, resolution, message,
+):
+    registry = tmp_path / "decision_registry.ndjson"
+    _write(registry, [
+        _decided("epoch-a:1", "2026-08-26T08:00:00+00:00"),
+        resolution,
+    ])
+
+    with pytest.raises(ValueError, match=message):
+        build_sealed_decisions(
+            registry, decision_cutoff="2026-08-26T10:00:00+00:00",
+        )
+
+
+def test_scelleur_refuse_un_ticket_duplique_dans_une_epoque(tmp_path):
+    registry = tmp_path / "decision_registry.ndjson"
+    _write(registry, [
+        _decided("epoch-a:1", "2026-08-26T08:00:00+00:00"),
+        _decided(
+            "epoch-a:alias", "2026-08-26T08:15:00+00:00",
+            execution_ticket=1,
+        ),
+    ])
+
+    with pytest.raises(ValueError, match="execution_ticket dupliqué"):
         build_sealed_decisions(
             registry, decision_cutoff="2026-08-26T10:00:00+00:00",
         )

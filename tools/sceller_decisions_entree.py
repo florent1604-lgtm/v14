@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from tools.sceller_cohorte_p1a import (
     COHORT_IDENTITY_FIELDS,
     atomic_write,
     canonical_bytes,
+    normalize_ticket,
     parse_ndjson,
     placed_identity,
     stable_read,
@@ -41,6 +43,43 @@ def _unique(rows: list[tuple[int, dict]], event: str) -> dict[str, dict]:
     return indexed
 
 
+def _validate_resolution(
+    decision_id: str,
+    decision: dict,
+    outcome: dict,
+) -> None:
+    ticket = normalize_ticket(decision.get("execution_ticket"))
+    outcome_ticket = normalize_ticket(outcome.get("execution_ticket"))
+    if outcome_ticket != ticket:
+        raise ValueError(
+            f"execution_ticket incohérent pour {decision_id}: "
+            f"{outcome_ticket} != {ticket}",
+        )
+    symbol = str(decision.get("symbol", "") or "").strip()
+    outcome_symbol = str(outcome.get("symbol", "") or "").strip()
+    if not symbol or outcome_symbol != symbol:
+        raise ValueError(
+            f"symbol incohérent pour {decision_id}: {outcome_symbol!r} != {symbol!r}",
+        )
+    decision_at = _utc(str(decision.get("decision_at") or decision.get("at") or ""))
+    for field in ("closed_at", "ts_exit"):
+        exit_at = _utc(str(outcome.get(field) or ""))
+        if exit_at < decision_at:
+            raise ValueError(f"sortie antérieure à la décision pour {decision_id}: {field}")
+    for field in ("pnl_r", "mae_r", "mfe_r", "giveback_r"):
+        value = outcome.get(field)
+        if isinstance(value, bool):
+            raise ValueError(f"{field} non fini ou absent pour {decision_id}")
+        try:
+            finite = math.isfinite(float(value))
+        except (TypeError, ValueError):
+            finite = False
+        if not finite:
+            raise ValueError(f"{field} non fini ou absent pour {decision_id}")
+    if not str(outcome.get("exit_reason", "") or "").strip():
+        raise ValueError(f"exit_reason absent pour {decision_id}")
+
+
 def build_sealed_decisions(
     registry_path: Path,
     *,
@@ -59,6 +98,7 @@ def build_sealed_decisions(
     cutoff = _utc(decision_cutoff)
 
     eligible: list[tuple[dict, dict[str, str]]] = []
+    seen_tickets: set[tuple[str, str]] = set()
     for decision_id, row in decided.items():
         decided_at = _utc(str(row.get("decision_at") or row.get("at") or ""))
         if decided_at > cutoff:
@@ -68,6 +108,15 @@ def build_sealed_decisions(
             raise ValueError(f"identité absente pour {decision_id}")
         if policy_epoch is not None and identity["policy_epoch"] != str(policy_epoch):
             continue
+        ticket_key = (
+            identity["policy_epoch"],
+            normalize_ticket(row.get("execution_ticket")),
+        )
+        if ticket_key in seen_tickets:
+            raise ValueError(
+                f"execution_ticket dupliqué dans {ticket_key[0]}: {ticket_key[1]}",
+            )
+        seen_tickets.add(ticket_key)
         eligible.append((row, identity))
     if not eligible:
         raise ValueError("aucune décision éligible")
@@ -89,6 +138,7 @@ def build_sealed_decisions(
         if outcome is None:
             open_ids.append(decision_id)
         else:
+            _validate_resolution(decision_id, decision, outcome)
             closed_ids.append(decision_id)
         pnl_r = None if outcome is None else outcome.get("pnl_r")
         cohort.append({

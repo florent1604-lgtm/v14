@@ -18,9 +18,9 @@ def test_meta_affiche_hermes_comme_cortex_principal(monkeypatch, tmp_path):
 
     result = state.meta()
 
-    assert result["provider"] == "claude-code"
-    assert result["deep_model"] == "claude-opus-5"
-    assert result["cortex_primary"] == "hermes-cortex/claude-opus-5"
+    assert result["provider"] == "ollama-local"
+    assert result["deep_model"] == "qwen3.5:2b"
+    assert result["cortex_primary"] == "hermes-cortex/qwen3.5:2b"
     assert result["cortex_mode"] == "async_advisory"
     assert result["fallback_provider"] == "ollama"
     assert result["fallback_model"] == "qwen2.5:7b"

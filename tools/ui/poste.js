@@ -57,8 +57,8 @@ function anomalies(d) {
   if (an.actif && an.en_attente > 8)
     out.push(['attention', 'ANALYSTES', `${an.en_attente} demandes en attente — le travailleur décroche`]);
 
-  if (cx.status === 'quota_exhausted')
-    out.push(['attention', 'HERMÈS', 'fenêtre Claude saturée — les nouvelles entrées restent en WAIT']);
+  if (cx.status === 'provider_refused' || cx.status === 'quota_exhausted')
+    out.push(['attention', 'HERMÈS', 'appel refusé par le fournisseur — vérifier le mode d’authentification et le motif retourné']);
   else if (cx.status === 'unavailable' || cx.status === 'circuit_open')
     out.push(['attention', 'HERMÈS', cx.label || 'cortex indisponible']);
 
@@ -158,7 +158,7 @@ function cortex(d) {
   const head = el('div', 'cortex-head');
   const badge = el('span', 'etat-pastille', x.label || 'Hermès non mesuré');
   badge.style.color = x.status === 'ready' ? 'var(--long)'
-    : x.status === 'quota_exhausted' ? 'var(--grave)'
+    : (x.status === 'provider_refused' || x.status === 'quota_exhausted') ? 'var(--grave)'
     : x.status === 'unknown' ? 'var(--encre-3)' : 'var(--alerte)';
   head.append(badge);
   const terminal = com.terminal?.running && com.hub?.running;

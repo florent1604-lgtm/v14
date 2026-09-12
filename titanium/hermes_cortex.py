@@ -34,13 +34,17 @@ from titanium.organism.contracts import (
 from titanium.organism.trading_knowledge import knowledge_for
 from titanium.position_sentiment import POSITION_PROMPT_VERSION
 
-HERMES_PROVIDER = "ollama-local"
+HERMES_PROVIDER = os.getenv("TITANIUM_HERMES_PROVIDER", "ollama-local").strip()
 # Repli local valide le 09/09/2026 pendant la remise a zero du compte Claude
 # Pro. Qwen 2.5 7B et Granite 3B depassent 120 s. Qwen 3.5 2B est le seul
 # candidat teste qui alloue reellement 65 536 tokens et rend le JSON demande
 # sur cette machine. Le transport local ci-dessous impose le role V14 sans
 # charger le contexte generaliste ni les outils du CLI interactif Hermes.
-HERMES_MODEL = "qwen3.5:2b"
+HERMES_MODEL = os.getenv(
+    "TITANIUM_HERMES_MODEL",
+    "deepseek-v4-flash" if HERMES_PROVIDER == "deepseek-api" else "qwen3.5:2b",
+).strip()
+DEEPSEEK_MODEL = "deepseek-v4-flash"
 HERMES_SOURCE = CORTEX_DECISION_PRODUCER
 #: Porte par chaque verdict d'Hermes. Prefixe pour qu'un filtre sur les
 #: cloture reelles separe sans ambiguite les deux cortex.
@@ -116,6 +120,7 @@ HERMES_INTERVALLE_MIN_S = float(
 _DERNIER_APPEL: dict[str, float] = {"at": 0.0}
 _APPEL_LOCK = Lock()
 ROOT = Path(__file__).resolve().parents[1]
+DEEPSEEK_USAGE_LOG = ROOT / "results" / "deepseek_usage.ndjson"
 
 _CIRCUIT: dict[str, Any] = {"retry_at": 0.0, "error": ""}
 
@@ -208,7 +213,7 @@ def circuit_status() -> dict[str, Any]:
         "retry_in_s": max(0.0, float(_CIRCUIT["retry_at"]) - now),
         "last_error": str(_CIRCUIT["error"]),
         "provider": HERMES_PROVIDER,
-        "model": HERMES_MODEL,
+        "model": DEEPSEEK_MODEL if HERMES_PROVIDER == "deepseek-api" else HERMES_MODEL,
     }
 
 
@@ -324,6 +329,44 @@ def _ask_ollama_local(prompt: str, timeout_s: float) -> dict[str, Any]:
     return _json_object(content)
 
 
+def _journaliser_deepseek_usage(completion: Any) -> None:
+    """Persiste uniquement des métriques numériques, jamais le prompt ni la clé."""
+    row = {
+        "provider": "deepseek-api",
+        "model": DEEPSEEK_MODEL,
+        "duration_ms": int(getattr(completion, "duration_ms", 0) or 0),
+        **completion.usage.to_dict(),
+    }
+    try:
+        DEEPSEEK_USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with DEEPSEEK_USAGE_LOG.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _safe_deepseek_error(exc: Exception) -> str:
+    """Classe une panne sans recopier le corps fournisseur ou un secret."""
+    status = re.search(r"\bHTTP\s+(4\d\d|5\d\d)\b", str(exc), re.IGNORECASE)
+    return f"DeepSeek HTTP {status.group(1)}" if status else "DeepSeek indisponible"
+
+
+def _ask_deepseek_api(prompt: str, timeout_s: float) -> dict[str, Any]:
+    from titanium.deepseek_client import DeepSeekClient
+
+    client = DeepSeekClient.from_env(model=DEEPSEEK_MODEL, timeout_s=timeout_s)
+    completion = client.complete_json(
+        prompt,
+        system=(
+            "Tu es Hermes, cortex principal et decisionnel de Titanium V14. "
+            "Tu arbitres uniquement les candidats scelles sur MT5 DEMO. "
+            "Tu n'appelles aucun outil et tu reponds seulement avec le JSON demande."
+        ),
+    )
+    _journaliser_deepseek_usage(completion)
+    return completion.payload
+
+
 def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
          scindable: bool = False) -> dict[str, Any]:
     """Interroge Hermes.
@@ -361,6 +404,24 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
             except HermesCortexUnavailable as exc:
                 _trip(str(exc))
                 raise
+            _CIRCUIT.update(retry_at=0.0, error="")
+            return result
+
+        if HERMES_PROVIDER == "deepseek-api":
+            from titanium.deepseek_client import (
+                DeepSeekConfigurationError,
+                DeepSeekUnavailable,
+            )
+
+            try:
+                result = _ask_deepseek_api(prompt, timeout_s)
+            except (DeepSeekConfigurationError, DeepSeekUnavailable) as exc:
+                detail = _safe_deepseek_error(exc)
+                status = re.search(r"\bHTTP\s+(4\d\d)\b", detail)
+                if scindable and status:
+                    raise HermesLotTropGrand(detail) from exc
+                _trip(detail)
+                raise HermesCortexUnavailable(detail) from exc
             _CIRCUIT.update(retry_at=0.0, error="")
             return result
 

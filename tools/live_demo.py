@@ -76,6 +76,9 @@ from tools.console_output import configure_console_output  # noqa: E402
 #: cette liste ne peut atteindre ni Hermes ni l'executor pendant la cohorte.
 UNIVERS = list(DEMO_COHORT_SYMBOLS)
 
+#: Bascule temporaire : le moteur déterministe dimensionne seul les entrées.
+ACTIVER_CORTEX = False
+
 #: Repli si le catalogue est illisible.
 UNIVERS_SECOURS = [
     "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD",
@@ -1197,6 +1200,24 @@ def _garde_intelligente(sym: str, side: int, feats: dict,
                   f"cortex {code} ALLOW: {reason}")
 
 
+def _autorisation_et_conviction(sym: str, feats: dict, out, decision, cfg,
+                                ltf=None) -> tuple[bool, float, str]:
+    """Autorise le cortex ou applique le dimensionnement déterministe."""
+    if not ACTIVER_CORTEX:
+        return True, 0.5, "CORTEX_DESACTIVE"
+
+    identity = _demander_avis(sym, feats, out, decision, cfg, ltf=ltf)
+    if identity is None:
+        return False, 0.5, "CENTRAL_MEMORY"
+    intelligence_ok, motif_intelligence = _garde_intelligente(
+        sym, out.side, feats, identity)
+    if not intelligence_ok:
+        return False, 0.5, motif_intelligence
+    conviction, motif_avis = _avis_pour(
+        sym, out.side, identity, _contexte_cortex(sym, feats, out.side))
+    return True, conviction, motif_avis
+
+
 def _sante_resumee() -> str:
     """Resume d'auscultation, pour que l'analyste sache sur quoi il juge."""
     try:
@@ -2094,33 +2115,18 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 piliers_de,
                 total_piliers,
             )
-            # La demande est d'abord scellee dans le noyau. Sans proposition
-            # portant exactement cette identite, l'entree reste en WAIT.
-            identity = _demander_avis(
+            intelligence_ok, conv, motif_intelligence = _autorisation_et_conviction(
                 sym, feats, out, _dec, cfg, ltf=c.get("ltf_rates"),
             )
-            if identity is None:
-                _refus(stats, "CENTRAL_MEMORY", sym,
-                       "demande cognitive impossible a sceller",
-                       piliers=c.get("support"), side=out.side)
-                print(f"    {sym:8} ENTER differe - noyau central indisponible",
-                      flush=True)
-                continue
-
-            intelligence_ok, motif_intelligence = _garde_intelligente(
-                sym, out.side, feats, identity)
             if not intelligence_ok:
                 _refus(stats, "INTELLIGENCE_GATE", sym, motif_intelligence,
                        piliers=c.get("support"), side=out.side)
                 print(f"    {sym:8} ENTER differe/refuse - {motif_intelligence}",
                       flush=True)
                 continue
-            print(f"    {sym:8} intelligence live valide - {motif_intelligence}",
-                  flush=True)
-
-            conv, motif_avis = _avis_pour(
-                sym, out.side, identity, _contexte_cortex(sym, feats, out.side),
-            )
+            if ACTIVER_CORTEX:
+                print(f"    {sym:8} intelligence live valide - {motif_intelligence}",
+                      flush=True)
 
             conf = evaluer_confiance(
                 piliers_de(_dec),

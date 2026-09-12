@@ -6,6 +6,27 @@ from titanium.live_memory import MemoryVerdict
 from titanium.organism.memory import CentralMemory
 
 
+def test_mode_sans_cortex_utilise_une_conviction_neutre_sans_consulter_hermes(
+    monkeypatch,
+):
+    monkeypatch.setattr(live_demo, "ACTIVER_CORTEX", False)
+    monkeypatch.setattr(
+        live_demo,
+        "_demander_avis",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Hermes ne doit pas etre consulte")
+        ),
+    )
+
+    allowed, conviction, reason = live_demo._autorisation_et_conviction(
+        "BTCUSD", {}, object(), object(), object(),
+    )
+
+    assert allowed is True
+    assert conviction == 0.5
+    assert reason == "CORTEX_DESACTIVE"
+
+
 def test_live_ne_fait_aucun_appel_hermes_synchrone(tmp_path, monkeypatch):
     class EdgeMemory:
         @staticmethod

@@ -111,7 +111,17 @@ def test_attachment_rejects_stale_or_malformed_snapshot(tmp_path):
 
 
 def test_live_loop_seals_microstructure_before_requesting_qwen():
+    """La microstructure est scellée AVANT que le cortex soit interrogé.
+
+    Depuis la bascule mécanique du 11/09/2026, `_demander_avis` est appelé
+    par `_autorisation_et_conviction` : c'est ce point-là qui matérialise la
+    demande cognitive dans le tour. On vérifie aussi qu'il la porte vraiment.
+    """
     from tools import live_demo
 
+    assert "_demander_avis(" in inspect.getsource(
+        live_demo._autorisation_et_conviction)
+
     source = inspect.getsource(live_demo.tour)
-    assert source.index("attach_live_microstructure") < source.index("_demander_avis(")
+    assert source.index("attach_live_microstructure") < source.index(
+        "_autorisation_et_conviction(")

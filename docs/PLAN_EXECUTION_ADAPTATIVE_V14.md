@@ -3,7 +3,7 @@
 **Statut : étude + lot implémenté, mode dry-run.** Aucune promotion live. Aucun
 seuil de trading modifié.
 
-Date : 2026-09-12 · moteur mesuré : `b39a985ecdc8941b` · seed `14082026`
+Date : 2026-09-12 · moteur mesuré : `47ffd7d8c7052679` · seed `14082026`
 
 > **Passe de correction du 12/09/2026.** La première livraison annonçait 17
 > techniques et « 11 battent `market` ». Deux défauts, trouvés en auditant le
@@ -83,7 +83,8 @@ nommé dans son en-tête.
 | `adaptive_base.py` | **la mécanique commune** : dérivation du contexte, bornage dur au carnet, échéance de tranche, trace de décision. Une technique n'écrit que `decide`. |
 | `adaptive.py` | **le catalogue, et rien d'autre** : 17 techniques, le sélecteur, le registre. Chaque technique *déclare* nom, hypothèse, axe, complexité, fidélité, séquentialité. |
 | `fills.py` | **le contrat de remplissage** : `FillBudget`, « jamais plus que la quantité voulue », partagé par les deux exécuteurs. |
-| `runner.py` | **l'ordonnancement** : une seule machine séquentielle, une seule discrétisation `_index_activation`. |
+| `sequencing.py` | **l'ordonnancement séquentiel** : `executer_sequentiel`, `index_activation`, `ProfilSequentiel` — la seule machine séquentielle, celle que traversent le runner **et** le moteur générique. |
+| `runner.py` | **la conduite du run** : scénarios, axes conduits, choix du chemin (événementiel / séquentiel), matrice. Plus aucune règle d'ordonnancement ni de remplissage. |
 | `metrics.py` | **les profils** : une seule table pour l'arène historique ; la famille adaptative lit les déclarations. |
 
 Les invariants qui n'ont plus qu'un propriétaire :
@@ -91,8 +92,8 @@ Les invariants qui n'ont plus qu'un propriétaire :
 | Invariant | Propriétaire unique |
 |---|---|
 | jamais de sur-remplissage | `fills.FillBudget` (`autoriser` / `enregistrer`) |
-| offset millisecondes → indice de snapshot | `runner._index_activation` |
-| exécution séquentielle (deux familles) | `runner._executer_politique_sequentielle` + `ProfilSequentiel` |
+| offset millisecondes → indice de snapshot | `sequencing.index_activation` |
+| exécution séquentielle (trois familles) | `sequencing.executer_sequentiel` + `ProfilSequentiel` |
 | contexte d'arrivée | `adaptive_features.build_features` |
 | métadonnées d'une technique | attributs de classe, lus par le registre, les métriques et la sonde d'axes |
 | comparabilité de l'arène historique | `policies.POLICY_REGISTRY`, `runner.ALL_POLICIES` — inchangés |
@@ -100,9 +101,11 @@ Les invariants qui n'ont plus qu'un propriétaire :
 Conséquence pratique : **une technique = une classe dans `adaptive.py`** (plus
 ses valeurs par défaut) ; **un axe = un champ dans `AdaptiveFeatures`** ; **un
 changement de règle de remplissage = un seul fichier**. `ProfilSequentiel`
-nomme en un endroit les quatre choix qui distinguent l'arène `adaptive`
-historique de la famille adaptative, au lieu de les dupliquer dans deux
-machines.
+nomme en un endroit les quatre choix qui distinguent les trois familles
+séquentielles — arène `adaptive` historique, famille adaptative, politiques à
+jambes multiples — au lieu de les dupliquer dans deux machines. Le moteur
+générique ne décide plus rien de l'ordonnancement : il choisit son profil et
+appelle le même `executer_sequentiel` que le runner.
 
 Ces frontières sont **sans effet observable** : voir §6.5 pour la preuve de
 reproduction exacte.
@@ -123,6 +126,7 @@ reproduction exacte.
 | P0-6 | Isolation de l'arène historique | `POLICY_REGISTRY` et `ALL_POLICIES` inchangés, matrice historique bit-identique |
 | P0-7 | Mesure appariée par défaut + portes d'indépendance et d'axes | delta par régime et par tiers, collisions détectées, axes sondés |
 | P0-8 | Un propriétaire par concern | `adaptive_features` / `adaptive_base` / `adaptive` / `fills` séparés (cf. §2.3), résultat inchangé à la ligne près |
+| P0-9 | Un propriétaire pour l'ordonnancement séquentiel | `sequencing.executer_sequentiel` et `index_activation` utilisés par le runner **et** le moteur ; aucune tranche différée ne se remplit avant son horaire, des deux côtés |
 
 ### P1 — prochains développements
 
@@ -204,6 +208,13 @@ cachait.
   tranches remplissait **10 unités pour une intention de 6 (66 %)** — invisible
   depuis le chemin que les tests couvraient. Le contrat est maintenant honoré par
   les deux exécuteurs, et testé sur les deux.
+- **Ordonnancement dédoublé** : la boucle du moteur remplissait chaque ordre dès
+  le **premier** événement, donc une tranche programmée à t + 3 s s'exécutait à
+  t0 : le même plan rendait deux résultats selon l'entrée utilisée. Le moteur ne
+  décide plus rien, il **délègue** à `sequencing.executer_sequentiel`, comme le
+  runner. Une porte de test compare désormais les deux entrées sur le même plan
+  et exige de chacune qu'aucun ordre différé ne se remplisse avant son
+  activation.
 
 ---
 
@@ -245,7 +256,7 @@ Delta apparié contre `market`. Négatif = pire que le témoin.
 | 11 | `adapt_urgency_ladder` | −0,1449 | 0,0374 | −3,88 | 30,9 % | 19,4 % | −7,87 | 79,3 % | 6,19 |
 | 12 | `adapt_depth_guard` | −0,1481 | 0,0445 | −3,33 | 24,7 % | 27,2 % | −7,74 | 68,1 % | 4,00 |
 | 13 | `adapt_spread_participation` | −0,2122 | 0,0377 | −5,64 | 20,3 % | 29,7 % | −7,87 | 65,5 % | 5,31 |
-| 14 | `adapt_depth_slice` | −0,4260 | 0,0518 | −8,22 | 56,8 % | 43,2 % | −8,83 | 42,7 % | 0,10 |
+| 14 | `adapt_depth_slice` | −0,4260 | 0,0518 | −8,22 | 56,8 % | 43,2 % | −8,83 | 42,7 % | 0,09 |
 | 15 | `adapt_size_patience` | −0,4488 | 0,0515 | −8,71 | 28,0 % | 40,4 % | −8,83 | 49,7 % | 2,68 |
 | 16 | `adapt_deadline_ladder` | −0,7281 | 0,0458 | −15,91 | 30,0 % | 70,0 % | −6,62 | 98,4 % | 30,80 |
 | 17 | `adapt_ladder_maker_taker` | −0,7387 | 0,0470 | −15,70 | 29,5 % | 70,5 % | −6,62 | 98,1 % | 31,04 |
@@ -321,21 +332,39 @@ déclaré inerte.
 
 ### 6.5 Reproduction exacte après restructuration
 
-La séparation en modules (§2.3) est **sans effet observable**, prouvé sur les
-artefacts et non sur une lecture :
+Les deux passes de structure — séparation en modules (§2.3), puis extraction du
+propriétaire unique de l'ordonnancement (`sequencing.py`) — sont **sans effet
+observable**, prouvé sur les artefacts et non sur une lecture :
 
 | Vérification | Résultat |
 |---|---|
-| 15 552 lignes de mesure brutes (17 techniques × 864 scénarios) | **0 ligne diffère**, tous champs confondus |
-| rapport JSON complet | identique, **sauf** `engine_version` (empreinte du paquet, qui change car il compte trois fichiers de plus) |
-| rapport Markdown | identique, **sauf** la ligne `moteur <empreinte>` |
-| politique `adaptive` de l'arène historique (seule des quinze à passer par la machine séquentielle refactorisée) | **0 différence** sur les 78 colonnes, 864/864 scénarios |
-| `POLICY_REGISTRY` / `ALL_POLICIES` | inchangés |
+| 15 552 lignes de mesure brutes (17 techniques × 864 scénarios) | **0 ligne diffère** de la référence d'avant restructuration, tous champs confondus |
+| matrice historique : 12 960 lignes, 15 politiques | **0 colonne diffère** de `origin/main` **et** de la tête de PR, comparées par `(scenario_id, policy)` |
+| politique `adaptive` de l'arène historique (seule des quinze à passer par le propriétaire séquentiel extrait) | **0 différence** sur les 78 colonnes, 864/864 scénarios |
+| `POLICY_REGISTRY` / `ALL_POLICIES` | inchangés (16 / 15 entrées, aucune adaptative) |
+| classement adaptatif | reproduit à la 4ᵉ décimale : 17 comportements distincts, 10 gagnants dont 10 distincts |
 
-Les quatre politiques qui diffèrent d'une référence vieille d'un mois
-(`cancel_replace`, `pegged`, `pov`, `vwap`) suivent le chemin événementiel, dont
-le corps n'est pas touché par ce lot : leurs écarts préexistaient. Aucune n'est
-concernée par la machine séquentielle.
+`engine_version` change à chaque passe, et c'est attendu : c'est l'empreinte du
+paquet, qui hache le **nom et le contenu** de chaque `*.py` du dossier
+(`runner.engine_fingerprint`). Ajouter un module la déplace donc **par
+construction**, sans qu'une seule ligne de résultat ne bouge :
+`b39a985ecdc8941b` (avant séparation) → `96102d719d784189` (après séparation) →
+`47ffd7d8c7052679` (après extraction de l'ordonnancement). Le document porte
+l'empreinte du code **actuel**, la dernière de la liste.
+
+Méthode de comparaison : les deux matrices sont régénérées depuis les deux
+arbres de travail avec la même graine et comparées ligne à ligne sur toutes les
+colonnes sauf l'horloge (`backtest_elapsed_ms`) et l'identifiant de run. Aucune
+politique, y compris les quatre du chemin événementiel (`cancel_replace`,
+`pegged`, `pov`, `vwap`), ne s'écarte.
+
+Une nuance de reproductibilité, qui préexiste à ce lot et qu'il vaut mieux
+dire : `engine_fingerprint` hache les **octets du fichier de travail**, pas le
+contenu normalisé du dépôt. Avec `core.autocrlf=true` et sans `.gitattributes`,
+la même révision rend donc une empreinte différente selon le checkout, et
+n'importe quelle modification d'un `*.py` du dossier la déplace. Elle identifie
+une machine, pas un résultat. L'identité reproductible d'un run reste son
+`run_id` et son `config_fingerprint`, dérivés du contenu.
 
 ---
 
@@ -343,8 +372,8 @@ concernée par la machine séquentielle.
 
 - **Aucune rentabilité.** Quotes, profondeur et chemin intrabarre sont
   synthétiques.
-- **Un delta moyen n'est pas une garantie par trade.** Même les gagnantes perdent
-  dans 8 à 24 % des scénarios, avec un pire cas autour de −7.
+- **Un delta moyen n'est pas une garantie par trade.** Même les gagnantes
+  perdent dans 3,1 % à 23,8 % des scénarios, avec un pire cas à −7,87.
 - **La dépendance au carnet n'est pas mesurée.** `adapt_microprice_anchor` et
   `adapt_depth_slice` reposent sur une profondeur synthétique ; fidélité
   déclarée 0,50 et 0,60, pas mesurée.
@@ -387,7 +416,11 @@ Toute correction de règle doit être écrite **avant** la mesure.
   (SHA-256 des 12 960 lignes comparable avant/après ce lot), `POLICY_REGISTRY` et
   `ALL_POLICIES` intacts.
 - Le chemin séquentiel ne remplit jamais plus que la quantité voulue, dans le
-  runner **et** dans `BacktestExecutionEngine` (testé sur les deux).
+  runner **et** dans `BacktestExecutionEngine` : une seule implémentation
+  (`sequencing.executer_sequentiel`), testée sur les deux entrées et sur trois
+  quantités (1, 6, 9).
+- Les deux entrées prennent les mêmes décisions d'ordonnancement : aucun ordre
+  différé ne se remplit avant son horaire, vérifié sur le runner et le moteur.
 - Les 17 techniques survivent à un contexte non fiable en ne produisant aucun
   ordre (testé pour les 17).
 - Aucun seuil de trading modifié. Aucune promotion.
@@ -402,13 +435,14 @@ Toute correction de règle doit être écrite **avant** la mesure.
 | `titanium/execution_sim/adaptive_base.py` | base commune | la mécanique partagée des techniques |
 | `titanium/execution_sim/adaptive.py` | catalogue | 17 techniques, sélecteur, registre |
 | `titanium/execution_sim/fills.py` | contrat de remplissage | « jamais plus que la quantité voulue » |
-| `titanium/execution_sim/runner.py` | ordonnancement | axes conduits, machine séquentielle unique, discrétisation |
-| `titanium/execution_sim/engine.py` | exécuteur générique | *utilise* `FillBudget`, ne le réimplémente plus |
+| `titanium/execution_sim/sequencing.py` | ordonnancement séquentiel | `executer_sequentiel`, `index_activation`, `ProfilSequentiel` — partagés par les deux exécuteurs |
+| `titanium/execution_sim/runner.py` | conduite du run | axes conduits, scénarios, matrice ; plus aucune règle d'ordonnancement |
+| `titanium/execution_sim/engine.py` | exécuteur générique | choisit son `ProfilSequentiel`, délègue le reste à `sequencing` |
 | `titanium/execution_sim/policies.py` | `get_policy` : repli paresseux vers la famille adaptative | l'arene historique (inchangée) |
 | `titanium/execution_sim/metrics.py` | une table de profils | complexité / fidélité |
 | `titanium/execution_sim/config.py` | paramètres par défaut, versionnables | les seuils |
 | `tools/execution_adaptative.py` | mesure appariée, régimes, tiers, indépendance, sonde d'axes | la mesure |
-| `tests/test_execution_sim_adaptive.py` | 55 tests, dont les portes d'indépendance et d'axes | la non-régression |
+| `tests/test_execution_sim_adaptive.py` | 56 tests, dont les portes d'indépendance, d'axes, de non-sur-remplissage et d'ordonnancement partagé | la non-régression |
 | `docs/PLAN_EXECUTION_ADAPTATIVE_V14.md` | la présente étude | — |
 
 Reproduction complète :

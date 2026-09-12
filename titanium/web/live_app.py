@@ -57,6 +57,21 @@ async def ui_compte(request: Request):
     )
 
 
+@app.get("/ui/macro", response_class=HTMLResponse)
+async def ui_macro(request: Request):
+    """Jauges macro : un état borné, trois pourcentages, une sévérité.
+
+    Le fragment ne calcule rien — il sert le bloc déjà normalisé, comme les
+    autres. Une jauge qui interpréterait un texte finirait par afficher ce
+    qu'elle croit comprendre.
+    """
+    return gabarits.TemplateResponse(
+        request,
+        "components/macro.html",
+        {"macro": await get_engine().bloc("macro")},
+    )
+
+
 @app.get("/ui/boucle", response_class=HTMLResponse)
 async def ui_boucle(request: Request):
     moteur = get_engine()

@@ -1,0 +1,74 @@
+{# Jauges macro. Le bloc est DEJA normalise (etat borne, pourcentages 0-100,
+   severite) par titanium.macro.telemetry : ce gabarit ne lit aucun texte libre
+   et n'interprete rien — sinon deux interfaces finiraient par raconter deux
+   histoires du meme calendrier. #}
+{% macro jauge(titre, valeur, couleur) %}
+  <div style="margin:7px 0">
+    <div class="gris" style="display:flex;justify-content:space-between;font-size:10px;text-transform:uppercase;letter-spacing:.06em">
+      <span>{{ titre }}</span><span>{{ valeur }} %</span>
+    </div>
+    <div style="height:7px;background:#232936;border-radius:3px;overflow:hidden">
+      <div style="height:100%;width:{{ valeur }}%;background:{{ couleur }}"></div>
+    </div>
+  </div>
+{% endmacro %}
+
+{% set m = macro.data or {} %}
+{% set sev = m.severity or 'crit' %}
+{% set etat = m.state or 'UNKNOWN' %}
+{% set couleur_etat = '#10b981' if sev == 'ok' else ('#f59e0b' if sev == 'warn' else '#ef4444') %}
+{% set couleur_fraicheur = '#ef4444' if (m.freshness_pct or 0) < 20 else ('#f59e0b' if (m.freshness_pct or 0) < 60 else '#10b981') %}
+{% set couleur_imminence = '#ef4444' if (m.imminence_pct or 0) >= 80 else ('#f59e0b' if (m.imminence_pct or 0) >= 40 else '#3b4558') %}
+
+<h2>Macro &amp; publications</h2>
+{% if not m.disponible %}
+  <p class="rouge">Flux macro illisible — {{ m.error or 'cause inconnue' }}</p>
+  <p class="gris" style="font-size:11px">Un flux qu'on ne peut pas lire n'est pas un flux serein :
+    aucun risque neuf n'est autorisé dans cet état.</p>
+{% else %}
+  <div class="titre-ligne {{ 'perime' if macro.stale else '' }}">
+    <span class="badge {{ 'vert-bg' if sev == 'ok' else ('ambre' if sev == 'warn' else 'rouge-bg') }}">
+      {{ m.label or etat }}</span>
+    <span class="gris" style="font-size:10px">
+      {% if not m.enabled %}flux éteint · rien ne change
+      {% elif m.allows_new_risk %}risque neuf autorisé
+      {% else %}aucun risque neuf{% endif %}</span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px 14px">
+    {{ jauge('Risque macro', m.score_pct or 0, couleur_etat) }}
+    {{ jauge('Fraîcheur du calendrier', m.freshness_pct or 0, couleur_fraicheur) }}
+    {{ jauge('Imminence publi.', m.imminence_pct or 0, couleur_imminence) }}
+  </div>
+
+  <table style="margin-top:4px">
+    <tr><td class="gris">Prochaine</td>
+        <td>{{ m.next_event.title if m.next_event else '—' }}</td></tr>
+    <tr><td class="gris">Dans</td>
+        <td>{{ (m.countdown_s | round | int ~ ' s') if m.countdown_s is not none else '—' }}</td></tr>
+    <tr><td class="gris">Dernière publi.</td>
+        <td>{{ (m.since_last_s | round | int ~ ' s') if m.since_last_s is not none else '—' }}</td></tr>
+    <tr><td class="gris">Âge lecture</td>
+        <td>{{ (m.data_age_s | round | int ~ ' s') if m.data_age_s is not none else '—' }}</td></tr>
+    <tr><td class="gris">Source</td><td>{{ m.source or '—' }}</td></tr>
+  </table>
+
+  {% set s = m.service or {} %}
+  <p class="gris" style="font-size:11px;margin-top:6px">
+    {% if m.source == 'boucle' %}
+      Verdict de la BOUCLE
+      {%- if m.publie_age_s is not none %} (il y a {{ m.publie_age_s }} s){% endif %}{% if m.perime %} —
+        <span class="rouge">périmé : la boucle ne le publie plus</span>{% endif %}
+      · relève {{ s.provider or '—' }}
+      {% if s.running %}· <span class="vert">relève active</span>
+      {% elif s.enabled %}· <span class="rouge">relève arrêtée</span>
+      {% else %}· flux éteint{% endif %}
+    {% else %}
+      Verdict LOCAL — la boucle n'a rien publié. Ce n'est pas le verdict qui décide.
+    {% endif %}
+  </p>
+
+  {% for motif in (m.reasons or []) %}
+    <p class="micro">{{ motif }}</p>
+  {% endfor %}
+{% endif %}

@@ -76,6 +76,7 @@
     <section id="compte" class="carte" hx-get="/ui/compte" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"><h2>Compte</h2><span class="gris">Lecture…</span></section>
     <section id="boucle" class="carte" hx-get="/ui/boucle" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"><h2>Risk Engine</h2><span class="gris">Lecture…</span></section>
   </div>
+  <section id="macro" class="carte" hx-get="/ui/macro" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"><h2>Macro</h2><span class="gris">Lecture…</span></section>
   <section class="carte zone-chart">
     <div class="barre-chart"><strong>MARKET VIEW</strong>
       <select id="symbole" aria-label="Actif">{% for sym in symboles %}<option value="{{ sym }}" {{ 'selected' if sym == symbole else '' }}>{{ sym }}</option>{% endfor %}</select>

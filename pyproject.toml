@@ -46,6 +46,10 @@ dev = [
     "ruff>=0.15",
     "pytest>=8.0",
     "pytest-subtests>=0.13",
+    # Outils d'analyse requis par la suite de tests (tools/correlations_univers.py
+    # importe scipy.cluster/spatial). Non declare, l'import echouait a la collecte
+    # sur un runner neuf : meme classe de defaut que pyarrow, signale le 25/08.
+    "scipy>=1.11",
 ]
 # Amazon Bedrock support (AWS SigV4 auth + boto3). Optional so the core install
 # stays lean: pip install "tradingagents[bedrock]".

@@ -1,9 +1,14 @@
 """Bornes numeriques du flux macro — un seul endroit a relire pour un seuil.
 
-Ces valeurs ne sont pas des constantes cachees dans le code de decision : elles
-sont dans ``DEFAULT_CONFIG['execution']['macro']`` (donc versionnees, donc
-comparables) et materialisees ici sous forme gelee. Un balayage de seuils est un
-fichier de configuration, pas une modification du moteur.
+Ces valeurs ne sont pas des constantes cachees dans le code de decision. Elles
+vivent ici, sous forme gelee, et se surchargent par ``config/macro.json`` — un
+fichier versionne, donc comparable, dont ``config/macro.example.json`` est le
+modele deployable. Un balayage de seuils est un fichier de configuration, pas
+une modification du moteur.
+
+C'est le SEUL endroit : il n'existe pas de section ``macro`` dans le
+``DEFAULT_CONFIG`` d'``execution_sim``, et ce module n'en depend pas. Un seuil
+lu ailleurs serait un seuil que le fichier de configuration ne regle plus.
 """
 
 from __future__ import annotations

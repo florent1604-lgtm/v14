@@ -53,6 +53,17 @@ NOMS_INTERDITS = {
 SUFFIXES_INTERDITS = (".pem", ".p12", ".pfx", ".key", ".keystore")
 PREFIXES_INTERDITS = (".env.",)
 
+#: Gabarits versionnés : des MODELES, pas des acces.
+#:
+#: `.env.example` est suivi par git et ne porte aucune valeur (que des cles
+#: vides). `AGENTS.md` demande precisement de le mettre a jour plutot que
+#: `.env`. Le prefixe `.env.` le refusait, donc le modele ne pouvait plus
+#: JAMAIS etre complete : la garde bloquait le flux de travail qu'elle sert.
+#:
+#: Les vrais fichiers d'acces restent refuses — `.env.local`,
+#: `.env.production`, `.env.example.local` ne sont pas dans cette liste.
+NOMS_GABARITS = {".env.example", ".env.sample", ".env.template"}
+
 #: `tests/test_hermes_abonnement.py` porte une clé FACTICE de 29 caractères qui
 #: sert précisément à prouver que la vraie est purgée de l'environnement. La
 #: bannir reviendrait à supprimer le test qui protège le secret.
@@ -66,6 +77,8 @@ def chemin_interdit(chemin: str) -> bool:
     """Ce chemin est-il un fichier d'accès, sur son seul nom ?"""
     nom = PurePosixPath(str(chemin).replace("\\", "/")).name
     bas = nom.lower()
+    if bas in NOMS_GABARITS:
+        return False
     return (
         bas in NOMS_INTERDITS
         or bas.endswith(SUFFIXES_INTERDITS)

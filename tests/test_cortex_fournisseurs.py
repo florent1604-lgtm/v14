@@ -12,6 +12,11 @@ propre faux CLI :
    « cette requete » et ne ferme aucun disjoncteur ; une panne dit « ce
    fournisseur » et ferme le sien, sans toucher aux autres.
 
+Le second fournisseur porte ici le label generique `repli-cli` : le faux CLI
+l'accepte sans connaitre ce nom. `codex-cli` est un nom RESERVE depuis l'etape
+C3 — il designe le bassin `titanium.cortex_codex`, et un test de C1 qui
+l'emploierait n'exercerait plus la voie CLI qu'il pretend mesurer.
+
 **Ce que ces tests ne prouvent pas, et qu'eux seuls ne peuvent pas prouver :**
 aucun abonnement Claude Pro/Max ni compte Codex n'est sollicite ici. Un faux CLI
 etablit le contrat de transport et la logique d'etat ; il n'etablit pas qu'un
@@ -159,10 +164,10 @@ def test_le_cli_est_lance_sans_aucun_identifiant_api(faux_cli, monkeypatch):
 @pytest.mark.unit
 def test_le_fournisseur_nomme_est_celui_que_le_cli_recoit(faux_cli, monkeypatch):
     """Sans cela, le repli interrogerait toujours le fournisseur par defaut."""
-    _modes(monkeypatch, **{"codex-cli": "ok"})
-    hc._ask("diagnostic simple", provider="codex-cli")
-    assert faux_cli()[0]["fournisseur"] == "codex-cli"
-    assert hc.circuit_status("codex-cli")["provider"] == "codex-cli"
+    _modes(monkeypatch, **{"repli-cli": "ok"})
+    hc._ask("diagnostic simple", provider="repli-cli")
+    assert faux_cli()[0]["fournisseur"] == "repli-cli"
+    assert hc.circuit_status("repli-cli")["provider"] == "repli-cli"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -187,32 +192,32 @@ def test_une_panne_ouvre_le_disjoncteur_du_fournisseur_qui_est_tombe(faux_cli, m
     with pytest.raises(hc.HermesCortexUnavailable):
         hc._ask("diagnostic simple", provider="claude-cli")
     assert hc.circuit_status("claude-cli")["available"] is False
-    assert hc.circuit_status("codex-cli")["available"] is True
+    assert hc.circuit_status("repli-cli")["available"] is True
 
 
 @pytest.mark.unit
 def test_un_fournisseur_a_sec_est_saute_et_le_suivant_repond(faux_cli, monkeypatch):
     """Sans liste, nommer les disjoncteurs ne changerait rien d'observable."""
     hc._reset_circuits()
-    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,codex-cli")
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
-    _modes(monkeypatch, **{"claude-cli": "quota", "codex-cli": "ok"})
+    _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
     assert hc._ask_avec_repli("diagnostic simple") == {"verdicts": []}
     # Le fournisseur a sec est mis en quarantaine, et lui seul.
     sec = hc.circuit_status("claude-cli")
     assert sec["available"] is False
     assert sec["retry_in_s"] > hc.HERMES_BACKOFF_S
-    assert hc.circuit_status("codex-cli")["available"] is True
-    assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "codex-cli"]
+    assert hc.circuit_status("repli-cli")["available"] is True
+    assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "repli-cli"]
 
 
 @pytest.mark.unit
 def test_le_quota_expire_et_le_fournisseur_principal_est_reessaye(faux_cli, monkeypatch):
     """« Expiration de quota » : la quarantaine se termine et le principal revient."""
     hc._reset_circuits()
-    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,codex-cli")
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
-    _modes(monkeypatch, **{"claude-cli": "quota", "codex-cli": "ok"})
+    _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
     hc._ask_avec_repli("diagnostic simple")
     attente = hc.circuit_status("claude-cli")["retry_in_s"]
     assert attente > hc.HERMES_BACKOFF_S
@@ -221,17 +226,17 @@ def test_le_quota_expire_et_le_fournisseur_principal_est_reessaye(faux_cli, monk
     monkeypatch.setattr(hc.time, "time", lambda: maintenant + attente + 1.0)
     assert hc.circuit_status("claude-cli")["available"] is True
     # Et il est bien reinterroge : son quota recharge reprend la main.
-    _modes(monkeypatch, **{"claude-cli": "ok", "codex-cli": "ok"})
+    _modes(monkeypatch, **{"claude-cli": "ok", "repli-cli": "ok"})
     assert hc._ask_avec_repli("diagnostic simple") == {"verdicts": []}
-    assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "codex-cli", "claude-cli"]
+    assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "repli-cli", "claude-cli"]
 
 
 @pytest.mark.unit
 def test_tous_les_disjoncteurs_ouverts_echouent_et_le_disent(faux_cli, monkeypatch):
     hc._reset_circuits()
-    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,codex-cli")
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
-    for nom in ("claude-cli", "codex-cli"):
+    for nom in ("claude-cli", "repli-cli"):
         hc._trip("HTTP 402: credit balance is too low", provider=nom)
     with pytest.raises(hc.HermesCortexUnavailable, match="tous les fournisseurs"):
         hc._ask_avec_repli("diagnostic simple")
@@ -273,24 +278,24 @@ def test_un_fournisseur_a_sec_ne_bloque_pas_la_scission_du_lot(faux_cli, monkeyp
     avalerait le refus priverait le decoupage de sa raison d'etre.
     """
     hc._reset_circuits()
-    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,codex-cli")
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
-    _modes(monkeypatch, **{"claude-cli": "refus", "codex-cli": "refus"})
+    _modes(monkeypatch, **{"claude-cli": "refus", "repli-cli": "refus"})
     with pytest.raises(hc.HermesLotTropGrand):
         hc._ask_avec_repli("diagnostic simple", scindable=True)
     assert hc.circuit_status("claude-cli")["available"] is True
-    assert hc.circuit_status("codex-cli")["available"] is True
+    assert hc.circuit_status("repli-cli")["available"] is True
 
 
 @pytest.mark.unit
 def test_un_fournisseur_qui_refuse_laisse_la_main_au_suivant(faux_cli, monkeypatch):
     """Un compte a sec refuse tout ce qu'on lui envoie : le suivant accepte."""
     hc._reset_circuits()
-    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,codex-cli")
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
-    _modes(monkeypatch, **{"claude-cli": "refus", "codex-cli": "ok"})
+    _modes(monkeypatch, **{"claude-cli": "refus", "repli-cli": "ok"})
     assert hc._ask_avec_repli("diagnostic simple", scindable=True) == {"verdicts": []}
-    assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "codex-cli"]
+    assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "repli-cli"]
     # Le refus n'est pas une panne : le premier fournisseur reste disponible.
     assert hc.circuit_status("claude-cli")["available"] is True
 
@@ -299,8 +304,8 @@ def test_un_fournisseur_qui_refuse_laisse_la_main_au_suivant(faux_cli, monkeypat
 def test_la_liste_garde_le_fournisseur_principal_en_tete(monkeypatch):
     """Une liste qui l'oublie ne doit pas changer silencieusement de cortex."""
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
-    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "codex-cli,ollama-local")
-    assert hc._fournisseurs() == ["claude-cli", "codex-cli", "ollama-local"]
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "repli-cli,ollama-local")
+    assert hc._fournisseurs() == ["claude-cli", "repli-cli", "ollama-local"]
     monkeypatch.delenv("TITANIUM_HERMES_PROVIDERS")
     assert hc._fournisseurs() == ["claude-cli"]
 
@@ -321,11 +326,11 @@ def test_aucun_secret_ne_traverse_le_disjoncteur(faux_cli, monkeypatch):
 def test_les_circuits_par_defaut_sont_ceux_du_fournisseur_actif(faux_cli, monkeypatch):
     """`circuit_status()` sans argument reste le fournisseur actif, comme avant."""
     hc._reset_circuits()
-    monkeypatch.setattr(hc, "HERMES_PROVIDER", "codex-cli")
-    _modes(monkeypatch, **{"codex-cli": "panne"})
+    monkeypatch.setattr(hc, "HERMES_PROVIDER", "repli-cli")
+    _modes(monkeypatch, **{"repli-cli": "panne"})
     with pytest.raises(hc.HermesCortexUnavailable):
         hc._ask("diagnostic simple")
-    assert hc.circuit_status()["provider"] == "codex-cli"
+    assert hc.circuit_status()["provider"] == "repli-cli"
     assert hc.circuit_status()["available"] is False
     assert hc.circuit_status("claude-cli")["available"] is True
 

@@ -5,7 +5,8 @@
 de l'importer sur la foi d'un papier.
 **Documents liés :** `DOSSIER_PRODUCTION_V14_20260913.md` §3 (ce que les acteurs institutionnels
 exécutent), `ARCHITECTURE_EXECUTION_MULTI_OS_V14_20260913.md` (où faire tourner la recherche),
-`CORTEX_INGENIEUR_V14_20260913.md` (qui lit les papiers).
+`CORTEX_INGENIEUR_V14_20260913.md` (qui lit les papiers), `CATALOGUE_HYPOTHESES_ALPHA_V14_20260913.md`
+(le backlog nommé et falsifiable issu de la littérature).
 
 > Méthode : les chiffres d'inventaire de ce document ont été mesurés sur le disque et sur le
 > terminal MT5 le 13/09/2026. Les listes de sources et de thèmes proviennent de la note que vous
@@ -116,6 +117,12 @@ la meilleure ligne est en partie sélection. Le plan adaptatif publie déjà hon
 **10 techniques sur 17 battent `market`** ; le même honnêteté doit s'appliquer au compteur d'essais
 (« 17 testées, 10 gagnantes, seuil de bruit attendu ≈ 8,5 »), sinon la prochaine itération
 « découvrira » du hasard.
+
+**Le backlog qui en sort est écrit, nommé, et assumé comme non mesuré :**
+`CATALOGUE_HYPOTHESES_ALPHA_V14_20260913.md` — six hypothèses tirées de vrais papiers (impact linéaire
+en déséquilibre du flux, équilibre des files d'attente, toxicité du flux **et sa controverse publiée**,
+momentum intraday, résilience du carnet, calibrage de l'urgence), chacune avec sa donnée requise
+confrontée à celle que le dépôt possède réellement, sa prédiction chiffrée et sa porte de sortie.
 
 ---
 

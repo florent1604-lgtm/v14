@@ -40,10 +40,9 @@ CACHE = RACINE / "results" / "grappes.json"
 
 #: Risque cumulé maximal par grappe, en % de l'équité.
 #:
-#: Un tiers du budget global (6 %) : trois grappes indépendantes peuvent
-#: le saturer, une seule ne le peut pas. C'est la définition opérationnelle
-#: de « diversifié » pour ce bot.
-MAX_RISQUE_GRAPPE_PCT = 2.0
+#: Plafond DEMO explicitement promu à 5,7 % le 13/09/2026. Le budget global
+#: de 6 % reste la dernière barrière et conserve 0,3 point hors de la grappe.
+MAX_RISQUE_GRAPPE_PCT = 5.7
 
 #: Version de la table des *doublons de contrat* verifies sur la collecte H1.
 #:

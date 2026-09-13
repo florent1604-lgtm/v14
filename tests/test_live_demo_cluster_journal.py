@@ -141,7 +141,7 @@ def test_lot_minimum_revalide_alias_avec_risque_effectif(monkeypatch):
     from titanium.data import mt5_vendor
 
     position = SimpleNamespace(
-        symbol="NAS100.fs", sl=1.099, price_open=1.100, volume=1.6,
+        symbol="NAS100.fs", sl=1.099, price_open=1.100, volume=5.4,
     )
     specification = SimpleNamespace(
         trade_tick_size=0.00001, trade_tick_value=1.0,
@@ -172,7 +172,7 @@ def test_lot_minimum_revalide_alias_avec_risque_effectif(monkeypatch):
 
     assert not ok
     assert "sous-jacent US_NASDAQ_100" in motif
-    assert "1.60 %" in motif
+    assert "5.40 %" in motif
 
 
 def test_gate_correle_unique_utilise_le_risque_post_sizing_avant_ordre():

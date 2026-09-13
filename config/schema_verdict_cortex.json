@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "titanium-v14/cortex-verdict/1",
+  "title": "Verdict du cortex V14",
+  "description": "Enveloppe unique des verdicts du cortex. Le prompt de chaque role demande exactement ces champs, et `additionalProperties: false` fait d'un champ invente un refus, pas une tolerance. Version 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdicts"],
+  "properties": {
+    "verdicts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["confidence"],
+        "properties": {
+          "decision_ref": { "type": "string", "minLength": 1 },
+          "action": { "enum": ["ALLOW", "WAIT", "BLOCK"] },
+          "summary": { "type": "string", "maxLength": 180 },
+          "request_ref": { "type": "string", "minLength": 1 },
+          "state": { "enum": ["CALM", "CAUTION", "FEAR", "PANIC", "UNKNOWN"] },
+          "reason": { "type": "string", "maxLength": 180 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "anyOf": [
+          { "required": ["decision_ref", "action", "summary"] },
+          { "required": ["request_ref", "state", "reason"] }
+        ]
+      }
+    }
+  }
+}

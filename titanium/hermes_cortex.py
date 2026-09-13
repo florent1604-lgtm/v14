@@ -23,6 +23,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from titanium import cortex_codex
 from titanium.fundamental_intelligence import Evidence, _balanced, collect, evidence_freshness
 from titanium.organism.contracts import (
     CORTEX_DECISION_MODEL_VERSION,
@@ -334,6 +335,24 @@ def _refus_prealable(detail: str) -> bool:
     )
 
 
+#: Les variables qui font ABANDONNER l'abonnement a un CLI.
+#:
+#: Une seule liste pour les deux CLI, partagee par l'environnement de tout
+#: sous-processus Hermes comme du bassin Codex : la regle est la meme — le
+#: cortex doit tourner sur le forfait, jamais sur une cle API.
+#:
+#:   ANTHROPIC_*  le CLI Hermes bascule sur une cle API dont le solde est vide
+#:                (cause racine mesuree le 08/09, cf. `_env_abonnement`) ;
+#:   OPENAI_*     la documentation Codex est explicite : `codex exec` reutilise
+#:   CODEX_*      l'authentification sauvegardee par defaut, mais facture la cle
+#:                des que `OPENAI_API_KEY` ou `CODEX_API_KEY` est dans
+#:                l'environnement. C'est le meme mode de panne, transpose.
+IDENTIFIANTS_API = (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+    "OPENAI_API_KEY", "CODEX_API_KEY",
+)
+
+
 def _env_abonnement() -> dict[str, str]:
     """Environnement du sous-processus, purge des identifiants API Anthropic.
 
@@ -365,7 +384,7 @@ def _env_abonnement() -> dict[str, str]:
     lue, ni journalisee : les cles sont retirees, jamais inspectees.
     """
     env = dict(os.environ)
-    for cle in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
+    for cle in IDENTIFIANTS_API:
         env.pop(cle, None)
     return env
 
@@ -491,6 +510,35 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
             except HermesCortexUnavailable as exc:
                 _trip(str(exc), provider=nom)
                 raise
+            _etat_circuit(nom).update(retry_at=0.0, error="")
+            return result
+
+        if nom in cortex_codex.NOMS:
+            try:
+                result = cortex_codex.executer(
+                    prompt, timeout_s=timeout_s, env=_env_abonnement()
+                )
+            except cortex_codex.CodexHorsSchema as exc:
+                # Le fournisseur a repondu : ouvrir son disjoncteur punirait un
+                # service disponible, et un lot plus petit ne repare pas une
+                # forme fausse. L'appelant tombe en WAIT, et le repli peut
+                # interroger l'autre bassin — a quoi sert un second bassin.
+                raise HermesCortexUnavailable(str(exc)) from exc
+            except cortex_codex.CodexEchec as exc:
+                if exc.stdout or exc.stderr:
+                    detail = _safe_cli_error(exc.stdout, exc.stderr)
+                else:
+                    # Aucune sortie : la cause est l'exception elle-meme
+                    # (binaire absent, expiration, OSError). La nommer vaut
+                    # mieux que le libelle generique du classificateur.
+                    detail = f"Codex: {exc}"
+                if scindable and _refus_prealable(detail):
+                    raise HermesLotTropGrand(detail, provider=nom) from exc
+                _trip(detail, provider=nom)
+                raise HermesCortexUnavailable(detail) from exc
+            # Une reponse exploitable efface l'erreur precedente du bassin :
+            # `circuit_status` rapporte `last_error`, et garder un motif perime
+            # ferait lire un verdict mort comme s'il etait courant.
             _etat_circuit(nom).update(retry_at=0.0, error="")
             return result
 

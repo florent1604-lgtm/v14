@@ -10,8 +10,7 @@ import pytest
 def reset_circuit(monkeypatch):
     from titanium import hermes_cortex as hc
 
-    monkeypatch.setitem(hc._CIRCUIT, "retry_at", 0.0)
-    monkeypatch.setitem(hc._CIRCUIT, "error", "")
+    hc._reset_circuits()
     monkeypatch.setitem(hc._DERNIER_APPEL, "at", 0.0)
     monkeypatch.setattr(hc, "HERMES_INTERVALLE_MIN_S", 0.0)
 

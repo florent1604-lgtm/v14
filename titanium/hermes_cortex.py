@@ -122,7 +122,31 @@ _APPEL_LOCK = Lock()
 ROOT = Path(__file__).resolve().parents[1]
 DEEPSEEK_USAGE_LOG = ROOT / "results" / "deepseek_usage.ndjson"
 
-_CIRCUIT: dict[str, Any] = {"retry_at": 0.0, "error": ""}
+#: Un etat de disjoncteur PAR FOURNISSEUR, cle = nom du fournisseur.
+#:
+#: Il y avait un `_CIRCUIT` unique, et c'etait le defaut le plus couteux du
+#: module (dossier cortex, etape C1) : un seul fournisseur a sec ouvrait le
+#: disjoncteur de tout le monde. Un 402 DeepSeek coupait aussi la voie
+#: abonnement, alors que les deux comptes n'ont rien a voir — l'un est un solde
+#: d'API, l'autre un forfait Pro deja paye. Nommer le fournisseur rend l'etat
+#: separable : celui qui a echoue est le seul a attendre.
+_CIRCUITS: dict[str, dict[str, Any]] = {}
+
+
+def _etat_circuit(provider: str | None = None) -> dict[str, Any]:
+    """L'etat du disjoncteur d'un fournisseur, cree au premier usage."""
+    cle = (provider or HERMES_PROVIDER or "inconnu").strip() or "inconnu"
+    return _CIRCUITS.setdefault(cle, {"retry_at": 0.0, "error": ""})
+
+
+def _reset_circuits() -> None:
+    """Remet tous les disjoncteurs a zero. Point de remise a zero unique.
+
+    Existe pour que les appelants — tests, diagnostic, redemarrage — n'aient
+    pas a connaitre la forme interne de l'etat. Avant, chacun ecrivait
+    `_CIRCUIT.update(...)` : la forme etait donc connue de cinq fichiers.
+    """
+    _CIRCUITS.clear()
 
 
 class HermesCortexUnavailable(RuntimeError):
@@ -137,7 +161,17 @@ class HermesLotTropGrand(HermesCortexUnavailable):
     07/09 — un lot de 8 positions ouvrait le disjoncteur partage, et le chemin
     d'entree se retrouvait prive d'Hermes pour une raison qui ne le concernait
     pas.
+
+    `provider` nomme celui qui a refuse. C'est necessaire depuis que les
+    disjoncteurs sont par fournisseur : un refus porte sur la REQUETE, pas sur
+    le fournisseur, donc il ne ferme aucun disjoncteur — mais `_ask_par_lots`
+    doit savoir lequel reinterroger plus petit apres les reessais, et lequel
+    mettre en quarantaine si le refus persiste sur une requete unitaire.
     """
+
+    def __init__(self, message: str, *, provider: str | None = None) -> None:
+        super().__init__(message)
+        self.provider = provider
 
 
 def _hermes_executable() -> Path:
@@ -187,14 +221,18 @@ def _json_object(text: str) -> dict[str, Any]:
     raise HermesCortexUnavailable("reponse Hermes sans JSON valide")
 
 
-def _trip(reason: str, *, delai: float | None = None) -> None:
-    """Ouvre le disjoncteur. `delai` impose la duree au lieu de la deduire.
+def _trip(reason: str, *, delai: float | None = None, provider: str | None = None) -> None:
+    """Ouvre le disjoncteur d'UN fournisseur. `delai` impose la duree.
 
     La deduction par mots-cles donne 600 s des que le motif contient
     « credit » — correct pour un solde reellement epuise, mais l'enquete du
     07/09 a montre que ce libelle recouvre surtout une fenetre d'usage qui se
     recharge en quelques dizaines de secondes. L'appelant qui a deja reessaye
     et sait a quoi il a affaire impose donc sa propre duree.
+
+    `provider` par defaut : le fournisseur actif. Un appelant qui a essaye
+    plusieurs fournisseurs nomme celui qui a echoue — sans quoi un repli
+    fermerait le disjoncteur de celui qui vient de repondre.
     """
     lowered = reason.lower()
     quota = any(token in lowered for token in (
@@ -202,19 +240,63 @@ def _trip(reason: str, *, delai: float | None = None) -> None:
     ))
     if delai is None:
         delai = HERMES_QUOTA_BACKOFF_S if quota else HERMES_BACKOFF_S
-    _CIRCUIT.update(retry_at=time.time() + delai, error=reason[:240])
+    _etat_circuit(provider).update(retry_at=time.time() + delai, error=reason[:240])
 
 
-def circuit_status() -> dict[str, Any]:
-    """Expose un état sans secret pour les logs et le dashboard."""
+def circuit_status(provider: str | None = None) -> dict[str, Any]:
+    """Expose un état sans secret pour les logs et le dashboard.
+
+    Sans argument : le fournisseur actif. Avec un nom : celui-la. C'est la
+    seule facon de voir qu'un fournisseur est a sec pendant qu'un autre
+    repond — la question que l'etat unique ne pouvait pas exprimer.
+    """
+    nom = provider or HERMES_PROVIDER
+    etat = _etat_circuit(nom)
     now = time.time()
     return {
-        "available": now >= float(_CIRCUIT["retry_at"]),
-        "retry_in_s": max(0.0, float(_CIRCUIT["retry_at"]) - now),
-        "last_error": str(_CIRCUIT["error"]),
-        "provider": HERMES_PROVIDER,
-        "model": DEEPSEEK_MODEL if HERMES_PROVIDER == "deepseek-api" else HERMES_MODEL,
+        "available": now >= float(etat["retry_at"]),
+        "retry_in_s": max(0.0, float(etat["retry_at"]) - now),
+        "last_error": str(etat["error"]),
+        "provider": nom,
+        "model": DEEPSEEK_MODEL if nom == "deepseek-api" else HERMES_MODEL,
     }
+
+
+def _fournisseurs() -> list[str]:
+    """La liste ordonnee des fournisseurs a essayer.
+
+    Un seul par defaut — `TITANIUM_HERMES_PROVIDER` — donc aucun comportement
+    ne change tant que l'operateur n'ecrit pas `TITANIUM_HERMES_PROVIDERS`.
+    C'est ce qui rend le disjoncteur par fournisseur utile plutot que
+    theorique : le premier a sec est saute, le suivant repond.
+
+    Le fournisseur principal reste en tete meme s'il est omis de la liste :
+    une liste qui l'oublie ne doit pas changer silencieusement de cortex.
+    """
+    brut = os.getenv("TITANIUM_HERMES_PROVIDERS", "").strip()
+    noms = [nom.strip() for nom in brut.split(",") if nom.strip()]
+    principal = (HERMES_PROVIDER or "inconnu").strip()
+    if principal not in noms:
+        noms.insert(0, principal)
+    return list(dict.fromkeys(noms))
+
+
+def _hermes_command(prompt: str, provider: str) -> list[str]:
+    """La ligne de commande reellement construite, en un seul endroit.
+
+    Le CLI tourne sous ABONNEMENT, et son invocation est inseparable de la
+    purge d'environnement : `_env_abonnement` la lance sans `ANTHROPIC_API_KEY`.
+    Les deux vivent donc dans le meme contrat, fige par un test qui relit ce
+    que `_ask` passe vraiment au processus — arguments ET environnement.
+    """
+    return [
+        *_hermes_command_prefix(),
+        "-z", prompt,
+        "--provider", provider,
+        "--model", HERMES_MODEL,
+        "--ignore-rules",
+        "-t", "todo",
+    ]
 
 
 def _safe_cli_error(stdout: str, stderr: str) -> str:
@@ -368,18 +450,23 @@ def _ask_deepseek_api(prompt: str, timeout_s: float) -> dict[str, Any]:
 
 
 def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
-         scindable: bool = False) -> dict[str, Any]:
-    """Interroge Hermes.
+         scindable: bool = False,
+         provider: str | None = None) -> dict[str, Any]:
+    """Interroge UN fournisseur Hermes.
 
     `scindable` signale que l'appelant peut reessayer avec un lot plus petit :
     un refus prealable leve alors `HermesLotTropGrand` sans ouvrir le
-    disjoncteur, puisque Hermes n'est pas en panne.
+    disjoncteur, puisque le fournisseur n'est pas en panne.
+
+    `provider` nomme le fournisseur, et c'est aussi le disjoncteur consulte :
+    un fournisseur a sec n'empeche plus les autres d'etre interroges.
     """
+    nom = (provider or HERMES_PROVIDER or "inconnu").strip() or "inconnu"
     with _APPEL_LOCK:
-        status = circuit_status()
+        status = circuit_status(nom)
         if not status["available"]:
             raise HermesCortexUnavailable(
-                f"circuit Hermes ouvert encore {status['retry_in_s']:.0f}s"
+                f"circuit Hermes ({nom}) ouvert encore {status['retry_in_s']:.0f}s"
             )
         # Espacement du debit, juste avant de depenser. Place ici et non chez
         # l'appelant pour qu'aucun chemin — entrees, positions, outil de diagnostic
@@ -388,26 +475,26 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
         if attente > 0:
             time.sleep(attente)
         _DERNIER_APPEL["at"] = time.time()
-        if HERMES_PROVIDER == "ollama-local":
+        if nom == "ollama-local":
             try:
                 result = _ask_ollama_local(prompt, timeout_s)
             except urllib.error.HTTPError as exc:
                 detail = f"HTTP {exc.code}: Ollama local"
                 if scindable and 400 <= exc.code < 500:
-                    raise HermesLotTropGrand(detail) from exc
-                _trip(detail)
+                    raise HermesLotTropGrand(detail, provider=nom) from exc
+                _trip(detail, provider=nom)
                 raise HermesCortexUnavailable(detail) from exc
             except (OSError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
                 detail = type(exc).__name__
-                _trip(detail)
+                _trip(detail, provider=nom)
                 raise HermesCortexUnavailable(detail) from exc
             except HermesCortexUnavailable as exc:
-                _trip(str(exc))
+                _trip(str(exc), provider=nom)
                 raise
-            _CIRCUIT.update(retry_at=0.0, error="")
+            _etat_circuit(nom).update(retry_at=0.0, error="")
             return result
 
-        if HERMES_PROVIDER == "deepseek-api":
+        if nom == "deepseek-api":
             from titanium.deepseek_client import (
                 DeepSeekConfigurationError,
                 DeepSeekUnavailable,
@@ -419,20 +506,13 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
                 detail = _safe_deepseek_error(exc)
                 status = re.search(r"\bHTTP\s+(4\d\d)\b", detail)
                 if scindable and status:
-                    raise HermesLotTropGrand(detail) from exc
-                _trip(detail)
+                    raise HermesLotTropGrand(detail, provider=nom) from exc
+                _trip(detail, provider=nom)
                 raise HermesCortexUnavailable(detail) from exc
-            _CIRCUIT.update(retry_at=0.0, error="")
+            _etat_circuit(nom).update(retry_at=0.0, error="")
             return result
 
-        command = [
-            *_hermes_command_prefix(),
-            "-z", prompt,
-            "--provider", HERMES_PROVIDER,
-            "--model", HERMES_MODEL,
-            "--ignore-rules",
-            "-t", "todo",
-        ]
+        command = _hermes_command(prompt, nom)
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         try:
             completed = subprocess.run(
@@ -448,13 +528,13 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
                 env=_env_abonnement(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            _trip(type(exc).__name__)
+            _trip(type(exc).__name__, provider=nom)
             raise HermesCortexUnavailable(type(exc).__name__) from exc
         if completed.returncode != 0:
             detail = _safe_cli_error(completed.stdout, completed.stderr)
             if scindable and _refus_prealable(detail):
-                raise HermesLotTropGrand(detail[:240])
-            _trip(detail)
+                raise HermesLotTropGrand(detail[:240], provider=nom)
+            _trip(detail, provider=nom)
             raise HermesCortexUnavailable(detail[:240])
         try:
             result = _json_object(completed.stdout)
@@ -472,17 +552,55 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
             # lot plus petit passe; ouvrir le disjoncteur ici privait d'Hermes le
             # chemin d'entree, qui n'y etait pour rien.
             if scindable and _refus_prealable(detail):
-                raise HermesLotTropGrand(motif) from exc
-            _trip(motif)
+                raise HermesLotTropGrand(motif, provider=nom) from exc
+            _trip(motif, provider=nom)
             raise HermesCortexUnavailable(motif) from exc
         if result.get("error") or result.get("type") == "error":
             detail = _safe_cli_error(completed.stdout, completed.stderr)
             if scindable and _refus_prealable(detail):
-                raise HermesLotTropGrand(detail)
-            _trip(detail)
+                raise HermesLotTropGrand(detail, provider=nom)
+            _trip(detail, provider=nom)
             raise HermesCortexUnavailable(detail)
-        _CIRCUIT.update(retry_at=0.0, error="")
+        _etat_circuit(nom).update(retry_at=0.0, error="")
         return result
+
+
+def _ask_avec_repli(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
+                    scindable: bool = False) -> dict[str, Any]:
+    """Interroge le premier fournisseur disponible de la liste.
+
+    Un fournisseur a sec n'arrete plus les autres : son disjoncteur est a lui,
+    il est saute, et le suivant repond. C'est la raison d'etre de l'etape C1 —
+    sans liste, nommer les disjoncteurs ne changerait rien d'observable.
+
+    Le refus prealable est le cas qui rend la distinction necessaire. Un refus
+    dit « cette requete », pas « ce fournisseur » : il ne ferme aucun
+    disjoncteur, et il ne doit pas non plus interrompre la liste — un compte a
+    sec refuse tout ce qu'on lui envoie, alors que le fournisseur suivant
+    accepterait la meme requete. On ne le propage donc que si PERSONNE n'a
+    repondu, ce qui rend a `_ask_par_lots` son role de scission.
+
+    Avec la liste par defaut — un seul fournisseur — cette fonction est le
+    chemin d'avant, a l'identique : un refus remonte tel quel, une panne remonte
+    telle quelle.
+    """
+    refus: HermesLotTropGrand | None = None
+    panne: HermesCortexUnavailable | None = None
+    for nom in _fournisseurs():
+        if not circuit_status(nom)["available"]:
+            continue
+        try:
+            return _ask(prompt, timeout_s=timeout_s, scindable=scindable, provider=nom)
+        except HermesLotTropGrand as exc:
+            refus = refus or exc
+        except HermesCortexUnavailable as exc:
+            panne = exc
+    if refus is not None:
+        raise refus
+    if panne is not None:
+        raise panne
+    noms = ", ".join(_fournisseurs())
+    raise HermesCortexUnavailable(f"tous les fournisseurs sont ouverts: {noms}")
 
 
 def _evidence_by_symbol(symbols: list[str]) -> dict[str, list[Evidence]]:
@@ -607,7 +725,9 @@ def _ask_par_lots(prepared: list[dict], entete: list[str], cle_payload: str,
             try:
                 # Toujours scindable : c'est ici, et non dans `_ask`, que se
                 # decide l'ouverture du disjoncteur — apres avoir reessaye.
-                parsed = _ask(prompt, scindable=True)
+                # `_ask_avec_repli` garde le meme contrat et ajoute une seule
+                # chose : sauter un fournisseur dont le disjoncteur est ouvert.
+                parsed = _ask_avec_repli(prompt, scindable=True)
             except HermesLotTropGrand as exc:
                 motif = str(exc)
                 if len(lot) > 1:
@@ -620,10 +740,13 @@ def _ask_par_lots(prepared: list[dict], entete: list[str], cle_payload: str,
                 if tentative + 1 < HERMES_RETENTATIVES:
                     time.sleep(HERMES_ATTENTE_REFUS_S)
                     continue
-                # Lot unitaire, refuse malgre les reessais : Hermes est
-                # reellement hors d'atteinte. Backoff court, parce que la
-                # cause mesuree est une fenetre qui se recharge, pas un solde.
-                _trip(motif, delai=HERMES_BACKOFF_S)
+                # Lot unitaire, refuse malgre les reessais : ce fournisseur est
+                # reellement hors d'atteinte. Backoff court, parce que la cause
+                # mesuree est une fenetre qui se recharge, pas un solde.
+                # `provider` : celui qui a refuse, pas celui qui vient de
+                # repondre. Sans cela, un repli fermerait le mauvais.
+                _trip(motif, delai=HERMES_BACKOFF_S,
+                      provider=getattr(exc, "provider", None))
                 raise HermesCortexUnavailable(motif) from exc
             else:
                 resultats.update(

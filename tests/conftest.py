@@ -91,7 +91,7 @@ def _reset_hermes_throttle():
         module = sys.modules.get("titanium.hermes_cortex")
         if module is not None:
             module._DERNIER_APPEL["at"] = 0.0
-            module._CIRCUIT.update(retry_at=0.0, error="")
+            module._reset_circuits()
 
     _remise_a_zero()
     yield

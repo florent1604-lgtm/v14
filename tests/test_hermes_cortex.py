@@ -12,7 +12,7 @@ from titanium.fundamental_intelligence import Evidence
 
 @pytest.fixture(autouse=True)
 def reset_circuit():
-    cortex._CIRCUIT.update(retry_at=0.0, error="")
+    cortex._reset_circuits()
 
 
 def test_hermes_entry_is_strictly_bound_and_has_no_execution_tools(monkeypatch):

@@ -53,7 +53,7 @@ def test_ask_lance_le_cli_sans_cle_api(monkeypatch, tmp_path):
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "anthropic")
     monkeypatch.setattr(hc, "HERMES_INTERVALLE_MIN_S", 0.0)
     monkeypatch.setitem(hc._DERNIER_APPEL, "at", 0.0)
-    hc._CIRCUIT.update(retry_at=0.0, error="")
+    hc._reset_circuits()
     vus = {}
 
     def faux_run(cmd, **kwargs):

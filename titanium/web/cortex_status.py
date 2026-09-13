@@ -152,6 +152,26 @@ def _cortex_health(avis: list[dict]) -> tuple[str, str, dict]:
     return status, label, public_last
 
 
+def _bassins_cortex() -> dict:
+    """Etat des bassins du cortex, ou l'aveu qu'on ne le connait pas.
+
+    L'etat des disjoncteurs vit dans la memoire du processus qui trade : cette
+    sonde, servie ailleurs, ne le voit pas. Elle doit alors le DIRE. Afficher
+    « disponible » sur un bassin dont ce processus ne sait rien serait
+    exactement le mensonge que cette sonde existe pour eviter.
+
+    Ne leve jamais : une sonde disponible ne noircit pas le tableau.
+    """
+    try:
+        from titanium.hermes_cortex import etat_bassins
+
+        etat = etat_bassins()
+    except Exception as exc:  # noqa: BLE001 — une sonde ne casse pas la page
+        return {"mesure": False, "source": "indisponible", "bassins": [],
+                "a_sec": [], "error": f"{type(exc).__name__}: {exc}"}
+    return {**etat, "source": "processus" if etat["mesure"] else "aucune_decision"}
+
+
 def snapshot(*, root: Path = RACINE, now: datetime | None = None,
              window_minutes: int = 60) -> dict:
     """Resume cortex/memoire recent, sans appel reseau externe ni LLM."""
@@ -236,4 +256,5 @@ def snapshot(*, root: Path = RACINE, now: datetime | None = None,
             "hub": {"port": 8770, "running": _port_open(8770)},
             "hermes_mcp": {"port": 8766, "running": _port_open(8766)},
         },
+        "bassins": _bassins_cortex(),
     }

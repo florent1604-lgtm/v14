@@ -10,6 +10,7 @@ Ces tests n'emploient que des valeurs factices : aucun secret reel n'est lu.
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -68,6 +69,11 @@ def test_ask_lance_le_cli_sans_cle_api(monkeypatch, tmp_path):
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="comportement Windows : le candidat LOCALAPPDATA et le prefixe "
+    "`-c` sont conditionnes a `os.name == 'nt'` dans `hermes_cortex`",
+)
 def test_windows_uses_python_entrypoint_instead_of_blocked_shim(monkeypatch, tmp_path):
     scripts = tmp_path / "hermes" / "hermes-agent" / "venv" / "Scripts"
     scripts.mkdir(parents=True)

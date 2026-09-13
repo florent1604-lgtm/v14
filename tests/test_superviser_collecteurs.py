@@ -1,6 +1,7 @@
 """La supervision ne transforme jamais une absence de preuve en ordre ou doublon."""
 
 import json
+import sys
 from types import SimpleNamespace
 
 import psutil
@@ -121,6 +122,11 @@ def test_inventory_access_denied_is_not_empty(monkeypatch):
         s.process_inventory()
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="le lanceur est fige sur la disposition Windows de la venv "
+    "(.venv/Scripts/python.exe) et sur CREATE_NO_WINDOW ; V14 tourne sous Windows",
+)
 def test_public_launch_is_fixed_and_hidden(tmp_path, monkeypatch):
     captured = []
     monkeypatch.setattr(s.subprocess, "Popen", lambda *a, **kw: captured.append((a, kw))

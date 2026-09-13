@@ -45,6 +45,9 @@ TTL_WALL = 10.0
 TTL_META = 30.0
 TTL_LOOP = 5.0
 TTL_RISK = 15.0
+#: Le budget macro change de sens en quelques secondes autour d'une publication.
+#: Il ne coute qu'une relecture de fichier et un calcul pur : cinq secondes.
+TTL_MACRO = 5.0
 TTL_CHART = 45.0
 TTL_ANALYSES = 10.0
 TTL_UNIVERS = 600.0
@@ -108,6 +111,7 @@ class LiveEngine:
             "positions": Bloc("positions", TTL_POSITIONS),
             "loop": Bloc("loop", TTL_LOOP),
             "risque": Bloc("risque", TTL_RISK),
+            "macro": Bloc("macro", TTL_MACRO),
             "chart": Bloc("chart", TTL_CHART),
             "runs": Bloc("runs", TTL_ANALYSES),
             "analystes": Bloc("analystes", TTL_ANALYSES),
@@ -120,6 +124,7 @@ class LiveEngine:
             "positions": state.positions,
             "loop": state.loop,
             "risque": state.risque,
+            "macro": state.macro,
             "chart": lambda: state.chart(
                 self.symbole, timeframe=self.timeframe, barres=180
             ),
@@ -168,7 +173,7 @@ class LiveEngine:
 
     async def instantane(self) -> dict:
         """Tous les blocs d'un coup, sérialisés par le même verrou unique."""
-        noms = ["meta", "wall", "account", "positions", "loop", "risque"]
+        noms = ["meta", "wall", "account", "positions", "loop", "risque", "macro"]
         for nom in noms:  # séquentiel : le verrou MT5 n'aime pas la concurrence
             await self._rafraichir(nom)
         return {nom: self._blocs[nom].enveloppe() for nom in noms}

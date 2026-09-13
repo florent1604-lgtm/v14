@@ -27,6 +27,12 @@ Piliers (portes ET — un pilier fort ne compense JAMAIS un pilier absent) :
 Modérateurs (PAS des piliers) :
   emotion → WAIT (timing pas mûr) ou BLOCK (ce côté est interdit).
   cost    → BLOCK (frais week-end ; edge négatif ; edge non prouvé en PROD).
+  macro   → BLOCK (gel autour d'une publication, ou calendrier indisponible),
+            WAIT (publication imminente : on n'entre pas dans le choc).
+            OPTIONNEL : il n'est évalué que si le vecteur de features porte un
+            bloc `macro` (voir `titanium.macro.gate`). Son absence laisse la
+            porte strictement identique à ce qu'elle était — c'est la garantie
+            de non-régression des mesures passées.
 
 Verdict : ENTER / WAIT / BLOCK. Le `rank` sert UNIQUEMENT à classer entre
 plusieurs ENTER — jamais à décider. FAIL-CLOSED : toute porte non évaluable
@@ -39,7 +45,7 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-GATE_VERSION = "2.0.0"  # incrémenter à CHAQUE changement de logique de décision
+GATE_VERSION = "2.1.0"  # incrémenter à CHAQUE changement de logique de décision
 
 # Quorum sur les 4 piliers de micro-structure (fair_value, liquidity, ote_ob,
 # candle_confirmed). G1 reste obligatoire quoi qu'il arrive.
@@ -52,6 +58,10 @@ EMOTION_MIN_CONFIDENCE = 0.35
 _SUPPORT_PILLARS = frozenset({"fair_value", "liquidity", "ote_ob", "candle_confirmed"})
 _EMOTION_KEYS = frozenset({"filter_block", "stale", "confidence", "wait"})
 _COST_KEYS = frozenset({"edge_ok", "weekend_block"})
+#: Clés minimales du bloc macro. Volontairement deux booléens : la porte n'a
+#: pas besoin de connaître le vocabulaire macro (CLEAR/ELEVATED/BLACKOUT) pour
+#: décider, ce qui la garde sans dépendance à `titanium.macro`.
+_MACRO_KEYS = frozenset({"allows_new_risk", "conservative"})
 
 
 @dataclass(frozen=True)
@@ -121,7 +131,8 @@ def _resolve_timestamp(feats: dict, decided_at: datetime | None) -> str:
 
 def evaluate(feats: dict, *, side: int | None = None, require_edge: bool = False,
              decided_at: datetime | None = None,
-             quorum: int | None = None) -> Decision:
+             quorum: int | None = None,
+             require_macro: bool | None = None) -> Decision:
     """Évalue la confluence sur des features DÉJÀ calculées.
 
     La fonction est pure : elle ne lit aucune donnée de marché, n'appelle aucun
@@ -134,12 +145,17 @@ def evaluate(feats: dict, *, side: int | None = None, require_edge: bool = False
             ``on_sr_level: bool`` ; ``fair_value: bool`` ; ``liquidity: int`` ;
             ``ote: int`` ; ``candle: int`` ; ``strengths: {gate: 0..1}`` ;
             ``emotion: {filter_block, stale, confidence, wait}`` ;
-            ``cost: {edge_ok, weekend_block}``.
+            ``cost: {edge_ok, weekend_block}`` ; ``macro`` (OPTIONNEL) —
+            ``{allows_new_risk, conservative}``.
         side: sens imposé. Doit correspondre à ``setup_side`` s'il est fourni.
         require_edge: True = PROD (edge prouvé requis, quorum 3/4) ;
             False = EXPLORE (edge observé non bloquant, quorum 2/4).
         decided_at: horodatage à figer (tests, rejeu).
         quorum: force le quorum micro-structure. None = selon ``require_edge``.
+        require_macro: None (défaut) = le macro est évalué SSI ``feats`` porte
+            un bloc ``macro``. True/False le force. Le défaut est ce qui rend
+            l'ajout non intrusif : un appelant qui ne parle pas de macro obtient
+            exactement la décision d'avant.
 
     Returns:
         Decision — verdict, sens, trace de chaque porte, reason-code stable.
@@ -252,6 +268,33 @@ def evaluate(feats: dict, *, side: int | None = None, require_edge: bool = False
         return _decide("BLOCK", side, gates, "BLOCK_EDGE_UNPROVEN",
                        ["PROD : edge non prouvé (labo requis) → BLOCK. "
                         "Utiliser le mode EXPLORE pour tester et mesurer."])
+
+    # ── Modérateur macro. Placé APRÈS le coût et AVANT le timing émotionnel :
+    # un gel autour d'une publication est un refus, pas une attente, et il
+    # domine donc le « pas encore prêt » de l'émotion. Inversé, un WAIT
+    # émotionnel masquerait un BLOCK macro et le journal raconterait la
+    # mauvaise raison.
+    macro = feats.get("macro")
+    macro_actif = ("macro" in feats) if require_macro is None else bool(require_macro)
+    if macro_actif:
+        if not isinstance(macro, dict) or not _MACRO_KEYS.issubset(macro):
+            return _decide("BLOCK", side, gates, "BLOCK_MACRO_UNAVAILABLE",
+                           ["Calendrier macro indisponible ou incomplet → BLOCK"])
+        if macro.get("allows_new_risk") is not True:
+            return _decide("BLOCK", side, gates, "BLOCK_MACRO_BLACKOUT",
+                           [f"Macro {macro.get('state', '?')} : publication à fort "
+                            f"impact ou calendrier non fiable (score "
+                            f"{macro.get('score', '?')}) → aucun risque neuf"])
+        if macro.get("conservative") is True:
+            # Nommer la publication quand le bloc la porte : sinon tous les WAIT
+            # macro se ressemblent dans le journal, et une preuve qu'on ne peut
+            # pas distinguer n'en est plus une.
+            publication = str(macro.get("next_event") or "").strip()
+            quoi = (f"« {publication} » imminente" if publication
+                    else "publication imminente")
+            return _decide("WAIT", side, gates, "WAIT_MACRO_IMMINENT",
+                           [f"Macro {macro.get('state', '?')} : {quoi}, "
+                            "ne pas entrer dans le choc → WAIT"])
 
     if (emo.get("stale") or emo.get("wait")
             or emo.get("confidence", 1.0) < EMOTION_MIN_CONFIDENCE):

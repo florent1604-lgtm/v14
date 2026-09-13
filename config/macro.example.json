@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Exemple de configuration du flux macro. Copier vers config/macro.json",
+    "pour l'activer — ce fichier-ci n'est JAMAIS lu par le code.",
+    "",
+    "enabled=false reste le defaut : un poste neuf n'a pas de calendrier, et",
+    "un flux allume sans source produirait un etat STALE/UNKNOWN qui refuserait",
+    "toute entree. Allumer le flux est une decision explicite.",
+    "",
+    "provider=file : calendrier JSON local, sans reseau ni secret. C'est la",
+    "source des tests et de la CI, et elle est deterministe.",
+    "provider=http : endpoint JSON ; la cle est lue dans la variable",
+    "d'environnement nommee par api_key_env, jamais dans un fichier.",
+    "",
+    "min_impact : LOW | MEDIUM | HIGH. HIGH n'ignore que les publications",
+    "majeures ; LOW ne ferme jamais les yeux.",
+    "",
+    "blackout_before_s / blackout_after_s : fenetre de gel AUTOUR d'une",
+    "publication de fort impact, en secondes. 900 = 15 min avant, 300 = 5 min",
+    "apres. elevated_within_s (3600 = 1 h) est l'horizon ou l'attitude devient",
+    "conservatrice sans interdire."
+  ],
+
+  "enabled": false,
+  "provider": "file",
+  "file": "data/calendrier_macro.json",
+  "url": "",
+  "api_key_env": "V14_MACRO_API_KEY",
+  "naive_tz": "UTC",
+
+  "timeout_s": 8.0,
+  "ttl_s": 900.0,
+  "refresh_s": 300.0,
+  "max_backoff_s": 3600.0,
+
+  "blackout_before_s": 900.0,
+  "blackout_after_s": 300.0,
+  "elevated_within_s": 3600.0,
+  "min_impact": "HIGH",
+
+  "score_elevated": 0.35,
+  "score_blackout": 1.0,
+  "score_unavailable": 1.0
+}

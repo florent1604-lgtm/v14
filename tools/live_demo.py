@@ -436,6 +436,55 @@ def horodate() -> str:
     return datetime.now(timezone.utc).strftime("%H:%M:%S")
 
 
+#: Service de rafraichissement macro DU PROCESSUS ARME. Un seul proprietaire :
+#: demarre dans `main()`, arrete dans le `finally`, et lu par le battement.
+#: `None` = flux eteint, ce qui est le defaut du depot.
+_SERVICE_MACRO = None
+
+
+def _demarrer_macro() -> bool:
+    """Demarre le flux macro du processus arme. Ne leve jamais.
+
+    Le fil porte sa propre boucle asyncio ; la premiere lecture est immediate,
+    donc le calendrier est en place avant la fin du premier tour. S'il ne l'est
+    pas encore, la politique repond STALE/UNKNOWN — un refus, jamais un blanc —
+    et le tour suivant est juste.
+    """
+    global _SERVICE_MACRO
+    try:
+        from titanium.macro import MacroService
+
+        service = MacroService()
+        actif = service.start()
+        _SERVICE_MACRO = service if actif else None
+        return actif
+    except Exception as exc:  # noqa: BLE001 — un flux mort ne tue pas la boucle
+        print(f"  ⚠️  flux macro non demarre : {type(exc).__name__}: {exc}", flush=True)
+        return False
+
+
+def _arreter_macro() -> None:
+    """Arrete le flux macro. Ne leve jamais."""
+    global _SERVICE_MACRO
+    service, _SERVICE_MACRO = _SERVICE_MACRO, None
+    if service is not None and not service.stop():
+        print("  ⚠️  flux macro non arrete dans le delai imparti", flush=True)
+
+
+def _bloc_macro() -> dict:
+    """Bloc macro publie dans le battement. Ne leve JAMAIS.
+
+    C'est le canal que le tableau de bord relit deja : publier ici, plutot qu'un
+    fichier de plus, garantit que la jauge affiche le verdict DE LA BOUCLE — le
+    seul qui decide. Le filet « configuration illisible devient un rouge lisible »
+    vit dans `titanium.macro`, en un seul exemplaire : la sonde du tableau de bord
+    a donc exactement le meme, et les deux ne peuvent plus diverger.
+    """
+    from titanium.macro import macro_bloc_pour_publication
+
+    return macro_bloc_pour_publication(service=_SERVICE_MACRO)
+
+
 def battre(stats: dict, *, armer: bool, equity: float = 0.0,
            portables: int = 0, intervalle: float = INTERVALLE) -> None:
     """Écrit le battement. Ne lève jamais : c'est de l'observabilité."""
@@ -468,6 +517,10 @@ def battre(stats: dict, *, armer: bool, equity: float = 0.0,
             "stats": dict(stats),
             "etat_incidents": incidents[-5:],
             "etat_incidents_total": len(incidents),
+            # Le verdict macro DE LA BOUCLE. Publie ici parce que c'est le seul
+            # canal que le tableau de bord relit deja, et parce que la jauge doit
+            # montrer ce qui decide — pas ce qu'un second processus croit.
+            "macro": _bloc_macro(),
         }, ensure_ascii=False), encoding="utf-8")
         tmp.replace(BATTEMENT)
     except Exception:  # noqa: BLE001
@@ -1956,6 +2009,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                 feats = build_feats(
                     ltf_rates, htf_rates, with_indicators=False,
                     marche_continu=asset_class_of(sym) == "crypto",
+                    symbol=sym,
                 )
                 _marquer_echelle(feats, unite, haute)
             except Exception as exc:  # noqa: BLE001
@@ -2590,6 +2644,14 @@ def main() -> None:
         print("\n  Mode observation : aucun ordre ne sera envoyé.")
     print("\n  Ctrl+C pour arrêter.\n")
 
+    macro_actif = _demarrer_macro()
+    # F-string plate : une expression multiligne dans un champ de remplacement
+    # n'est valide qu'a partir de Python 3.12, et la cible du depot est 3.10.
+    etat_macro = ("flux actif (calendrier relu dans ce processus)" if macro_actif
+                  else "eteint — enabled=false ou config/macro.json absent")
+    print(f"  macro      : {etat_macro}")
+    print()
+
     stats = {"tours": 0, "evalues": 0, "enter": 0, "simules": 0,
              "envoyes": 0, "tunnel": {}}
     try:
@@ -2607,6 +2669,7 @@ def main() -> None:
                     break
                 time.sleep(0.5)
     finally:
+        _arreter_macro()
         shutdown()
         print(f"\n  {stats['tours']} tour(s) · {stats['evalues']} évaluations · "
               f"{stats['enter']} ENTER · {stats['simules']} simulés · "

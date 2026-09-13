@@ -19,6 +19,11 @@ from typing import Any
 from titanium.execution_sim.models import ExecutionIntent
 from titanium.execution_sim.policies import PolicyContext
 
+# La regle de completude du bloc macro a UN seul proprietaire : la porte de
+# confluence et le contexte d'arrivee doivent refuser sur le meme critere, sinon
+# un bloc accepte par l'une serait refuse par l'autre sans que rien ne le dise.
+from titanium.macro.gate import MACRO_BLOCK_KEYS
+
 MAX_DECIMALES = 10
 
 
@@ -73,6 +78,12 @@ class AdaptiveFeatures:
     urgency_source: str
     baseline_spread_bps: float | None = None
     horizon_ms: int = 0
+    # ── Pas de champ macro ici, et c'est deliberé. La seule information que le
+    #    macro apporte a ce vecteur est « on a le droit de planifier » : elle est
+    #    portée par le fait que `build_features` rend un vecteur plutot que
+    #    `None` (voir plus bas). Recopier l'etat, le score ou l'attitude dans
+    #    trois champs que personne ne lit ne les aurait pas rendus vrais —
+    #    seulement indisponibles a la verification.
 
 
 def build_features(
@@ -124,6 +135,21 @@ def build_features(
 
     inventory = 0.0 if not fini(context.inventory) else float(context.inventory)
     inventory_ratio = inventory / max_inventory if max_inventory > 0 else 0.0
+
+    # ── Macro : refuse de planifier quand le calendrier interdit le risque neuf.
+    #    UNE SEULE REGLE, exactement celle de la porte : les cles de
+    #    `MACRO_BLOCK_KEYS`, puis `allows_new_risk`. Un bloc PRESENT mais
+    #    incomplet est traite comme un refus, jamais comme un laissez-passer.
+    #    Cette fonction ne validait aussi le type de `score` : c'etait un critere
+    #    que la porte n'applique pas, donc un bloc accepte par l'une et refuse
+    #    par l'autre — et il ne servait qu'a remplir un champ que personne ne
+    #    lisait. Les champs de trace restent ceux de la porte, qui les cite.
+    macro = getattr(context, "macro", None)
+    if macro is not None:
+        if not isinstance(macro, dict) or not MACRO_BLOCK_KEYS.issubset(macro):
+            return None
+        if macro.get("allows_new_risk") is not True:
+            return None
 
     metadata = dict(intent.metadata or {})
     urgency_declaree = metadata.get("urgency")

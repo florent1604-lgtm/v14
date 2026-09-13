@@ -191,3 +191,39 @@ class TestIntegrationSizing:
         assert b.tradable
         assert b.timeframe == "H1"
         assert 0 < b.cout_spread <= MAX_COUT_SPREAD_PCT
+
+    def test_un_refus_pour_cout_porte_son_code_et_sa_valeur(self, monkeypatch):
+        """Le tunnel tirait le code en relisant le motif, et la valeur n'existait
+        que dans le texte. Les deux viennent maintenant de la même décision."""
+        from titanium import sizing
+        from titanium.data.mt5_vendor import SymbolSpec
+        from titanium.echelle import CODE_COUT_SPREAD
+        from titanium.sizing import MAX_COUT_SPREAD_PCT
+
+        spec = SymbolSpec(name="X", digits=5, point=0.00001,
+                          volume_min=0.01, volume_max=100.0,
+                          volume_step=0.01, trade_contract_size=100_000.0,
+                          spread=400, tick_value=1.0, tick_size=0.00001)
+        monkeypatch.setattr("titanium.data.mt5_vendor.ensure_symbol",
+                            lambda s: spec)
+        monkeypatch.setattr("titanium.data.mt5_vendor.get_rates",
+                            _lecteur({"M15": 0.0002, "H1": 0.0002,
+                                      "H4": 0.0002}))
+        b = sizing.tradable_universe(["X"], 5000.0)["X"]
+        assert not b.tradable
+        assert b.refus_code == CODE_COUT_SPREAD
+        assert b.cout_spread > MAX_COUT_SPREAD_PCT
+
+    def test_la_porte_et_le_choix_d_echelle_partagent_la_meme_decision(self):
+        """`choisir` et `verdict_cout` ne peuvent plus diverger : la porte de
+        portabilité décide sur la valeur que le verdict rend."""
+        from titanium.echelle import verdict_cout
+        from titanium.sizing import MAX_COUT_SPREAD_PCT
+
+        spec = _Spec(4000)
+        atrs = {"M15": 0.0020, "H1": 0.0050, "H4": 0.0100}
+        c = choisir("X", spec, plafond=MAX_COUT_SPREAD_PCT,
+                    lecteur=_lecteur(atrs))
+        v = verdict_cout(spec, 1.5 * c.atr, plafond=MAX_COUT_SPREAD_PCT)
+        assert v.cout == pytest.approx(c.cout)
+        assert v.depasse is (c.cout > MAX_COUT_SPREAD_PCT)

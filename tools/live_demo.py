@@ -1692,8 +1692,11 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     _compter_tunnel(stats, "flow", "non_portables", len(univers) - len(tradables))
     for budget in budgets.values():
         if not budget.tradable:
+            # Un refus pour coût porte son code depuis là où il est décidé ;
+            # les autres motifs gardent le classement par prose.
             _compter_tunnel(
-                stats, "portability_refusal", _code_portabilite(budget.reason))
+                stats, "portability_refusal",
+                budget.refus_code or _code_portabilite(budget.reason))
 
     print(f"[{horodate()}] equity {compte.equity:.2f} {compte.currency} · "
           f"{len(tradables)}/{len(univers)} portables "
@@ -1958,7 +1961,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     #    deux évaluations plus tard. Huit créneaux pour ~150 actifs : ils
     #    doivent aller aux setups les plus FORTS du tour, pas aux plus
     #    rapides. C'est le même capital, mieux placé.
-    from titanium.echelle import cout_relatif_stop
+    from titanium.echelle import CODE_COUT_SPREAD, verdict_cout
     from titanium.gates import confluence_gate as _cg
     from titanium.selection import barres_pour
 
@@ -2045,12 +2048,17 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             # cortex : Hermès ne doit pas depenser du temps sur l'injouable.
             try:
                 spec = ensure_symbol(sym)
-                cost = cout_relatif_stop(spec, out.stop_distance or 0.0)
+                verdict = verdict_cout(spec, out.stop_distance or 0.0,
+                                       plafond=MAX_COUT_SPREAD_PCT)
+                cost = verdict.cout
             except Exception:  # noqa: BLE001
-                cost = math.inf
-            if cost > MAX_COUT_SPREAD_PCT:
-                _compter_tunnel(stats, "multitimeframe", "COUT_SPREAD")
-                _refus(stats, "COUT_SPREAD", sym, "cout excessif avant cortex",
+                verdict, cost = None, math.inf
+            # Un coût illisible reste un refus, comme `math.inf` le faisait.
+            if verdict is None or verdict.depasse:
+                _compter_tunnel(stats, "multitimeframe", CODE_COUT_SPREAD)
+                detail = ("cout excessif avant cortex" if verdict is None
+                          else f"cout excessif avant cortex — {verdict.motif}")
+                _refus(stats, CODE_COUT_SPREAD, sym, detail,
                        stage="multitimeframe", timeframe=unite)
                 continue
 
@@ -2275,15 +2283,12 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             # produire le stop exact : on recontrôle le coût sur CETTE distance
             # avant de dimensionner. Sinon un écart entre les deux ATR pouvait
             # contourner le plafond de 25 %.
-            from titanium.echelle import cout_relatif_stop
-
-            cout_actuel = cout_relatif_stop(spec, out.stop_distance or 0.0)
-            if cout_actuel > MAX_COUT_SPREAD_PCT:
-                _refus(stats, "COUT_SPREAD", sym,
-                       f"spread {cout_actuel:.0%} du stop reel "
-                       f"(plafond {MAX_COUT_SPREAD_PCT:.0%})")
-                print(f"    {sym:8} ENTER refusé — spread {cout_actuel:.0%} "
-                      f"du stop réel (plafond {MAX_COUT_SPREAD_PCT:.0%})",
+            verdict = verdict_cout(spec, out.stop_distance or 0.0,
+                                   plafond=MAX_COUT_SPREAD_PCT)
+            cout_actuel = verdict.cout
+            if verdict.depasse:
+                _refus(stats, verdict.code, sym, verdict.motif)
+                print(f"    {sym:8} ENTER refusé — {verdict.motif}",
                       flush=True)
                 continue
 

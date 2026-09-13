@@ -36,9 +36,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from titanium.data.mt5_vendor import get_rates_range, list_symbols
 from tradingagents.dataflows.errors import NoMarketDataError
 from tradingagents.dataflows.y_finance import INDICATOR_DESCRIPTIONS
-from titanium.data.mt5_vendor import get_rates_range, list_symbols
 
 # Suffixes que les courtiers ajoutent à un même sous-jacent (Axi : NAS100.fs,
 # HSI.fs ; d'autres : EURUSD.pro, XAUUSD+). Essayés dans l'ordre.

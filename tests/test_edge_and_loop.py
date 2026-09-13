@@ -16,8 +16,6 @@ import json
 
 import pytest
 
-from tradingagents import default_config as default_config_module
-
 from titanium.edge import (
     EDGE_THRESHOLD_R,
     MIN_SAMPLES,
@@ -30,6 +28,7 @@ from titanium.edge import (
 )
 from titanium.execution.manage_loop import ManageLoop
 from titanium.execution.mt5_executor import ExecutionPolicy
+from tradingagents import default_config as default_config_module
 
 
 @pytest.fixture

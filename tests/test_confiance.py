@@ -10,8 +10,13 @@ from __future__ import annotations
 import pytest
 
 from titanium.confiance import (
-    POIDS_CONVICTION, RISQUE_MAX_PCT, RISQUE_MIN_PCT, RISQUE_PIVOT_PCT,
-    Confiance, evaluer, piliers_de, total_piliers,
+    POIDS_CONVICTION,
+    RISQUE_MAX_PCT,
+    RISQUE_MIN_PCT,
+    RISQUE_PIVOT_PCT,
+    evaluer,
+    piliers_de,
+    total_piliers,
 )
 from titanium.sizing import MAX_RISK_PCT
 

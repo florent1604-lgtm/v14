@@ -255,3 +255,12 @@ collab/.test-tasks-*.ndjson.lock
 # Instantanes de sauvegarde des donnees de mesure (volumineux, locaux)
 sauvegardes/
 results/quotes/
+
+# Application Windows locale : sources et lockfile sont versionnes, jamais les
+# dependances installees ni les copies temporaires de packaging.
+desktop/node_modules/
+desktop/desktop/
+desktop/dist/
+!desktop/lib/
+!desktop/lib/runtime.js
+_stop_loop.ps1

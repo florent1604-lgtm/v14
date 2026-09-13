@@ -165,7 +165,11 @@ class TestSignalement:
         pm.load_state(p)
         jrn = tmp_path / "etat_incidents.ndjson"
         assert jrn.exists()
-        lignes = [json.loads(l) for l in jrn.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lignes = [
+            json.loads(ligne)
+            for ligne in jrn.read_text(encoding="utf-8").splitlines()
+            if ligne.strip()
+        ]
         assert lignes[-1]["genre"] == "illisible"
 
     def test_le_journal_est_append_only(self, tmp_path):
@@ -174,7 +178,9 @@ class TestSignalement:
             _ecrire(p, "{cassé")
             pm.load_state(p)
         jrn = tmp_path / "etat_incidents.ndjson"
-        assert len([l for l in jrn.read_text(encoding="utf-8").splitlines() if l.strip()]) == 3
+        assert len([
+            ligne for ligne in jrn.read_text(encoding="utf-8").splitlines() if ligne.strip()
+        ]) == 3
 
     def test_incidents_etat_rend_une_copie(self, tmp_path):
         """Un appelant ne doit pas pouvoir vider le registre par inadvertance."""
@@ -239,6 +245,18 @@ def test_le_battement_reste_muet_sans_incident(tmp_path, monkeypatch):
     d = json.loads(battement.read_text(encoding="utf-8"))
     assert d["etat_incidents"] == []
     assert d["etat_incidents_total"] == 0
+
+
+def test_le_battement_expose_la_cohorte_demo_autorisee(tmp_path, monkeypatch):
+    from tools import live_demo
+
+    battement = tmp_path / "loop_heartbeat.json"
+    monkeypatch.setattr(live_demo, "BATTEMENT", battement)
+    live_demo.battre({"tours": 1}, armer=True, equity=4000.0)
+
+    d = json.loads(battement.read_text(encoding="utf-8"))
+    assert d["cohort_symbols"] == list(live_demo.DEMO_COHORT_SYMBOLS)
+    assert d["cohort_start_utc"] == live_demo.DEMO_COHORT_START_UTC.isoformat()
 
 
 def test_le_tableau_de_bord_relaie_l_incident(tmp_path, monkeypatch):

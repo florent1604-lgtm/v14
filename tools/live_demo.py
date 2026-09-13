@@ -41,19 +41,45 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
+from titanium.execution.decision_registry import (  # noqa: E402
+    append_decision_event,
+    make_decision_id,
+    prepare_decision_registry,
+)
+from titanium.execution.demo_cohort import (  # noqa: E402
+    DEMO_COHORT_START_UTC,
+    DEMO_COHORT_SYMBOLS,
+)
+from titanium.execution.execution_ledger import (  # noqa: E402
+    execute_recorded,
+    reconcile_recorded,
+)
+from titanium.execution.live_loss_guard import (  # noqa: E402
+    evaluate_live_loss_guard,
+    persist_live_loss_quarantine,
+)
+from titanium.execution.micro_basket import required_improvement_r  # noqa: E402
+from titanium.execution.weekend_flat import (  # noqa: E402
+    WeekendFlatParams,
+    decide_weekend_flat,
+    heure_serveur_mt5,
+)
+from titanium.execution.policy_identity import (  # noqa: E402
+    build_policy_identity,
+    snapshot_code_identity,
+)
+from titanium.organism import CentralMemory, DecisionIdentity  # noqa: E402
+from titanium.organism.market_jepa import (  # noqa: E402
+    MarketJepaRuntime,
+    attach_market_jepa,
+)
 from tools.console_output import configure_console_output  # noqa: E402
 
-#: Univers candidat. Chaque tour filtre selon ce que l'equity peut porter.
-#: Univers candidat. Vide ⇒ **tout le catalogue MT5 tradable**.
-#:
-#: L'élargissement est le seul levier d'accélération qui ne change pas la
-#: stratégie. Le capital reste à 5000 EUR ; ce qui limitait l'accumulation
-#: n'était pas lui mais la surface de balayage : 24 actifs pour ~2 setups
-#: S≥3 simultanés sur tout le catalogue.
-#:
-#: L'exposition reste bornée par MAX_POSITIONS et MAX_RISQUE_CUMULE_PCT —
-#: balayer large ne fait pas trader plus, cela fait *choisir* mieux.
-UNIVERS: list = []
+#: Liste vide : le catalogue complet du courtier est parcouru par rotation.
+UNIVERS: list[str] = []
+
+#: Bascule temporaire : le moteur déterministe dimensionne seul les entrées.
+ACTIVER_CORTEX = False
 
 #: Repli si le catalogue est illisible.
 UNIVERS_SECOURS = [
@@ -71,7 +97,27 @@ def univers_complet() -> list:
         return noms or list(UNIVERS_SECOURS)
     except Exception:  # noqa: BLE001
         return list(UNIVERS_SECOURS)
-INTERVALLE = 60.0        # s entre deux balayages
+# Le chemin chaud ne contient aucun appel LLM. Sur la phase crypto du
+# week-end, 30 actifs x six horizons ont ete mesures sous cinq secondes ; un
+# passage toutes les dix secondes garde donc une marge nette sans empiler les
+# appels MT5. Les decisions Hermès restent asynchrones et mises en cache.
+INTERVALLE = 10.0        # s entre deux balayages
+
+# Instruction opérateur du 28/08/2026 : rétablir le breakeven, sans réactiver
+# le trailing. Le SL ne bouge qu'une fois vers l'entrée + coûts ; la protection
+# dynamique des gains passe ensuite par une clôture active propre au ticket.
+MODIFIER_STOPS_EXISTANTS = True
+ACTIVER_TRAILING = False
+GERER_SORTIES_ADAPTATIVES = True
+
+#: Instruction opérateur du 12/09/2026 : aucune position hors crypto ne passe
+#: le week-end. Mesuré sur DAX40.fs #108485347 le 12/09 — +6.38 EUR de gain
+#: brut contre −45.25 EUR de swap : le portage a rendu perdante une position
+#: gagnante, sur un marché fermé où le stop ne pouvait pas être géré.
+#: La clôture part donc MÊME EN PERTE, le coût du portage étant certain quand
+#: le retour du prix ne l'est pas. La crypto est exemptée : elle cote seule le
+#: week-end. Fenêtre et garde-fous : `titanium/execution/weekend_flat.py`.
+MISE_A_PLAT_WEEKEND = True
 
 #: Actifs examinés PAR TOUR. Le catalogue est parcouru par rotation.
 #:
@@ -88,6 +134,21 @@ LOT_PAR_TOUR = 60
 _curseur = 0
 LTF, HTF = "M15", "H4"
 BARRES = 400
+# Phase crypto week-end : toutes les unites operationnelles de V14 sont lues.
+# D1 sert de contexte aux horizons H1/H4 ; W1/MN1 ne sont pas des horizons
+# d'execution du moteur et ne sont donc pas presentes ici.
+CRYPTO_TIMEFRAME_PAIRS = (
+    ("M1", "M15"),
+    ("M5", "H1"),
+    ("M15", "H4"),
+    ("M30", "H4"),
+    ("H1", "D1"),
+    ("H4", "D1"),
+)
+_TIMEFRAME_MINUTES = {
+    "M1": 1, "M5": 5, "M15": 15, "M30": 30,
+    "H1": 60, "H4": 240, "D1": 1440,
+}
 #: Positions simultanées, tous actifs confondus. **0 = illimité.**
 #:
 #: Porté de 8 à illimité le 17/08/2026, à la demande de Florent, pour lever le
@@ -152,10 +213,158 @@ MAX_RISQUE_CUMULE_PCT = 6.0
 #: réel n'est plus celui qui a été validé, et le TP est souvent frôlé puis
 #: manqué. Constaté par Florent le 07/08/2026.
 DERIVE_MAX_R = 0.35
-#: Positions simultanées sur UN MÊME actif. Second garde-fou, indépendant de
-#: l'idempotence : si la clé de barre échoue pour une raison quelconque, ce
-#: plafond empêche encore d'empiler trois fois le même risque corrélé.
-MAX_PAR_SYMBOLE = 1
+#: Positions simultanées sur UN MÊME actif. Le plafond seul ne suffit pas :
+#: chaque position supplémentaire doit aussi passer `_autoriser_empilement`.
+#: Trois permet une entrée initiale, un renfort à meilleur prix et, si le
+#: marché invalide le sens, une position de retournement explicitement classée
+#: `reversal`. Le budget global et la grappe corrélée restent prioritaires.
+MAX_PAR_SYMBOLE = 3
+#: Un prix seulement meilleur de quelques ticks est du bruit, pas une nouvelle
+#: opportunité. Le renfort doit améliorer le meilleur prix ouvert d'au moins
+#: 0,10 R, R étant la distance de stop de la nouvelle décision.
+AMELIORATION_ENTREE_MIN_R = 0.10
+ESPACEMENT_ENTREE_MIN_ATR = 0.25
+ESPACEMENT_ENTREE_MIN_SPREAD = 2.0
+#: Risque total maximal des positions et ordres d'un même symbole.
+MAX_RISQUE_PANIER_PCT = 3.0
+
+_POLICY_CODE_SOURCES = (
+    "tools/live_demo.py",
+    # Sur-approximation volontaire : tout module Titanium peut devenir une
+    # dépendance dynamique de la décision. Un faux nouvel epoch est sûr; un
+    # changement de décision non détecté ne l'est pas.
+    "titanium",
+    "tradingagents/default_config.py",
+)
+
+try:
+    # Snapshot UNE FOIS au chargement du processus. Une modification ultérieure
+    # du working tree ne peut donc pas réétiqueter le bytecode déjà chargé.
+    _BASE_CODE_SNAPSHOT = snapshot_code_identity(
+        root=RACINE, code_sources=_POLICY_CODE_SOURCES,
+    )
+except (OSError, ValueError):
+    _BASE_CODE_SNAPSHOT = None
+
+
+def _decision_policy_identity(
+    execution_mode: str,
+    rr_ratio: float,
+    *,
+    ltf: str = LTF,
+    htf: str = HTF,
+) -> dict[str, str]:
+    """Scelle la politique; une panne de télémétrie ne casse jamais l'ordre."""
+    try:
+        return build_policy_identity(
+            entry_policy=MODE_ENTREE,
+            execution_mode=execution_mode,
+            config={
+                "derive_max_r": DERIVE_MAX_R,
+                "amelioration_entree_min_r": AMELIORATION_ENTREE_MIN_R,
+                "espacement_entree_min_atr": ESPACEMENT_ENTREE_MIN_ATR,
+                "espacement_entree_min_spread": ESPACEMENT_ENTREE_MIN_SPREAD,
+                "htf": str(htf),
+                "ltf": str(ltf),
+                "max_limites_en_attente": MAX_LIMITES_EN_ATTENTE,
+                "max_par_symbole": MAX_PAR_SYMBOLE,
+                "max_positions": MAX_POSITIONS,
+                "max_risque_cumule_pct": MAX_RISQUE_CUMULE_PCT,
+                "max_risque_panier_pct": MAX_RISQUE_PANIER_PCT,
+                "reserve_s3": RESERVE_S3,
+                "rr_ratio": float(rr_ratio),
+            },
+            base_code_snapshot=_BASE_CODE_SNAPSHOT or {},
+        )
+    except (OSError, TypeError, ValueError):
+        return {}
+
+
+def _autoriser_empilement(
+    expositions: list[tuple[int, float]],
+    *,
+    side: int,
+    prix: float,
+    stop_distance: float,
+    setup_family: str,
+    atr: float = 0.0,
+    spread: float = 0.0,
+) -> tuple[bool, str]:
+    """Autorise une position supplémentaire seulement si elle apporte un edge.
+
+    * même sens : le prix doit améliorer le meilleur prix encore ouvert ;
+    * sens opposé : la porte doit avoir classé le setup `reversal` ;
+    * livre déjà mixte ou plafond atteint : refus fail-closed.
+
+    Le SL n'est ni lu ni modifié ici. Le budget global et la grappe corrélée
+    sont contrôlés plus loin, après le dimensionnement exact.
+    """
+    if not expositions:
+        return True, "ACTIF_LIBRE"
+    if len(expositions) >= MAX_PAR_SYMBOLE:
+        return False, "PLAFOND_PAR_SYMBOLE"
+    if side not in (-1, 1):
+        return False, "SENS_INVALIDE"
+    if not (math.isfinite(prix) and prix > 0.0):
+        return False, "PRIX_INVALIDE"
+    if not (math.isfinite(stop_distance) and stop_distance > 0.0):
+        return False, "STOP_DISTANCE_INVALIDE"
+
+    try:
+        valides = [
+            (int(s), float(p)) for s, p in expositions
+            if int(s) in (-1, 1) and math.isfinite(float(p)) and float(p) > 0.0
+        ]
+    except (TypeError, ValueError):
+        return False, "EXPOSITION_INVALIDE"
+    if len(valides) != len(expositions):
+        return False, "EXPOSITION_INVALIDE"
+
+    memes = [p for s, p in valides if s == side]
+    opposees = [p for s, p in valides if s == -side]
+    if memes and opposees:
+        return False, "EXPOSITION_DEJA_MIXTE"
+
+    if opposees:
+        if str(setup_family or "").strip().lower() != "reversal":
+            return False, "SENS_OPPOSE_SANS_RETOURNEMENT"
+        return True, "RETOURNEMENT_CONFIRME"
+
+    seuil_r = required_improvement_r(
+        stop_distance=stop_distance,
+        atr=atr,
+        spread=spread,
+        base_r=AMELIORATION_ENTREE_MIN_R,
+        atr_multiple=ESPACEMENT_ENTREE_MIN_ATR,
+        spread_multiple=ESPACEMENT_ENTREE_MIN_SPREAD,
+    )
+    if seuil_r is None:
+        return False, "ESPACEMENT_INVALIDE"
+
+    meilleur = min(memes) if side > 0 else max(memes)
+    amelioration_r = side * (meilleur - prix) / stop_distance
+    if amelioration_r + 1e-12 < seuil_r:
+        return False, (
+            f"ENTREE_NON_AMELIOREE_{amelioration_r:.3f}R_MIN_{seuil_r:.3f}R"
+        )
+    suffixe = "" if abs(seuil_r - AMELIORATION_ENTREE_MIN_R) < 1e-12 else (
+        f"_MIN_{seuil_r:.3f}R"
+    )
+    return True, f"ENTREE_AMELIOREE_{amelioration_r:.3f}R{suffixe}"
+
+
+def _prix_execution_courant(symbole: str, side: int) -> float | None:
+    """Prix exécutable courant (ask pour achat, bid pour vente), sinon None."""
+    try:
+        import MetaTrader5 as mt5  # noqa: N813
+
+        tick = mt5.symbol_info_tick(symbole)
+        if tick is None:
+            return None
+        prix = float(tick.ask if side > 0 else tick.bid)
+        return prix if math.isfinite(prix) and prix > 0.0 else None
+    except Exception:  # noqa: BLE001 -- une absence de prix refuse l'empilement
+        return None
 
 #: Créneaux réservés à la strate S≥3 parmi MAX_POSITIONS.
 #:
@@ -249,8 +458,13 @@ def battre(stats: dict, *, armer: bool, equity: float = 0.0,
             "at": datetime.now(timezone.utc).isoformat(),
             "intervalle": intervalle,
             "armed": armer,
+            "manage_stops": MODIFIER_STOPS_EXISTANTS,
+            "manage_trailing": ACTIVER_TRAILING,
+            "manage_adaptive_exits": GERER_SORTIES_ADAPTATIVES,
             "equity": equity,
             "portables": portables,
+            "cohort_symbols": list(DEMO_COHORT_SYMBOLS),
+            "cohort_start_utc": DEMO_COHORT_START_UTC.isoformat(),
             "stats": dict(stats),
             "etat_incidents": incidents[-5:],
             "etat_incidents_total": len(incidents),
@@ -272,6 +486,32 @@ def _journal_coverage(recovery: dict | None) -> dict:
         "lookback_days": 7,
         "reason": str(recovery.get("reason", "") or ""),
     }
+
+
+def _execution_detail(result, budget, *, equity: float, currency: str) -> tuple[str, float]:
+    """Render the broker-sized fill and return its effective monetary risk."""
+    lot_value = getattr(result, "filled_volume", None)
+    if lot_value is None:
+        lot_value = getattr(result, "lot", None)
+    try:
+        lot = float(lot_value)
+    except (TypeError, ValueError):
+        lot = float(budget.lot)
+    risk_value = getattr(result, "risk_money_effective", None)
+    try:
+        risk_money = float(risk_value)
+    except (TypeError, ValueError):
+        risk_money = float(budget.risk_money)
+    if not math.isfinite(lot) or lot <= 0:
+        lot = float(budget.lot)
+    if not math.isfinite(risk_money) or risk_money <= 0:
+        risk_money = float(budget.risk_money)
+    effective_pct = 100.0 * risk_money / equity if equity > 0 else 0.0
+    detail = (
+        f"lot {lot:g} · risque {risk_money:g} {currency} ({effective_pct:.2f} %)"
+        + (" [lot min]" if budget.at_min_lot else "")
+    )
+    return detail, risk_money
 
 
 def _compter_tunnel(stats: dict, etape: str, motif: str, nombre: int = 1) -> None:
@@ -385,6 +625,74 @@ def _marquer_echelle(feats: dict, timeframe: str, higher_timeframe: str) -> None
     trace["higher_timeframe"] = str(higher_timeframe)
 
 
+def _echelles_a_balayer(
+    symbole: str, unite: str, haute: str, *, crypto_weekend: bool = False,
+) -> tuple:
+    """Horizons a evaluer sans modifier le comportement des marches ouverts.
+
+    La phase multi-horizon est reservee a la crypto lorsque les autres marches
+    sont fermes. En semaine, le dimensionnement adaptatif conserve exactement
+    son couple historique afin de ne pas changer simultanement deux regimes.
+    """
+    from titanium.edge import asset_class_of
+
+    if crypto_weekend and asset_class_of(symbole) == "crypto":
+        return CRYPTO_TIMEFRAME_PAIRS
+    return ((str(unite), str(haute)),)
+
+
+def _resoudre_candidats_multitimeframe(candidats: list[dict]) -> tuple[list[dict], list[str]]:
+    """Garde au plus une these coherente par actif.
+
+    Hermès peut arbitrer la qualite d'une these, mais ne doit pas recevoir
+    deux instructions opposees pour le meme actif au meme instant. Toute
+    contradiction directionnelle est donc bloquee avant le cortex. Quand les
+    horizons convergent, on retient d'abord le plus de piliers, puis le rang,
+    le cout et enfin l'horizon le plus long.
+    """
+    groupes: dict[str, list[dict]] = {}
+    for candidat in candidats:
+        groupes.setdefault(str(candidat.get("sym", "")), []).append(candidat)
+
+    retenus: list[dict] = []
+    conflits: list[str] = []
+    for symbole, groupe in groupes.items():
+        directions = {
+            int(getattr(c.get("out"), "side", 0) or 0) for c in groupe
+        } - {0}
+        if len(directions) != 1:
+            conflits.append(symbole)
+            continue
+        retenus.append(max(
+            groupe,
+            key=lambda c: (
+                int(c.get("support", 0) or 0),
+                float(c.get("rank", 0.0) or 0.0),
+                -float(c.get("cost", math.inf) or math.inf),
+                _TIMEFRAME_MINUTES.get(str(c.get("timeframe", "")), 0),
+            ),
+        ))
+    return retenus, conflits
+
+
+def _journaliser_selection_multitimeframe(
+    candidats: list[dict], retenus: list[dict], conflits: list[str], stats: dict,
+) -> None:
+    """One terminal outcome per discarded raw ENTER, without changing selection."""
+    identites = {id(c) for c in retenus}
+    symboles_en_conflit = set(conflits)
+    for c in candidats:
+        if id(c) in identites:
+            continue
+        conflit = str(c.get("sym", "")) in symboles_en_conflit
+        _refus(
+            stats, "MULTITIMEFRAME_CONFLICT" if conflit else "MULTITIMEFRAME_COALESCED",
+            c.get("sym", ""),
+            "directions opposees" if conflit else "autre horizon retenu; pas un rejet courtier",
+            timeframe=c.get("timeframe"), stage="multitimeframe",
+        )
+
+
 #: Charges de zones du tour courant, une par symbole. Vidé à chaque tour
 #: pour qu'un symbole sorti de l'univers cesse d'être tracé.
 _ZONES: dict = {}
@@ -393,7 +701,7 @@ _ZONES: dict = {}
 def _tracer_zones(sym: str, feats: dict, out, cfg, conf=None, budget=None) -> None:
     """Exporte les zones vers MT5. Ne lève jamais — l'affichage n'est pas critique."""
     try:
-        from titanium.bridge.mt5_zones import Plan, ecrire, zones_depuis_features
+        from titanium.bridge.mt5_zones import Plan, zones_depuis_features
         from titanium.gates import confluence_gate
 
         d = confluence_gate.evaluate(feats, require_edge=cfg.require_edge)
@@ -444,6 +752,7 @@ def _publier_zones() -> None:
 #: critique. `None` = pas encore disponible, le garde-fou refuse l'entree.
 _GRAPPES = None
 _GRAPPES_A = 0.0
+_GRAPPES_CATALOGUE: set = set()
 
 
 #: Actifs jouables vus depuis le démarrage. La rotation n'en montre que 24
@@ -454,7 +763,29 @@ _JOUABLES: set = set()
 def _tradables_connus(courants) -> list:
     """Cumul des actifs jouables rencontrés, pour nourrir l'arbre."""
     _JOUABLES.update(courants)
+    if UNIVERS and len(_JOUABLES) < 20:
+        # A small explicit cohort cannot rebuild a meaningful tree alone. Seed
+        # it from the last broad cache and include temporarily non-portable
+        # cohort members so they are covered when market costs improve.
+        try:
+            from titanium.correlation import charger_cache
+
+            cache = charger_cache()
+            if cache is not None:
+                _JOUABLES.update(cache.par_actif)
+        except Exception:  # noqa: BLE001 - the cluster gate remains fail-closed
+            pass
+        _JOUABLES.update(UNIVERS)
     return sorted(_JOUABLES)
+
+
+def _entry_universe(open_symbols, scanned_symbols) -> list:
+    """Return new-entry candidates without reinforcing outside the cohort."""
+    candidates = list(dict.fromkeys([*open_symbols, *scanned_symbols]))
+    if not UNIVERS:
+        return candidates
+    allowed = {str(symbol).upper() for symbol in UNIVERS}
+    return [symbol for symbol in candidates if str(symbol).upper() in allowed]
 
 
 def rafraichir_grappes(catalogue) -> None:
@@ -473,12 +804,21 @@ def rafraichir_grappes(catalogue) -> None:
     disque, et la porte de risque correle refuse 435 entrees d'affilee.
     Le seuil ne garde donc plus que le recalcul.
     """
-    global _GRAPPES, _GRAPPES_A
+    global _GRAPPES, _GRAPPES_A, _GRAPPES_CATALOGUE
     try:
         import time as _t
 
-        from titanium.correlation import TTL_GRAPPES_S, age_grappes, charger, charger_cache
-        if _GRAPPES is not None and _t.time() - _GRAPPES_A < TTL_GRAPPES_S:
+        from titanium.correlation import (
+            CATALOGUE_REFRESH_MIN_S,
+            TTL_GRAPPES_S,
+            age_grappes,
+            charger,
+            charger_cache,
+        )
+        age = _t.time() - _GRAPPES_A
+        connus = _GRAPPES_CATALOGUE | (set(_GRAPPES.par_actif) if _GRAPPES else set())
+        if (_GRAPPES is not None and 0 <= age < TTL_GRAPPES_S
+                and (set(catalogue) <= connus or age < CATALOGUE_REFRESH_MIN_S)):
             return
 
         if len(catalogue) < 20:
@@ -504,6 +844,7 @@ def rafraichir_grappes(catalogue) -> None:
         if g.par_actif:
             _GRAPPES = g
             _GRAPPES_A = _t.time()
+            _GRAPPES_CATALOGUE = set(catalogue)
             print(f"  grappes de correlation : {len(g.membres)} familles "
                   f"({g.methode})", flush=True)
     except Exception as exc:  # noqa: BLE001
@@ -691,6 +1032,41 @@ def _risque_engage_pct(mt5, equity: float) -> float:
     return total
 
 
+def _risque_exposition_pct(mt5, exposition, equity: float, *, side: int) -> float | None:
+    """Risque restant d'une position/limite pour le budget de son panier.
+
+    Un SL déjà au breakeven ou en gain vaut zéro risque restant. Une donnée
+    manquante rend ``None`` afin que l'appelant bloque tout nouveau renfort.
+    """
+    try:
+        if equity <= 0 or side not in (-1, 1):
+            return None
+        entry = float(getattr(exposition, "price_open", 0.0) or 0.0)
+        sl = float(getattr(exposition, "sl", 0.0) or 0.0)
+        volume = float(
+            getattr(exposition, "volume", 0.0)
+            or getattr(exposition, "volume_current", 0.0)
+            or getattr(exposition, "volume_initial", 0.0)
+            or 0.0
+        )
+        if min(entry, sl, volume) <= 0:
+            return None
+        spec = mt5.symbol_info(exposition.symbol)
+        tick_size = float(getattr(spec, "trade_tick_size", 0.0) or 0.0)
+        tick_value = float(
+            getattr(spec, "trade_tick_value_loss", 0.0)
+            or getattr(spec, "trade_tick_value", 0.0)
+            or 0.0
+        )
+        if tick_size <= 0 or tick_value <= 0:
+            return None
+        distance_risque = max(0.0, side * (entry - sl))
+        perte = distance_risque / tick_size * tick_value * volume
+        return perte / equity * 100.0
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def _demander_fenetres(candidats) -> None:
     """Demande a l'EA compagnon d'ouvrir les graphiques utiles.
 
@@ -702,7 +1078,8 @@ def _demander_fenetres(candidats) -> None:
         import MetaTrader5 as mt5  # noqa: N813
 
         from titanium.bridge.mt5_charts import (
-            demander_fenetres, symboles_actifs,
+            demander_fenetres,
+            symboles_actifs,
         )
         from titanium.bridge.mt5_zones import dossier_mql5_files
 
@@ -722,17 +1099,134 @@ def _demander_fenetres(candidats) -> None:
 
 AVIS_DEMANDES = RACINE / "results" / "avis_demandes.ndjson"
 AVIS_RENDUS = RACINE / "results" / "avis_rendus.ndjson"
+POSITION_REVIEW_REQUESTS = RACINE / "results" / "position_review_requests.ndjson"
+POSITION_REVIEW_VERDICTS = RACINE / "results" / "position_review_verdicts.ndjson"
+NOYAU_CENTRAL = CentralMemory(
+    RACINE / "results" / "organism_memory.sqlite3",
+    RACINE / "results" / "organism_alerts.ndjson",
+)
+MARKET_JEPA = MarketJepaRuntime(
+    RACINE / "results" / "market_jepa" / "model.json",
+)
+
+try:
+    from titanium.live_memory import ReplayEdgeMemory
+    _MEMOIRE_LIVE = ReplayEdgeMemory(RACINE)
+except Exception:  # noqa: BLE001
+    _MEMOIRE_LIVE = None
 
 
-def _avis_pour(sym: str, side: int) -> tuple[float, str]:
-    """Relit l'avis des analystes. NE BLOQUE JAMAIS, ne declenche aucun
-    appel : si le travailleur est arrete ou en panne, la boucle continue
-    exactement comme si le pont n'existait pas."""
+def _avis_pour(sym: str, side: int,
+               identity: DecisionIdentity,
+               context_key: str = "") -> tuple[float, str]:
+    """Relit uniquement une politique Hermes fraiche, sans appel reseau."""
+    from titanium.organism.contracts import (
+        CORTEX_DECISION_MODEL_VERSION,
+        CORTEX_DECISION_PRODUCER,
+    )
+
+    if not context_key:
+        return 0.5, "CORTEX_CONTEXT_MISSING"
     try:
-        from titanium.avis import conviction_pour
-        return conviction_pour(sym, side, AVIS_RENDUS)
+        proposal, code = NOYAU_CENTRAL.policy_for(
+            identity, context_key,
+            expected_decision_model=CORTEX_DECISION_MODEL_VERSION,
+            expected_producer=CORTEX_DECISION_PRODUCER,
+        )
+        if proposal is None:
+            return 0.5, code
+        if int(proposal.get("side", 0) or 0) != int(side):
+            return 0.2, "BRAIN_SIDE_MISMATCH"
+        return float(proposal.get("confidence", 0.5)), code
     except Exception:  # noqa: BLE001
         return 0.5, "avis indisponible"
+
+
+def _contexte_cortex(sym: str, feats: dict, side: int) -> str:
+    """Contexte de politique Hermès, borné à l'horizon réellement analysé."""
+    base = _contexte_exact(sym, feats, side)
+    trace = feats.get("_trace") or {}
+    timeframe = str(trace.get("timeframe") or "").upper()
+    if not timeframe:
+        return ""
+    higher = str(trace.get("higher_timeframe") or HTF).upper()
+    return f"{base}|tf={timeframe}>{higher}"
+
+
+def _garde_intelligente(sym: str, side: int, feats: dict,
+                        identity: DecisionIdentity) -> tuple[bool, str]:
+    """Autorite Hermes locale et scellee, puis gardes de mesure V4.
+
+    Aucun appel LLM n'est effectue ici. Seule une
+    politique Hermès fraîche pour le même contexte permet de poursuivre.
+    ``WAIT``, ``BLOCK``, absence, panne ou incohérence restent fail-closed.
+    """
+    from titanium.organism.contracts import (
+        CORTEX_DECISION_MODEL_VERSION,
+        CORTEX_DECISION_PRODUCER,
+    )
+
+    contexte = _contexte_exact(sym, feats, side)
+    contexte_cortex = _contexte_cortex(sym, feats, side)
+    if not contexte_cortex:
+        return False, "CORTEX_CONTEXT_MISSING"
+    if _MEMOIRE_LIVE is None:
+        return False, "memoire live indisponible"
+    verdict = _MEMOIRE_LIVE.verdict(sym, contexte)
+    _MEMOIRE_LIVE.record(sym, contexte, verdict)
+    if verdict.action != "ALLOW":
+        return False, (f"memoire {verdict.action}: {verdict.reason}; "
+                       f"n={verdict.samples}, E={verdict.expectancy_r:+.3f}R, "
+                       f"PF={verdict.profit_factor:.2f}")
+    proposal, code = NOYAU_CENTRAL.policy_for(
+        identity, contexte_cortex,
+        expected_decision_model=CORTEX_DECISION_MODEL_VERSION,
+        expected_producer=CORTEX_DECISION_PRODUCER,
+    )
+    gate_source = "politique Hermes"
+    if proposal is None:
+        NOYAU_CENTRAL.alert(code, identity, "aucune politique Hermes fraiche")
+        return False, f"noyau {code}: autorisation Hermes absente"
+    action = str(proposal.get("action", "WAIT")).upper()
+    if action not in {"ALLOW", "WAIT", "BLOCK"}:
+        NOYAU_CENTRAL.alert("BRAIN_ACTION_INVALID", identity, action)
+        return False, "noyau BRAIN_ACTION_INVALID"
+    reason = str(proposal.get("summary", ""))[:240]
+    if action != "ALLOW":
+        NOYAU_CENTRAL.alert(f"BRAIN_{action}", identity, reason)
+        return False, f"fondamental {action}: {reason}"
+    try:
+        NOYAU_CENTRAL.append("engine.gate", identity.decision_ref, sym, {
+            **identity.to_dict(), "action": "ALLOW",
+            "evidence_digest": proposal.get("evidence_digest", ""),
+            "gate_source": gate_source,
+            "policy_ref": proposal.get("policy_ref", ""),
+        })
+    except Exception as exc:  # noqa: BLE001 - aucune execution sans trace
+        NOYAU_CENTRAL.alert("CENTRAL_GATE_WRITE_FAILED", identity,
+                            type(exc).__name__)
+        return False, "noyau CENTRAL_GATE_WRITE_FAILED"
+    return True, (f"memoire ALLOW: n={verdict.samples}, "
+                  f"E={verdict.expectancy_r:+.3f}R, PF={verdict.profit_factor:.2f}; "
+                  f"cortex {code} ALLOW: {reason}")
+
+
+def _autorisation_et_conviction(sym: str, feats: dict, out, decision, cfg,
+                                ltf=None) -> tuple[bool, float, str]:
+    """Autorise le cortex ou applique le dimensionnement déterministe."""
+    if not ACTIVER_CORTEX:
+        return True, 0.5, "CORTEX_DESACTIVE"
+
+    identity = _demander_avis(sym, feats, out, decision, cfg, ltf=ltf)
+    if identity is None:
+        return False, 0.5, "CENTRAL_MEMORY"
+    intelligence_ok, motif_intelligence = _garde_intelligente(
+        sym, out.side, feats, identity)
+    if not intelligence_ok:
+        return False, 0.5, motif_intelligence
+    conviction, motif_avis = _avis_pour(
+        sym, out.side, identity, _contexte_cortex(sym, feats, out.side))
+    return True, conviction, motif_avis
 
 
 def _sante_resumee() -> str:
@@ -745,26 +1239,45 @@ def _sante_resumee() -> str:
         return ""
 
 
-def _demander_avis(sym: str, feats: dict, out, decision, cfg) -> None:
+def _demander_avis(sym: str, feats: dict, out, decision,
+                   cfg, ltf=None) -> DecisionIdentity | None:
     """Depose la lecture deterministe pour les analystes. Une ecriture,
     puis on continue — la deliberation se fait dans un autre processus."""
     try:
         from titanium.avis import Demande, deposer
+        if ltf is not None:
+            attach_market_jepa(sym, feats, ltf, MARKET_JEPA)
         trace = feats.get("_trace") or {}
-        deposer(Demande(
+        context_key = _contexte_cortex(sym, feats, out.side)
+        if not context_key:
+            return None
+        indicators = dict(trace.get("indicators") or {})
+        if _MEMOIRE_LIVE is not None:
+            edge = _MEMOIRE_LIVE.verdict(sym, _contexte_exact(sym, feats, out.side))
+            indicators.update(edge_samples=edge.samples, edge_expectancy_r=edge.expectancy_r,
+                              edge_profit_factor=edge.profit_factor)
+        demande = Demande(
             symbol=sym, side=out.side,
             verdict=decision.verdict, code=decision.code,
-            piliers=sum(1 for g in (decision.gates or []) if g.passed),
+            piliers=int(getattr(decision, "support_passed", 0)),
             famille=getattr(decision, "setup_family", ""),
             prix=float(trace.get("price") or 0.0),
             stop_distance=float(out.stop_distance or 0.0),
             rr=cfg.rr_ratio,
             bar_time=str(trace.get("bar_time") or ""),
-            indicateurs=dict(trace.get("indicators") or {}),
+            engine_context=context_key,
+            indicateurs=indicators,
             sante=_sante_resumee(),
-        ), AVIS_DEMANDES)
+            demande_a=datetime.now(timezone.utc).isoformat(),
+        )
+        identity = demande.sceller()
+        payload = demande.to_dict()
+        if not deposer(demande, AVIS_DEMANDES):
+            NOYAU_CENTRAL.alert("BRAIN_REQUEST_FILE_FAILED", identity)
+        NOYAU_CENTRAL.record_request(identity, payload)
+        return identity
     except Exception:  # noqa: BLE001
-        pass
+        return None
 
 
 def _contexte_exact(sym: str, feats: dict, side: int) -> str:
@@ -882,7 +1395,9 @@ def _observer_prod(sym: str, feats: dict, verdict: str) -> None:
 
 def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
                        risque_devise: float = 0.0,
-                       spread_r: float | None = None) -> None:
+                       spread_r: float | None = None,
+                       policy_identity: dict[str, str] | None = None,
+                       decision_id: str = "", decision_at: str = "") -> None:
     """Ecrit le contexte d'entree dans l'etat suivi, des l'envoi de l'ordre.
 
     Sans cela, `position_manager` decouvrira le ticket au tour suivant et ne
@@ -895,13 +1410,16 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
         from datetime import datetime, timezone
 
         from titanium.execution.position_manager import (
-            TrackedState, load_state, save_state,
+            TrackedState,
+            load_state,
+            save_state,
         )
 
         chemin = RACINE / "results" / "positions.json"
         etat = load_state(chemin)
         r = abs((res.price or 0.0) - (res.sl or 0.0))
         r_eff = r if r > 0 else (out.stop_distance or 0.0)
+        identity = policy_identity or {}
         etat[str(ticket)] = TrackedState(
             r=r_eff,
             symbol=sym, side=out.side,
@@ -914,7 +1432,7 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             context_key=_contexte_exact(sym, feats, out.side),
             contre_tendance=bool(getattr(out, "contre_tendance", False)),
             indicators=dict((feats.get("_trace") or {}).get("indicators") or {}),
-            ts_open=datetime.now(timezone.utc).isoformat(),
+            ts_open=decision_at or datetime.now(timezone.utc).isoformat(),
             # Sert a convertir en R la commission et le swap que MT5 rend en
             # devise. Sans lui, ces frais seraient journalises a zero.
             risque_devise=float(risque_devise or 0.0),
@@ -923,6 +1441,11 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
             entry_levels=_niveaux_entree(
                 feats, entry=res.price or 0.0, side=out.side, r=r_eff),
             entry_atr=float((feats.get("_trace") or {}).get("atr") or 0.0),
+            entry_policy=str(identity.get("entry_policy", "")),
+            policy_epoch=str(identity.get("policy_epoch", "")),
+            config_sha256=str(identity.get("config_sha256", "")),
+            code_sha256=str(identity.get("code_sha256", "")),
+            decision_id=decision_id,
             **_stratification(sym, feats, out.side),
         )
         save_state(chemin, etat)
@@ -930,9 +1453,15 @@ def _attacher_contexte(ticket, sym: str, feats: dict, out, res,
         pass
 
 
-def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
-                              *, risque_devise: float = 0.0,
-                              spread_r: float | None = None) -> tuple[bool, str]:
+def _memoriser_contexte_limit(
+    ticket, sym: str, feats: dict, out, res,
+    *,
+    risque_devise: float = 0.0,
+    spread_r: float | None = None,
+    policy_identity: dict[str, str] | None = None,
+    decision_id: str = "",
+    decision_at: str = "",
+) -> tuple[bool, str]:
     """Conserve le contexte jusqu'au fill et rend une preuve exploitable."""
     if not ticket or not getattr(res, "expires_at", ""):
         return False, "TICKET_OU_EXPIRATION_ABSENT"
@@ -944,6 +1473,7 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
 
         r = abs((res.price or 0.0) - (res.sl or 0.0))
         r_eff = r if r > 0 else (out.stop_distance or 0.0)
+        identity = policy_identity or {}
         template = TrackedState(
             r=r_eff,
             symbol=sym, side=out.side,
@@ -952,7 +1482,7 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
             context_key=_contexte_exact(sym, feats, out.side),
             contre_tendance=bool(getattr(out, "contre_tendance", False)),
             indicators=dict((feats.get("_trace") or {}).get("indicators") or {}),
-            ts_open=datetime.now(timezone.utc).isoformat(),
+            ts_open=decision_at or datetime.now(timezone.utc).isoformat(),
             risque_devise=float(risque_devise or 0.0),
             spread_r=(None if spread_r is None else float(spread_r)),
             spread_exact=False,
@@ -967,6 +1497,11 @@ def _memoriser_contexte_limit(ticket, sym: str, feats: dict, out, res,
                 float(getattr(res, "spread_saved_price", 0.0) or 0.0) / r
                 if r > 0 else None
             ),
+            entry_policy=str(identity.get("entry_policy", "")),
+            policy_epoch=str(identity.get("policy_epoch", "")),
+            config_sha256=str(identity.get("config_sha256", "")),
+            code_sha256=str(identity.get("code_sha256", "")),
+            decision_id=decision_id,
             **_stratification(sym, feats, out.side),
         )
         save_pending_context(
@@ -1067,10 +1602,14 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     vivants = marches_ouverts(catalogue)
     hors_crypto = [s for s in catalogue
                    if asset_class_of(s) != "crypto" and vivants.get(s, True)]
-    if len(hors_crypto) < 10:
+    phase_crypto_weekend = False
+    # Une cohorte explicite peut contenir volontairement moins de dix marches
+    # non crypto. Ne pas la remplacer silencieusement par les seuls cryptos.
+    if not UNIVERS and len(hors_crypto) < 10:
         cryptos = [s for s in catalogue if asset_class_of(s) == "crypto"]
         if cryptos:
             catalogue = cryptos
+            phase_crypto_weekend = True
             print(f"    marchés fermés hors crypto — balayage concentré sur "
                   f"{len(cryptos)} actifs", flush=True)
 
@@ -1095,7 +1634,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     else:
         tranche = list(catalogue)
 
-    univers = list(dict.fromkeys(portees + tranche))
+    univers = _entry_universe(portees, tranche)
     _compter_tunnel(stats, "flow", "selectionnes", len(univers))
     budgets = tradable_universe(univers, compte.equity, timeframe=LTF)
     tradables = [s for s, b in budgets.items() if b.tradable]
@@ -1127,6 +1666,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     ouvertes = 0
     limites_en_attente = 0
     par_symbole: dict[str, int] = {}
+    expositions_par_symbole: dict[str, list[tuple[int, float]]] = {}
+    risque_par_symbole: dict[str, float] = {}
     gestion_saine = True
     try:
         import MetaTrader5 as mt5  # noqa: N813
@@ -1134,86 +1675,159 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         from titanium.data.mt5_vendor import mt5_lock, mt5_session
 
         etat = Path(RACINE / "results" / "positions.json")
-        with mt5_lock:
-            with mt5_session():
-                positions_courantes = mt5.positions_get()
-                if positions_courantes is None:
-                    raise RuntimeError(f"positions MT5 indisponibles: {mt5.last_error()}")
-                for p in positions_courantes:
-                    if int(getattr(p, "magic", 0) or 0) != politique.magic:
-                        continue
-                    ouvertes += 1
-                    par_symbole[p.symbol] = par_symbole.get(p.symbol, 0) + 1
-                # Une limite en attente réserve déjà un créneau et du risque.
-                # L'ignorer permettrait d'empiler des ordres qui se
-                # transformeraient tous en positions au même mouvement.
-                ordres_courants = mt5.orders_get()
-                if ordres_courants is None and armer and politique.enabled:
-                    raise RuntimeError(f"ordres MT5 indisponibles: {mt5.last_error()}")
-                for ordre in (ordres_courants or []):
-                    if int(getattr(ordre, "magic", 0) or 0) != politique.magic:
-                        continue
-                    ouvertes += 1
-                    limites_en_attente += 1
-                    par_symbole[ordre.symbol] = par_symbole.get(ordre.symbol, 0) + 1
-                adoption = reconcile_pending_contexts(
-                    mt5, magic=politique.magic, state_path=etat,
-                    pending_path=RACINE / "results" / "pending_limits.json",
-                    lifecycle_path=RACINE / "results" / "limit_lifecycle.ndjson",
-                    positions=positions_courantes,
+        with mt5_lock, mt5_session():
+            positions_courantes = mt5.positions_get()
+            if positions_courantes is None:
+                raise RuntimeError(f"positions MT5 indisponibles: {mt5.last_error()}")
+            for p in positions_courantes:
+                if int(getattr(p, "magic", 0) or 0) != politique.magic:
+                    continue
+                ouvertes += 1
+                par_symbole[p.symbol] = par_symbole.get(p.symbol, 0) + 1
+                side = (1 if int(getattr(p, "type", -1))
+                        == mt5.POSITION_TYPE_BUY else -1)
+                expositions_par_symbole.setdefault(p.symbol, []).append(
+                    (side, float(getattr(p, "price_open", 0.0) or 0.0))
                 )
-                if adoption.get("adopted"):
-                    stats["limites_executees"] = int(
-                        stats.get("limites_executees", 0) or 0
-                    ) + int(adoption["adopted"])
-                    print(f"    limites exécutées : {adoption['adopted']} contexte(s) "
-                          "rattaché(s)", flush=True)
-                if adoption.get("expired"):
-                    stats["limites_expirees"] = int(
-                        stats.get("limites_expirees", 0) or 0
-                    ) + int(adoption["expired"])
-                    print(f"    limites expirées : {adoption['expired']} contexte(s) "
-                          "purgé(s)", flush=True)
-                if adoption.get("canceled"):
-                    stats["limites_annulees"] = int(
-                        stats.get("limites_annulees", 0) or 0
-                    ) + int(adoption["canceled"])
-                    print(f"    limites annulees : {adoption['canceled']} contexte(s) "
-                          "purge(s)", flush=True)
-                if adoption.get("unknown"):
-                    stats["limites_issue_inconnue"] = int(
-                        stats.get("limites_issue_inconnue", 0) or 0
-                    ) + int(adoption["unknown"])
-                    _compter_tunnel(
-                        stats, "limit_lifecycle_failure", "ISSUE_INCONNUE")
-                if adoption.get("events_written"):
-                    stats["limit_lifecycle_events"] = int(
-                        stats.get("limit_lifecycle_events", 0) or 0
-                    ) + int(adoption["events_written"])
-                if adoption.get("event_failures"):
-                    _compter_tunnel(
-                        stats, "limit_lifecycle_failure", "RECONCILIATION")
-                r = manage_once(
-                    mt5,
-                    policy=politique,
-                    params=ManageParams.from_config(),
-                    state_path=etat,
-                    account=compte,
-                    journal_path=RACINE / "results" / "trades.ndjson",
-                    manage_stops=armer and politique.enabled,
+                mesure_risque = _risque_exposition_pct(
+                    mt5, p, compte.equity, side=side,
                 )
-                stats["journal_coverage"] = _journal_coverage(
-                    r.get("history_recovery"),
+                risque_par_symbole[p.symbol] = (
+                    MAX_RISQUE_PANIER_PCT
+                    if mesure_risque is None
+                    else risque_par_symbole.get(p.symbol, 0.0) + mesure_risque
                 )
-                if r.get("moved"):
-                    print(f"    gestion : {r['moved']} stop(s) déplacé(s)", flush=True)
-                    for d in r.get("details", []):
-                        print(f"      {d}", flush=True)
-                if r.get("reason"):
-                    gestion_saine = False
-                    print(f"    gestion fail-closed : {r['reason']}", flush=True)
-                    for d in r.get("details", []):
-                        print(f"      {d}", flush=True)
+            # Une limite en attente réserve déjà un créneau et du risque.
+            # L'ignorer permettrait d'empiler des ordres qui se
+            # transformeraient tous en positions au même mouvement.
+            ordres_courants = mt5.orders_get()
+            if ordres_courants is None and armer and politique.enabled:
+                raise RuntimeError(f"ordres MT5 indisponibles: {mt5.last_error()}")
+            for ordre in (ordres_courants or []):
+                if int(getattr(ordre, "magic", 0) or 0) != politique.magic:
+                    continue
+                ouvertes += 1
+                limites_en_attente += 1
+                par_symbole[ordre.symbol] = par_symbole.get(ordre.symbol, 0) + 1
+                achats = {
+                    mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP,
+                    mt5.ORDER_TYPE_BUY_STOP_LIMIT,
+                }
+                ventes = {
+                    mt5.ORDER_TYPE_SELL_LIMIT, mt5.ORDER_TYPE_SELL_STOP,
+                    mt5.ORDER_TYPE_SELL_STOP_LIMIT,
+                }
+                type_ordre = int(getattr(ordre, "type", -1))
+                side = (1 if type_ordre in achats
+                        else (-1 if type_ordre in ventes else 0))
+                expositions_par_symbole.setdefault(ordre.symbol, []).append(
+                    (side, float(getattr(ordre, "price_open", 0.0) or 0.0))
+                )
+                mesure_risque = _risque_exposition_pct(
+                    mt5, ordre, compte.equity, side=side,
+                )
+                risque_par_symbole[ordre.symbol] = (
+                    MAX_RISQUE_PANIER_PCT
+                    if mesure_risque is None
+                    else risque_par_symbole.get(ordre.symbol, 0.0) + mesure_risque
+                )
+            adoption = reconcile_pending_contexts(
+                mt5, magic=politique.magic, state_path=etat,
+                pending_path=RACINE / "results" / "pending_limits.json",
+                lifecycle_path=RACINE / "results" / "limit_lifecycle.ndjson",
+                positions=positions_courantes,
+            )
+            if adoption.get("adopted"):
+                stats["limites_executees"] = int(
+                    stats.get("limites_executees", 0) or 0
+                ) + int(adoption["adopted"])
+                print(f"    limites exécutées : {adoption['adopted']} contexte(s) "
+                      "rattaché(s)", flush=True)
+            if adoption.get("expired"):
+                stats["limites_expirees"] = int(
+                    stats.get("limites_expirees", 0) or 0
+                ) + int(adoption["expired"])
+                print(f"    limites expirées : {adoption['expired']} contexte(s) "
+                      "purgé(s)", flush=True)
+            if adoption.get("canceled"):
+                stats["limites_annulees"] = int(
+                    stats.get("limites_annulees", 0) or 0
+                ) + int(adoption["canceled"])
+                print(f"    limites annulees : {adoption['canceled']} contexte(s) "
+                      "purge(s)", flush=True)
+            if adoption.get("unknown"):
+                stats["limites_issue_inconnue"] = int(
+                    stats.get("limites_issue_inconnue", 0) or 0
+                ) + int(adoption["unknown"])
+                _compter_tunnel(
+                    stats, "limit_lifecycle_failure", "ISSUE_INCONNUE")
+            if adoption.get("events_written"):
+                stats["limit_lifecycle_events"] = int(
+                    stats.get("limit_lifecycle_events", 0) or 0
+                ) + int(adoption["events_written"])
+            if adoption.get("event_failures"):
+                _compter_tunnel(
+                    stats, "limit_lifecycle_failure", "RECONCILIATION")
+            r = manage_once(
+                mt5,
+                policy=politique,
+                params=ManageParams.from_config(),
+                state_path=etat,
+                account=compte,
+                journal_path=RACINE / "results" / "trades.ndjson",
+                manage_stops=MODIFIER_STOPS_EXISTANTS,
+                manage_trailing=ACTIVER_TRAILING,
+                manage_exits=GERER_SORTIES_ADAPTATIVES,
+                sentiment_request_path=POSITION_REVIEW_REQUESTS,
+                sentiment_verdict_path=POSITION_REVIEW_VERDICTS,
+                weekend_flat=WeekendFlatParams(actif=MISE_A_PLAT_WEEKEND),
+            )
+            stats["journal_coverage"] = _journal_coverage(
+                r.get("history_recovery"),
+            )
+            deplaces = int(r.get("moved", 0) or 0)
+            sorties = int(r.get("exit_sent", 0) or 0)
+            stats["breakeven_deplaces"] = int(
+                stats.get("breakeven_deplaces", 0) or 0
+            ) + deplaces
+            stats["sorties_adaptatives"] = int(
+                stats.get("sorties_adaptatives", 0) or 0
+            ) + sorties
+            stats["sorties_peur_glm"] = int(
+                stats.get("sorties_peur_glm", 0) or 0
+            ) + int(r.get("fear_exit_sent", 0) or 0)
+            stats["sorties_micro_panier"] = int(
+                stats.get("sorties_micro_panier", 0) or 0
+            ) + int(r.get("basket_exit_sent", 0) or 0)
+            stats["sorties_weekend"] = int(
+                stats.get("sorties_weekend", 0) or 0
+            ) + int(r.get("weekend_exit_sent", 0) or 0)
+            stats["sentiment_positions"] = dict(r.get("sentiment") or {})
+            if deplaces or sorties:
+                print(
+                    f"    gestion : {deplaces} BE déplacé(s), "
+                    f"{sorties} sortie(s) adaptative(s) demandée(s)",
+                    flush=True,
+                )
+                for d in r.get("details", []):
+                    print(f"      {d}", flush=True)
+            if r.get("reason"):
+                gestion_saine = False
+                print(f"    gestion fail-closed : {r['reason']}", flush=True)
+                for d in r.get("details", []):
+                    print(f"      {d}", flush=True)
+            # After protective management: evidence failure must never disable exits.
+            try:
+                trace = reconcile_recorded(
+                    mt5, account=compte, path=RACINE / "results" / "execution_ledger.sqlite3",
+                )
+            except Exception as exc:  # keep protections active, but no new entry
+                trace = {"status": "WAIT", "reason": type(exc).__name__}
+            stats["execution_trace"] = trace
+            if trace["status"] == "WAIT":
+                gestion_saine = False
+                print("    execution incertaine : reconciliation requise, nouvelles entrees WAIT",
+                      flush=True)
     except Exception as exc:  # noqa: BLE001
         gestion_saine = False
         print(f"    gestion indisponible : {type(exc).__name__}", flush=True)
@@ -1223,6 +1837,35 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         battre(stats, armer=armer and politique.enabled, equity=compte.equity,
                portables=len(tradables))
         return
+
+    # Protective management above remains active even when new entries are
+    # cut. Missing, invalid, or excessive live losses fail closed here.
+    loss_guard = evaluate_live_loss_guard(
+        RACINE / "results" / "trades.ndjson",
+        account=str(compte.login),
+        not_before=DEMO_COHORT_START_UTC,
+    )
+    loss_guard = persist_live_loss_quarantine(
+        loss_guard,
+        path=(RACINE / "data" / "runtime" / "live_loss_quarantine"
+              / f"{compte.login}.json"),
+        account=str(compte.login),
+    )
+    stats["live_loss_guard"] = loss_guard.to_dict()
+    entry_blocked = loss_guard.action != "ALLOW"
+    entry_block_reason = (
+        f"{loss_guard.action}/{loss_guard.reason}" if entry_blocked else ""
+    )
+    if entry_blocked:
+        print(
+            "    coupe-circuit pertes "
+            f"{loss_guard.action}/{loss_guard.reason} "
+            f"(jour {loss_guard.daily_net_r:+.2f} R, "
+            f"7j {loss_guard.rolling_net_r:+.2f} R) - aucune nouvelle entree",
+            flush=True,
+        )
+        battre(stats, armer=armer and politique.enabled, equity=compte.equity,
+               portables=len(tradables))
 
     risque_engage = 0.0
     try:
@@ -1237,9 +1880,11 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                  else f"budget de risque ({risque_engage:.1f} %)")
         print(f"    {ouvertes} positions · risque engagé {risque_engage:.1f} % — "
               f"{motif} atteint, aucun nouvel ordre", flush=True)
+        entry_blocked = True
+        if not entry_block_reason:
+            entry_block_reason = motif
         battre(stats, armer=armer and politique.enabled, equity=compte.equity,
                portables=len(tradables))
-        return
 
     # ── 3. Balayage.
     # R:R porté de 2.0 à 3.0 — seul réglage que le testeur natif ait validé
@@ -1263,111 +1908,172 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
     #    deux évaluations plus tard. Huit créneaux pour ~150 actifs : ils
     #    doivent aller aux setups les plus FORTS du tour, pas aux plus
     #    rapides. C'est le même capital, mieux placé.
+    from titanium.echelle import cout_relatif_stop
     from titanium.gates import confluence_gate as _cg
     from titanium.selection import barres_pour
+
+    # Horloge serveur du tour, pour la fenêtre de mise à plat. Lue une seule
+    # fois : elle sert à refuser les entrées hors crypto pendant que la
+    # gestion ferme les positions correspondantes. Rouvrir ce que l'autre
+    # étage vient de fermer paierait deux spreads pour rien.
+    serveur_weekend = None
+    if MISE_A_PLAT_WEEKEND:
+        try:
+            import MetaTrader5 as _mt5_horloge  # noqa: N813
+
+            from titanium.data.mt5_vendor import mt5_lock, mt5_session
+            with mt5_lock, mt5_session():
+                serveur_weekend = heure_serveur_mt5(_mt5_horloge)
+        except Exception:  # noqa: BLE001 — dater ne casse jamais un tour
+            serveur_weekend = None
 
     candidats = []
     for sym in tradables:
         if _stop:
             return
-        try:
-            # La profondeur d'historique suit le rang : un actif de rang A
-            # obtient plus de barres, donc des niveaux de structure calculés
-            # sur une histoire plus longue et moins sensibles au bruit.
-            n_barres = barres_pour(sel, sym, BARRES) if sel else BARRES
-            # ── L'unité de temps vient du DIMENSIONNEMENT, pas d'une
-            #    constante. Le week-end, la volatilité M15 s'effondre à 58 %
-            #    de la semaine : le stop devient plus petit que le spread.
-            #    `tradable_universe` a déjà choisi la plus petite unité où
-            #    l'actif redevient jouable — analyser M15 pendant que le
-            #    stop est calibré en H1 ferait décider sur des bougies qui
-            #    n'ont aucun rapport avec le risque pris.
-            unite = getattr(budgets.get(sym), "timeframe", LTF) or LTF
-            haute = "D1" if unite == "H4" else HTF
-            ltf = get_rates(sym, unite, n_barres)
-            htf = get_rates_cache(sym, haute, BARRES)
-            # ⚠️ SANS le panel d'indicateurs. Mesuré : 392 ms avec, 30 ms
-            # sans — le panel pèse 92 % du coût d'un actif. Or AUCUNE porte
-            # ne le lit : il ne sert qu'à l'affichage MT5, au brief des
-            # analystes et au contexte figé, tous sur le chemin ENTER. On le
-            # recalcule donc pour les ~10 % qui entrent, pas pour les 90 %
-            # qui sont écartés. Balayage 6× plus rapide, décision identique.
-            # La crypto cote en continu : le blocage week-end ne la vise pas
-            # (voir titanium.features.builder._weekend_block).
-            feats = build_feats(ltf, htf, with_indicators=False,
-                                marche_continu=asset_class_of(sym) == "crypto")
-            _marquer_echelle(feats, unite, haute)
-        except Exception as exc:  # noqa: BLE001
-            # ⚠️ NE JAMAIS avaler en silence. Un `continue` muet a masqué un
-            # arrêt TOTAL du balayage pendant une heure le 07/08/2026.
-            stats["illisibles"] = stats.get("illisibles", 0) + 1
-            if stats["illisibles"] <= 3 or stats["illisibles"] % 25 == 0:
-                print(f"    {sym:10} illisible : {type(exc).__name__}: "
-                      f"{str(exc)[:70]}", flush=True)
-            _compter_tunnel(stats, "features", "ILLISIBLE")
-            continue
+        # La profondeur d'historique suit le rang : un actif de rang A
+        # obtient plus de barres, donc des niveaux de structure calculés
+        # sur une histoire plus longue et moins sensibles au bruit.
+        n_barres = barres_pour(sel, sym, BARRES) if sel else BARRES
+        unite_budget = getattr(budgets.get(sym), "timeframe", LTF) or LTF
+        haute_budget = "D1" if unite_budget == "H4" else HTF
+        paires = _echelles_a_balayer(
+            sym, unite_budget, haute_budget,
+            crypto_weekend=phase_crypto_weekend,
+        )
+        for unite, haute in paires:
+            if _stop:
+                return
+            try:
+                ltf_rates = get_rates(sym, unite, n_barres)
+                htf_rates = get_rates_cache(sym, haute, BARRES)
+                # ⚠️ SANS le panel d'indicateurs. Mesuré : 392 ms avec, 30 ms
+                # sans — le panel pèse 92 % du coût d'un actif. Or AUCUNE
+                # porte ne le lit : il ne sert qu'à l'affichage MT5, au brief
+                # des analystes et au contexte figé, tous sur le chemin ENTER.
+                # On le recalcule donc seulement pour les setups qui entrent.
+                # La crypto cote en continu : pas de blocage week-end.
+                feats = build_feats(
+                    ltf_rates, htf_rates, with_indicators=False,
+                    marche_continu=asset_class_of(sym) == "crypto",
+                )
+                _marquer_echelle(feats, unite, haute)
+            except Exception as exc:  # noqa: BLE001
+                # ⚠️ NE JAMAIS avaler en silence. Un `continue` muet a masqué
+                # un arrêt TOTAL du balayage pendant une heure le 07/08/2026.
+                stats["illisibles"] = stats.get("illisibles", 0) + 1
+                if stats["illisibles"] <= 3 or stats["illisibles"] % 25 == 0:
+                    print(f"    {sym:10} {unite}/{haute} illisible : "
+                          f"{type(exc).__name__}: {str(exc)[:70]}", flush=True)
+                _compter_tunnel(stats, "features", "ILLISIBLE")
+                continue
 
-        _compter_tunnel(stats, "features", "LISIBLE")
-        ctx = risk_context_from(feats, equity=compte.equity, risk_pct=1.0)
-        out = run_once(sym, feats, ctx, config=cfg)
-        stats["evalues"] += 1
-        dec = _cg.evaluate(feats, require_edge=cfg.require_edge)
-        _compter_tunnel(stats, "support_passed", f"S{dec.support_passed}")
-        for gate in dec.gates:
-            if not gate.passed:
-                _compter_tunnel(stats, "pillar_missing", gate.code or gate.name)
-        _compter_tunnel(stats, "gate_verdict", out.gate_verdict)
-        _compter_tunnel(stats, "gate_code", out.gate_code or out.reason)
+            _compter_tunnel(stats, "features", "LISIBLE")
+            ctx = risk_context_from(feats, equity=compte.equity, risk_pct=1.0)
+            out = run_once(sym, feats, ctx, config=cfg)
+            stats["evalues"] += 1
+            dec = _cg.evaluate(feats, require_edge=cfg.require_edge)
+            _compter_tunnel(stats, "support_passed", f"S{dec.support_passed}")
+            for gate in dec.gates:
+                if not gate.passed:
+                    _compter_tunnel(stats, "pillar_missing", gate.code or gate.name)
+            _compter_tunnel(stats, "gate_verdict", out.gate_verdict)
+            _compter_tunnel(stats, "gate_code", out.gate_code or out.reason)
+            _observer_prod(sym, feats, out.gate_verdict)
 
-        if tracer:
-            _tracer_zones(sym, feats, out, cfg)
-        _observer_prod(sym, feats, out.gate_verdict)
+            if tracer and (not phase_crypto_weekend or unite == unite_budget):
+                _tracer_zones(sym, feats, out, cfg)
+            # Le flux Shadow n'est plus alimente. La memoire V4 live est
+            # consultee uniquement pour les entrees candidates.
+            if out.gate_verdict != "ENTER":
+                continue
+            stats["enter"] += 1
 
-        if out.gate_verdict != "ENTER":
-            continue
-        stats["enter"] += 1
+            # Un signal sur M1/M5 peut etre techniquement propre tout en etant
+            # mathematiquement detruit par le spread. On l'ecarte avant le
+            # cortex : Hermès ne doit pas depenser du temps sur l'injouable.
+            try:
+                spec = ensure_symbol(sym)
+                cost = cout_relatif_stop(spec, out.stop_distance or 0.0)
+            except Exception:  # noqa: BLE001
+                cost = math.inf
+            if cost > MAX_COUT_SPREAD_PCT:
+                _compter_tunnel(stats, "multitimeframe", "COUT_SPREAD")
+                _refus(stats, "COUT_SPREAD", sym, "cout excessif avant cortex",
+                       stage="multitimeframe", timeframe=unite)
+                continue
 
-        # Le setup entre : MAINTENANT le panel vaut son coût.
-        try:
-            feats = build_feats(ltf, htf, with_indicators=True,
-                                marche_continu=asset_class_of(sym) == "crypto")
-            _marquer_echelle(feats, unite, haute)
-        except Exception:  # noqa: BLE001 — sans panel, on trade quand même
-            pass
+            # Le setup entre : MAINTENANT le panel vaut son coût.
+            try:
+                feats = build_feats(
+                    ltf_rates, htf_rates, with_indicators=True,
+                    marche_continu=asset_class_of(sym) == "crypto",
+                )
+                _marquer_echelle(feats, unite, haute)
+            except Exception:  # noqa: BLE001 — sans panel, on trade quand même
+                pass
 
-        candidats.append({
-            "sym": sym, "feats": feats, "out": out, "dec": dec,
-            "support": int(getattr(dec, "support_passed", 0) or 0),
-            "rank": float(getattr(dec, "rank", 0.0) or 0.0),
-        })
+            feats.setdefault("_trace", {}).setdefault("indicators", {})[
+                "execution_spread_stop_pct"
+            ] = float(cost)
+            candidats.append({
+                "sym": sym, "feats": feats, "out": out, "dec": dec,
+                "support": int(getattr(dec, "support_passed", 0) or 0),
+                "rank": float(getattr(dec, "rank", 0.0) or 0.0),
+                "cost": float(cost), "timeframe": unite,
+                "higher_timeframe": haute, "ltf_rates": ltf_rates,
+            })
+
+    candidats_bruts = candidats
+    candidats, conflits = _resoudre_candidats_multitimeframe(candidats_bruts)
+    _journaliser_selection_multitimeframe(candidats_bruts, candidats, conflits, stats)
+    for sym in conflits:
+        _compter_tunnel(stats, "multitimeframe", "CONFLICT")
+        print(f"    {sym:8} bloque — directions opposees entre horizons", flush=True)
 
     # Les plus forts d'abord : piliers alignés, puis score de classement.
     candidats.sort(key=lambda c: (-c["support"], -c["rank"]))
     if len(candidats) > 1:
         print("    candidats : " + " > ".join(
-            f"{c['sym']}({c['support']}/4)" for c in candidats[:6]), flush=True)
+            f"{c['sym']}[{c['timeframe']}]({c['support']}/4)"
+            for c in candidats[:6]), flush=True)
+
+    if entry_blocked:
+        print(
+            f"    observation terminee - entrees bloquees ({entry_block_reason})",
+            flush=True,
+        )
+        battre(stats, armer=armer and politique.enabled, equity=compte.equity,
+               portables=len(tradables))
+        return
 
     # ── PHASE 2 — envoyer, sous tous les garde-fous, par ordre de mérite.
     _journaliser_grappes(candidats, compte.equity)
 
-    for c in candidats:
+    for indice_candidat, c in enumerate(candidats):
         if _stop:
             return
         sym, feats, out, _dec = c["sym"], c["feats"], c["out"], c["dec"]
-
-        # Garde-fou indépendant de l'idempotence : ne jamais empiler le même
-        # risque corrélé sur un actif déjà en position.
-        if par_symbole.get(sym, 0) >= MAX_PAR_SYMBOLE:
-            _refus(stats, "MAX_PAR_SYMBOLE", sym,
-                   f"deja {par_symbole[sym]} position(s) sur cet actif")
-            print(f"    {sym:8} ENTER ignoré — déjà {par_symbole[sym]} position(s) "
-                  f"sur cet actif", flush=True)
-            continue
 
         # ── Suspension du FX entier (voir FX_SUSPENDU). Placée AVANT la
         #    suspension des shorts : quand tout le FX est écarté, le motif
         #    rendu doit être le vrai, sinon le journal raconte une décision qui
         #    n'a pas eu lieu.
+        # ── Fenêtre de mise à plat week-end. Placée AVANT les autres
+        # suspensions : pendant que la gestion ferme les positions hors
+        # crypto, l'étage d'entrée ne doit pas en rouvrir une.
+        if MISE_A_PLAT_WEEKEND:
+            from titanium.edge import asset_class_of as _classe
+
+            _wk = decide_weekend_flat(_classe(sym), serveur_weekend)
+            if _wk.should_exit:
+                _refus(stats, "WEEKEND_FLAT", sym,
+                       "hors crypto pendant la fenetre de mise a plat",
+                       side=int(getattr(out, "side", 0) or 0))
+                print(f"    {sym:8} ENTER ignoré — mise à plat week-end "
+                      f"(hors crypto)", flush=True)
+                continue
+
         if FX_SUSPENDU:
             from titanium.edge import asset_class_of as _classe
 
@@ -1420,16 +2126,52 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                   f"strate S>=3 (setup {c['support']}/4)", flush=True)
             continue
 
+        # Microstructure crypto multi-place, lue sur disque en quelques
+        # millisecondes : aucun appel reseau ne se trouve dans la boucle.
+        # Elle est placee en tete des indicateurs AVANT le scellement pour que
+        # Qwen juge exactement le carnet qui accompagne cette decision.
+        try:
+            from titanium.microstructure import (
+                attach_live_microstructure,
+                microstructure_gate,
+            )
+
+            micro = attach_live_microstructure(sym, feats, root=RACINE)
+            micro_gate = microstructure_gate(micro, side=int(out.side or 0))
+            _compter_tunnel(stats, "microstructure", micro_gate.action)
+            from titanium.microstructure import entry_microstructure_guard
+
+            required_micro_gate = entry_microstructure_guard(sym, side=int(out.side or 0), root=RACINE)
+            if micro_gate.action == "BLOCK" or required_micro_gate.action != "ALLOW":
+                _refus(stats, "MICROSTRUCTURE", sym, micro_gate.reason,
+                       piliers=c.get("support"), side=int(out.side or 0))
+                print(f"    {sym:8} ENTER refuse - {micro_gate.reason}", flush=True)
+                continue
+        except Exception as exc:  # noqa: BLE001 - organe additif fail-soft
+            _compter_tunnel(
+                stats, "microstructure", f"ERROR_{type(exc).__name__.upper()}",
+            )
+
         # ── 4. Dimensionnement PAR ACTIF, puis ordre.
         try:
             spec = ensure_symbol(sym)
             from titanium.confiance import (
-                evaluer as evaluer_confiance, piliers_de, total_piliers,
+                evaluer as evaluer_confiance,
+                piliers_de,
+                total_piliers,
             )
-            # Avis des analystes : relu SANS attendre. Absent, périmé ou
-            # travailleur arrêté -> conviction neutre, la boucle continue.
-            conv, motif_avis = _avis_pour(sym, out.side)
-            _demander_avis(sym, feats, out, _dec, cfg)
+            intelligence_ok, conv, motif_intelligence = _autorisation_et_conviction(
+                sym, feats, out, _dec, cfg, ltf=c.get("ltf_rates"),
+            )
+            if not intelligence_ok:
+                _refus(stats, "INTELLIGENCE_GATE", sym, motif_intelligence,
+                       piliers=c.get("support"), side=out.side)
+                print(f"    {sym:8} ENTER differe/refuse - {motif_intelligence}",
+                      flush=True)
+                continue
+            if ACTIVER_CORTEX:
+                print(f"    {sym:8} intelligence live valide - {motif_intelligence}",
+                      flush=True)
 
             conf = evaluer_confiance(
                 piliers_de(_dec),
@@ -1447,6 +2189,36 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                       f"{derive:.2f} R depuis la décision, setup abandonné",
                       flush=True)
                 continue
+
+            # Une position supplémentaire sur le même actif n'est pas un
+            # doublon toléré : elle doit être un retournement explicite ou
+            # améliorer réellement le meilleur prix de la position existante.
+            expositions = expositions_par_symbole.get(sym, [])
+            prix_courant = _prix_execution_courant(sym, int(out.side or 0))
+            autorise, motif_empilement = _autoriser_empilement(
+                expositions,
+                side=int(out.side or 0),
+                prix=float(prix_courant or 0.0),
+                stop_distance=float(out.stop_distance or 0.0),
+                setup_family=str(getattr(_dec, "setup_family", "") or ""),
+                atr=float(feats.get("atr", 0.0) or 0.0),
+                spread=(
+                    float(getattr(spec, "spread", 0.0) or 0.0)
+                    * float(getattr(spec, "point", 0.0) or 0.0)
+                ),
+            )
+            if not autorise:
+                _refus(
+                    stats, "MULTIPOSITION", sym, motif_empilement,
+                    deja=len(expositions), side=int(out.side or 0),
+                )
+                print(f"    {sym:8} ENTER ignoré — multi-position refusée : "
+                      f"{motif_empilement}", flush=True)
+                continue
+            if expositions:
+                _compter_tunnel(stats, "multiposition", motif_empilement)
+                print(f"    {sym:8} multi-position autorisée — "
+                      f"{motif_empilement}", flush=True)
 
             # Le filtre initial travaille sur un ATR estimé. RiskGate vient de
             # produire le stop exact : on recontrôle le coût sur CETTE distance
@@ -1468,7 +2240,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                                 target_pct=conf.pct)
             budget = replace(
                 budget,
-                timeframe=getattr(budgets.get(sym), "timeframe", LTF),
+                timeframe=str(c.get("timeframe") or LTF),
                 cout_spread=round(cout_actuel, 4),
             )
 
@@ -1477,6 +2249,8 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             if tracer:
                 _tracer_zones(sym, feats, out, cfg, conf=conf, budget=budget)
         except Exception as exc:  # noqa: BLE001
+            _refus(stats, "SIZING_ERROR", sym, type(exc).__name__,
+                   timeframe=c.get("timeframe"))
             print(f"    {sym:8} dimensionnement impossible : {type(exc).__name__}",
                   flush=True)
             continue
@@ -1484,6 +2258,27 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         if not budget.tradable:
             _refus(stats, "BUDGET", sym, budget.reason)
             print(f"    {sym:8} ENTER mais {budget.reason}", flush=True)
+            continue
+
+        risque_panier = float(risque_par_symbole.get(sym, 0.0) or 0.0)
+        risque_panier_apres = risque_panier + float(budget.effective_pct)
+        if (
+            not math.isfinite(risque_panier_apres)
+            or risque_panier_apres > MAX_RISQUE_PANIER_PCT + 1e-12
+        ):
+            motif_panier = (
+                f"risque panier {risque_panier_apres:.2f} % > "
+                f"{MAX_RISQUE_PANIER_PCT:.2f} %"
+            )
+            _refus(
+                stats,
+                "MICRO_PANIER_RISK",
+                sym,
+                motif_panier,
+                risque_actuel_pct=round(risque_panier, 4),
+                risque_propose_pct=round(float(budget.effective_pct), 4),
+            )
+            print(f"    {sym:8} ENTER refusé — {motif_panier}", flush=True)
             continue
 
         # Le lot minimum et l'arrondi courtier peuvent eloigner le risque de
@@ -1509,8 +2304,10 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             continue
 
         if MODE_ENTREE == "LIMITE" and limites_en_attente >= MAX_LIMITES_EN_ATTENTE:
-            _refus(stats, "LIMIT_PENDING_CAP", "",
-                   f"{MAX_LIMITES_EN_ATTENTE} limites deja en attente")
+            for restant in candidats[indice_candidat:]:
+                _refus(stats, "LIMIT_PENDING_CAP", restant["sym"],
+                       f"{MAX_LIMITES_EN_ATTENTE} limites deja en attente",
+                       timeframe=restant.get("timeframe"))
             print(f"    limite en attente déjà présente "
                   f"({MAX_LIMITES_EN_ATTENTE}) — aucun risque passif supplémentaire",
                   flush=True)
@@ -1519,27 +2316,124 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
         # Une seule décision d'entrée, deux façons de la poser. Le mur
         # d'armement, le lot et le SL/TP sont identiques des deux côtés :
         # seul le type d'ordre change.
-        res = _envoi_entree()(
+        decision_stratification = _stratification(sym, feats, out.side)
+        decision_at = datetime.now(timezone.utc).isoformat()
+        policy_identity = _decision_policy_identity(
+            str(decision_stratification.get("mode", "")), cfg.rr_ratio,
+            ltf=str(c.get("timeframe") or LTF),
+            htf=str(c.get("higher_timeframe") or HTF),
+        )
+        # The deliberation/sizing may outlive the quote. Re-read local data now;
+        # a previously fresh snapshot is not an authorization to trade later.
+        from titanium.microstructure import entry_microstructure_guard
+
+        final_micro = entry_microstructure_guard(sym, side=int(out.side or 0), root=RACINE)
+        if final_micro.action != "ALLOW":
+            _refus(stats, "MICROSTRUCTURE_FINAL", sym, final_micro.reason)
+            continue
+        final_loss_guard = evaluate_live_loss_guard(
+            RACINE / "results" / "trades.ndjson",
+            account=str(compte.login),
+            not_before=DEMO_COHORT_START_UTC,
+        )
+        final_loss_guard = persist_live_loss_quarantine(
+            final_loss_guard,
+            path=(RACINE / "data" / "runtime" / "live_loss_quarantine"
+                  / f"{compte.login}.json"),
+            account=str(compte.login),
+        )
+        stats["live_loss_guard"] = final_loss_guard.to_dict()
+        if final_loss_guard.action != "ALLOW":
+            _refus(stats, "LIVE_LOSS_GUARD_FINAL", sym, final_loss_guard.reason)
+            print(
+                "    coupe-circuit pertes actualise avant envoi - "
+                f"{final_loss_guard.action}/{final_loss_guard.reason}",
+                flush=True,
+            )
+            battre(stats, armer=armer and politique.enabled, equity=compte.equity,
+                   portables=len(tradables))
+            return
+        res = execute_recorded(
+            _envoi_entree(),
             sym, out.side, budget.risk_money, out.stop_distance or 0.0,
             policy=politique,
+            account=compte, identity=policy_identity,
+            path=RACINE / "results" / "execution_ledger.sqlite3",
             tp_distance=(out.stop_distance or 0.0) * cfg.rr_ratio,
             idempotency_key=cle_barre(sym, feats),
         )
+        execution_detail, execution_risk_money = _execution_detail(
+            res, budget, equity=compte.equity, currency=compte.currency,
+        )
+        execution_risk_pct = (
+            100.0 * execution_risk_money / compte.equity if compte.equity > 0 else 0.0
+        )
+        risque_panier_execute = risque_panier + execution_risk_pct
+
+        if res.sent and not res.ticket:
+            # A broker acknowledgement without a usable ticket is not safely adoptable.
+            _refus(stats, "EXECUTION", sym, "TRACE_MISSING_ORDER_TICKET")
+            continue
+
+        decision_id = ""
+        if res.sent:
+            try:
+                decision_id = make_decision_id(
+                    policy_identity.get("policy_epoch", ""), res.ticket,
+                )
+                ctxk = _contexte_exact(sym, feats, out.side)
+                unite_decision = str(c.get("timeframe") or LTF)
+                written, reason = append_decision_event(
+                    RACINE / "results" / "decision_registry.ndjson",
+                    {
+                        "event": "decided",
+                        "decision_id": decision_id,
+                        "decision_at": decision_at,
+                        "execution_ticket": int(res.ticket),
+                        "symbol": sym,
+                        "side": int(out.side),
+                        "asset_class": decision_stratification.get("asset_class", ""),
+                        "context": ctxk,
+                        "timeframe": unite_decision,
+                        "quorum": decision_stratification.get("quorum", 0),
+                        "support_pillars": decision_stratification.get(
+                            "support_pillars", 0,
+                        ),
+                        **policy_identity,
+                    },
+                )
+                stats["decision_registry_events"] = int(
+                    stats.get("decision_registry_events", 0) or 0,
+                ) + int(written)
+                if not written and reason != "DUPLICATE":
+                    _compter_tunnel(stats, "decision_registry_failure", reason)
+            except Exception as exc:  # noqa: BLE001 - télémétrie fail-soft
+                _compter_tunnel(
+                    stats, "decision_registry_failure",
+                    f"ERROR_{type(exc).__name__.upper()}",
+                )
 
         if res.sent and MODE_ENTREE != "LIMITE":
             stats["envoyes"] += 1
             ouvertes += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
+            risque_par_symbole[sym] = risque_panier_execute
+            expositions_par_symbole.setdefault(sym, []).append(
+                (int(out.side), float(res.price))
+            )
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
             _attacher_contexte(res.ticket, sym, feats, out, res,
-                               risque_devise=budget.risk_money,
-                               spread_r=budget.cout_spread)
-            unite_b = getattr(budgets.get(sym), "timeframe", LTF)
+                               risque_devise=execution_risk_money,
+                               spread_r=budget.cout_spread,
+                               policy_identity=policy_identity,
+                               decision_id=decision_id,
+                               decision_at=decision_at)
+            unite_b = str(c.get("timeframe") or LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             ctxk = _contexte_exact(sym, feats, out.side)
             print(f"    {sym:8} ORDRE ENVOYÉ {sens}{marque} #{res.ticket} "
-                  f"@ {res.price} — {detail} · SL {res.sl} TP {res.tp}",
+                  f"@ {res.price} — {execution_detail} · SL {res.sl} TP {res.tp}",
                   flush=True)
             print(f"             contexte : {ctxk}", flush=True)
         elif res.sent:
@@ -1548,12 +2442,19 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
             ouvertes += 1
             limites_en_attente += 1
             par_symbole[sym] = par_symbole.get(sym, 0) + 1
+            risque_par_symbole[sym] = risque_panier_execute
+            expositions_par_symbole.setdefault(sym, []).append(
+                (int(out.side), float(res.price))
+            )
             # Le contexte doit être attaché MAINTENANT : à la clôture, MT5 ne
             # montrera plus la position et l'information serait perdue.
             contexte_sauve, motif_contexte = _memoriser_contexte_limit(
                 res.ticket, sym, feats, out, res,
-                risque_devise=budget.risk_money,
+                risque_devise=execution_risk_money,
                 spread_r=budget.cout_spread,
+                policy_identity=policy_identity,
+                decision_id=decision_id,
+                decision_at=decision_at,
             )
             if contexte_sauve:
                 stats["pending_context_saved"] = int(
@@ -1564,7 +2465,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     stats, "pending_context_save_failure", motif_contexte)
                 print(f"    ALERTE contexte limite non sauvegarde : "
                       f"{motif_contexte}", flush=True)
-            unite_b = getattr(budgets.get(sym), "timeframe", LTF)
+            unite_b = str(c.get("timeframe") or LTF)
             marque = "" if unite_b == LTF else f" [{unite_b}]"
             economie_r = res.spread_saved_price / (out.stop_distance or 1.0)
             ctxk = _contexte_exact(sym, feats, out.side)
@@ -1584,13 +2485,14 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                     "spread_r": float(res.spread_r or 0.0),
                     "expires_at": res.expires_at,
                     "lot": float(res.lot or 0.0),
-                    "risk_money": float(budget.risk_money or 0.0),
+                    "risk_money": execution_risk_money,
                     "context": ctxk,
                     "regime": regime[0] if regime else "unknown",
                     "asset_class": stratification.get("asset_class", ""),
                     "mode": stratification.get("mode", ""),
                     "timeframe": unite_b,
                     "candle_source": stratification.get("candle_source", ""),
+                    **policy_identity,
                 },
             )
             if evenement_ecrit:
@@ -1604,7 +2506,7 @@ def tour(*, armer: bool, stats: dict, tracer: bool = True,
                       f"{motif_evenement}", flush=True)
             print(f"    {sym:8} LIMIT PLACÉE {sens}{marque} #{res.ticket} "
                   f"@ {res.price} — économie visée {economie_r:.1%}R · "
-                  f"expire {res.expires_at} — {detail} · SL {res.sl} TP {res.tp}",
+                  f"expire {res.expires_at} — {execution_detail} · SL {res.sl} TP {res.tp}",
                   flush=True)
             print(f"             contexte : {ctxk}", flush=True)
         elif res.reason != "DEJA_ENVOYE":
@@ -1651,8 +2553,17 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, _arreter)
 
-    from titanium.execution.mt5_executor import ExecutionPolicy
+    registry_ready, registry_reason = prepare_decision_registry(
+        RACINE / "results" / "decision_registry.ndjson",
+    )
+    if not registry_ready:
+        print(
+            f"  ALERTE registre de décisions non préchargé : {registry_reason}",
+            flush=True,
+        )
+
     from titanium.data.mt5_vendor import account_snapshot, shutdown
+    from titanium.execution.mt5_executor import ExecutionPolicy
 
     politique = ExecutionPolicy.from_config()
     compte = account_snapshot()

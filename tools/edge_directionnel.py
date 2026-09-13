@@ -12,7 +12,7 @@ import json
 import math
 import random
 import statistics
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd

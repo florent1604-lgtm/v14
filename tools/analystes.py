@@ -3,17 +3,17 @@
     .venv\\Scripts\\python.exe tools\\analystes.py            # boucle continue
     .venv\\Scripts\\python.exe tools\\analystes.py --une-fois # un passage
 
-Il consomme les demandes déposées par `tools/live_demo.py`, soumet la
-lecture déterministe de Titanium aux analystes de V13, et écrit leur avis.
-La boucle de trading relit ces avis sans jamais attendre.
+Il consomme les candidats déposés par `tools/live_demo.py`, les soumet à
+Hermès, puis publie sa décision scellée. La boucle de trading relit cette
+décision sans jamais attendre.
 
 Pourquoi un processus séparé
 -----------------------------
-Une délibération prend des minutes ; la boucle tourne en 60 secondes. Les
+Une délibération distante prend des secondes ; la boucle tourne en 10 secondes. Les
 mettre dans le même fil ferait attendre le trading derrière un service
 externe. Séparés, une panne des analystes — quota épuisé, fournisseur
-saturé, réseau coupé — laisse le trading intact : il retombe simplement sur
-une conviction neutre.
+saturé, réseau coupé — bloque les nouvelles entrées sans bloquer la boucle.
+La protection déterministe des positions ouvertes continue normalement.
 
 C'est aussi ce qui permet de couper les coûts d'un geste : arrêter ce
 processus n'arrête rien d'autre.
@@ -25,6 +25,7 @@ import argparse
 import json
 import signal
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,16 +33,35 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-from tools.console_output import configure_console_output  # noqa: E402
-
 from titanium.avis import (  # noqa: E402
-    NEUTRE, Avis, demandes_en_attente, enregistrer, purger,
+    NEUTRE,
+    Avis,
+    demandes_en_attente,
+    enregistrer,
+    purger,
 )
+from titanium.execution.demo_cohort import DEMO_COHORT_START_UTC  # noqa: E402
+from titanium.organism.contracts import digest  # noqa: E402
+from titanium.organism.cortex import (  # noqa: E402
+    build_cortex_policy,
+    market_observed_at,
+    policy_ttl_s,
+    request_is_current,
+)
+from titanium.organism.memory import CentralMemory  # noqa: E402
+from titanium.organism.trading_knowledge import compact_observations  # noqa: E402
+from tools.console_output import configure_console_output  # noqa: E402
 
 DEMANDES = RACINE / "results" / "avis_demandes.ndjson"
 AVIS = RACINE / "results" / "avis_rendus.ndjson"
+POSITION_REQUESTS = RACINE / "results" / "position_review_requests.ndjson"
+POSITION_VERDICTS = RACINE / "results" / "position_review_verdicts.ndjson"
+CENTRAL_MEMORY = CentralMemory(
+    RACINE / "results" / "organism_memory.sqlite3",
+    RACINE / "results" / "organism_alerts.ndjson",
+)
 
-INTERVALLE = 90.0
+INTERVALLE = 5.0
 
 #: Analystes convoqués selon la classe d'actif.
 #:
@@ -60,11 +80,20 @@ ANALYSTES_PAR_CLASSE = {
 }
 ANALYSTES_DEFAUT = ("market", "news")
 
-#: Délibérations menées de front. Un appel LLM est de l'attente réseau, pas
-#: du calcul : les paralléliser multiplie le débit sans coûter de CPU.
-#: Quatre suffisent à passer de 31 à ~120 avis/heure, au-dessus des
-#: 54 dépôts/heure mesurés.
-PARALLELE = 4
+#: Deux candidats par appel bornent le temps de réponse mesuré d'Opus tout en
+#: lui laissant un arbitrage transversal. Ce plafond est une taille de lot,
+#: jamais un top-N de l'univers : toute la file est consommée par vagues.
+ENTRY_BATCH_SIZE = 2
+_GLM_LOCK = threading.Lock()
+
+# Une revue de position locale dure typiquement 35 a 43 secondes sur CPU. La
+# relancer a chaque passage occupait Hermes sans interruption et faisait
+# attendre les nouvelles entrees derriere des instantanes CALM repetitifs.
+# Une revue par minute laisse de la capacite aux entrees tout en permettant
+# deux confirmations de peur dans leur fenetre de 240 secondes.
+POSITION_REVIEW_INTERVAL_S = 60.0
+POSITION_REVIEW_BATCH_SIZE = 1
+_DERNIERE_REVUE_POSITIONS: dict[str, float] = {"at": 0.0}
 
 # Bornes propres au travailleur asynchrone. Elles ne touchent pas au moteur de
 # trading et toute valeur explicite de configuration reste prioritaire.
@@ -145,12 +174,11 @@ def deliberer(demande, deliberateur) -> Avis:
     l'autre. C'est ce qui permet au trading de survivre à une panne du
     fournisseur sans rien changer à son comportement.
     """
-    from titanium.deliberation import conviction_from_rating
-
     # Les analystes interrogent des fournisseurs PUBLICS : ils ne
     # connaissent pas les noms du courtier. Sans traduction, Yahoo répond
     # 404 sur `NK225.FS` et l'avis se rend sans la moindre donnée.
     from titanium.data.mt5_dataflows import ticker_public
+    from titanium.deliberation import conviction_from_rating
     public = ticker_public(demande.symbol) or demande.symbol
 
     try:
@@ -199,8 +227,8 @@ def construire_deliberateur(analystes=ANALYSTES_DEFAUT):
     try:
         from datetime import date
 
-        from tradingagents.default_config import DEFAULT_CONFIG
         from titanium.deliberation import GraphDeliberator
+        from tradingagents.default_config import DEFAULT_CONFIG
         # La date de trade borne le cache du graphe : une note du jour ne
         # doit pas resservir demain.
         cfg = DEFAULT_CONFIG.copy()
@@ -242,17 +270,290 @@ def deliberateur_pour(classe: str):
     return _DELIBERATEURS[cle], analystes
 
 
-def _traiter(d):
-    """Une délibération complète. Rend (demande, avis, durée)."""
-    from titanium.edge import asset_class_of
+def _publier_cortex(demande, identity, avis_local: Avis) -> None:
+    """Publie l'avis exact puis sa politique de contexte a courte duree.
 
-    classe = asset_class_of(d.symbol)
-    delib, analystes = deliberateur_pour(classe)
+    La politique est la voie rapide d'Hermes : la boucle suivante peut la
+    relire localement sans attendre un nouvel appel LLM. Elle ne contient
+    volontairement aucun prix, lot, stop ou ordre.
+    """
+    proposal = {
+        **identity.to_dict(),
+        "evidence_digest": avis_local.evidence_digest,
+        "action": avis_local.action,
+        "confidence": avis_local.conviction,
+        "summary": avis_local.resume,
+        "sources": avis_local.sources,
+        "rendered_at": avis_local.rendu_a,
+        "decision_model_version": avis_local.model_version,
+        "producer": avis_local.source,
+    }
+    try:
+        CENTRAL_MEMORY.record_proposal(identity, proposal)
+        context_key = str(demande.engine_context)
+        ttl_s = policy_ttl_s(context_key)
+        observed = market_observed_at(demande.bar_time, context_key, demande.demande_a)
+        policy = build_cortex_policy(
+            identity,
+            context_key=context_key,
+            action=avis_local.action,
+            confidence=avis_local.conviction,
+            summary=avis_local.resume,
+            evidence_digest=avis_local.evidence_digest,
+            producer=avis_local.source or "cortex-inconnu",
+            source_observed_at=observed.isoformat(),
+            ttl_s=ttl_s,
+            decision_model_version=avis_local.model_version,
+        )
+        CENTRAL_MEMORY.record_policy(policy)
+    except Exception as exc:  # noqa: BLE001 - le moteur restera en WAIT
+        CENTRAL_MEMORY.alert(
+            "BRAIN_PROPOSAL_WRITE_FAILED", identity, type(exc).__name__,
+        )
+
+
+def _traiter(d):
+    from titanium.fundamental_intelligence import analyse
+
     t0 = time.time()
-    avis = deliberer(d, delib) if delib else Avis(
-        d.symbol, d.side, NEUTRE, "", None,
-        "aucun délibérateur configuré", d.bar_time, "", "absent")
-    return d, avis, time.time() - t0, analystes
+    identity = d.sceller()
+    # Le pool conserve la publication "le plus rapide d'abord" et sa
+    # tolerance aux futures sources reseau. Le modele local CPU, lui, reste
+    # serialise pour eviter quatre generations concurrentes qui se bloquent.
+    with _GLM_LOCK:
+        result = analyse(
+            d.symbol, d.side, d.resume(),
+            decision_ref=identity.decision_ref,
+            context_digest=identity.context_digest,
+            model_version=identity.model_version,
+            prompt_version=identity.prompt_version,
+        )
+    action = str(result.get("action", "WAIT")).upper()
+    confidence = float(result.get("confidence", 0.0) or 0.0)
+    avis_local = Avis(
+        symbol=d.symbol, side=d.side,
+        conviction=max(0.0, min(1.0, confidence)),
+        rating=action, accord=(action == "ALLOW"),
+        resume=str(result.get("summary", ""))[:500],
+        bar_time=d.bar_time, source="cortex-local-multisource",
+        action=action, sources=list(result.get("sources", ())),
+        decision_ref=identity.decision_ref,
+        context_digest=identity.context_digest,
+        evidence_digest=str(result.get("evidence_digest", "")),
+        model_version=str(result.get("model_version", identity.model_version)),
+        prompt_version=str(result.get("prompt_version", identity.prompt_version)),
+    )
+    avis_local.rendu_a = datetime.now(timezone.utc).isoformat()
+    _publier_cortex(d, identity, avis_local)
+    return d, avis_local, time.time() - t0, ("cortex-local",)
+
+
+def _entry_loss_gate():
+    """Lit le coupe-circuit comptable sans initialiser ni appeler MT5."""
+    from titanium.execution.live_loss_guard import LiveLossVerdict, evaluate_live_loss_guard
+    from titanium.execution.mt5_executor import ExecutionPolicy
+
+    try:
+        account = ExecutionPolicy.from_config().expected_demo_login
+        if account is None:
+            return LiveLossVerdict("WAIT", "LIVE_LOSS_ACCOUNT_UNCONFIGURED")
+        return evaluate_live_loss_guard(
+            RACINE / "results" / "trades.ndjson",
+            account=str(account),
+            not_before=DEMO_COHORT_START_UTC,
+        )
+    except Exception:  # noqa: BLE001 - une preuve illisible doit rester fail-closed
+        return LiveLossVerdict("WAIT", "LIVE_LOSS_GUARD_UNAVAILABLE")
+
+
+def _traiter_lot(demandes):
+    """Fait arbitrer un lot par Hermès; toute panne publie uniquement WAIT."""
+    from titanium.hermes_cortex import (
+        HERMES_SOURCE,
+        HermesCortexUnavailable,
+        analyse_entries,
+    )
+
+    demandes = list(demandes)
+    if not demandes:
+        return []
+    t0 = time.time()
+    identities = [demande.sceller() for demande in demandes]
+    payloads = [
+        {
+            "symbol": demande.symbol,
+            "side": demande.side,
+            "mechanical_summary": demande.resume(),
+            "decision_ref": identity.decision_ref,
+            "context_digest": identity.context_digest,
+            "model_version": identity.model_version,
+            "prompt_version": identity.prompt_version,
+            "context_key": demande.engine_context,
+            "bar_time": demande.bar_time,
+            "requested_at": demande.demande_a,
+            "piliers": demande.piliers,
+            "total_piliers": demande.total_piliers,
+            "observations": compact_observations(demande.indicateurs),
+            "asset_class": _classe_pour(demande.symbol),
+        }
+        for demande, identity in zip(demandes, identities, strict=True)
+    ]
+    results = []
+    active_indices = []
+    now = datetime.now(timezone.utc)
+    for index, demande in enumerate(demandes):
+        # Le contrat d'ENTREE est « ces faits sont-ils les plus recents qui
+        # existent ? », pas « une politique deja rendue serait-elle encore
+        # valable ? ». Le TTL de politique repondait a la seconde question et
+        # ecartait 53 % des demandes qu'aucune donnee plus fraiche ne pouvait
+        # remplacer (cf. `request_is_current`). La borne de sortie, elle, reste
+        # entiere : `build_cortex_policy` cale toujours `expires_at` sur
+        # `source_observed_at + ttl`.
+        fresh = request_is_current(
+            demande.bar_time, demande.engine_context, demande.demande_a, now=now,
+        )
+        results.append({
+            "action": "WAIT", "confidence": 0.0,
+            "summary": "CORTEX_REQUEST_STALE: source ou timeframe inexploitable",
+            "sources": [], "model_version": "none", "source": "cortex-request-guard",
+            "evidence_digest": digest({"decision_ref": identities[index].decision_ref,
+                                       "state": "CORTEX_REQUEST_STALE"}),
+            "prompt_version": identities[index].prompt_version,
+        })
+        if fresh:
+            active_indices.append(index)
+    selected_payloads = [payloads[index] for index in active_indices]
+    loss_gate = _entry_loss_gate()
+    active_results = None
+    if selected_payloads and loss_gate.action != "ALLOW":
+        active_results = [
+            {
+                "action": loss_gate.action,
+                "confidence": 1.0 if loss_gate.action == "BLOCK" else 0.0,
+                "summary": (
+                    f"{loss_gate.reason}: jour {loss_gate.daily_net_r:+.2f} R, "
+                    f"7j {loss_gate.rolling_net_r:+.2f} R"
+                ),
+                "sources": ["journal-live"],
+                "evidence_digest": digest({
+                    "decision_ref": payload["decision_ref"],
+                    "state": loss_gate.to_dict(),
+                }),
+                "model_version": "none",
+                "prompt_version": payload["prompt_version"],
+                "source": "live-loss-guard",
+            }
+            for payload in selected_payloads
+        ]
+    with _GLM_LOCK:
+        try:
+            if active_results is None:
+                active_results = analyse_entries(selected_payloads) if selected_payloads else []
+        except HermesCortexUnavailable as exc:
+            print(f"  Hermes indisponible ({exc}); nouvelles entrees en WAIT", flush=True)
+            active_results = [
+                {
+                    "action": "WAIT",
+                    "confidence": 0.0,
+                    # Le MESSAGE, pas le nom de la classe. `HermesCortexUnavailable`
+                    # ne dit rien : quota, disjoncteur ouvert, executable
+                    # introuvable et refus fournisseur donnaient le meme mot.
+                    # Le motif reel ne vivait que dans le print, donc dans une
+                    # fenetre cmd — perdu des qu'on diagnostique a froid.
+                    # `_safe_cli_error` a deja classe et assaini ce texte
+                    # (cf. tests/test_hermes_error_privacy.py).
+                    "summary": f"Hermes indisponible: {exc}"[:240],
+                    "sources": [],
+                    "evidence_digest": digest({
+                        "decision_ref": payload["decision_ref"],
+                        "state": "HERMES_UNAVAILABLE",
+                    }),
+                    "model_version": "none",
+                    "prompt_version": payload["prompt_version"],
+                    "source": "hermes-unavailable",
+                }
+                for payload in selected_payloads
+            ]
+    for index, result in zip(active_indices, active_results, strict=True):
+        results[index] = result
+    elapsed = time.time() - t0
+    out = []
+    for demande, identity, result in zip(demandes, identities, results, strict=True):
+        action = str(result.get("action", "WAIT")).upper()
+        confidence = float(result.get("confidence", 0.0) or 0.0)
+        avis_local = Avis(
+            symbol=demande.symbol,
+            side=demande.side,
+            conviction=max(0.0, min(1.0, confidence)),
+            rating=action,
+            accord=(action == "ALLOW"),
+            resume=str(result.get("summary", ""))[:500],
+            bar_time=demande.bar_time,
+            source=str(result.get("source", HERMES_SOURCE)),
+            action=action,
+            sources=list(result.get("sources", ())),
+            decision_ref=identity.decision_ref,
+            context_digest=identity.context_digest,
+            evidence_digest=str(result.get("evidence_digest", "")),
+            model_version=str(result.get("model_version", identity.model_version)),
+            prompt_version=str(result.get("prompt_version", identity.prompt_version)),
+        )
+        avis_local.rendu_a = datetime.now(timezone.utc).isoformat()
+        _publier_cortex(demande, identity, avis_local)
+        out.append((demande, avis_local, elapsed, (avis_local.source,)))
+    return out
+
+
+def _traiter_positions() -> int:
+    """Traite toutes les positions prioritaires via Hermès en un seul appel."""
+    from titanium.hermes_cortex import (
+        HermesCortexUnavailable,
+        analyse_positions,
+    )
+    from titanium.position_sentiment import append_record, pending_reviews
+
+    now = time.monotonic()
+    last = float(_DERNIERE_REVUE_POSITIONS.get("at", 0.0) or 0.0)
+    if last and now - last < POSITION_REVIEW_INTERVAL_S:
+        return 0
+
+    requests = pending_reviews(
+        POSITION_REQUESTS,
+        POSITION_VERDICTS,
+        limit=POSITION_REVIEW_BATCH_SIZE,
+    )
+    if not requests:
+        return 0
+    # Armer la cadence avant l'appel lent evite une rafale immediate si le
+    # modele expire ou refuse temporairement la requete.
+    _DERNIERE_REVUE_POSITIONS["at"] = now
+    with _GLM_LOCK:
+        try:
+            verdicts = analyse_positions(requests)
+        except HermesCortexUnavailable as exc:
+            print(f"  Hermes positions indisponible ({exc}); protections locales actives", flush=True)
+            verdicts = [{
+                "request_ref": request["request_ref"],
+                "ticket": request["ticket"], "symbol": request["symbol"],
+                "state": "UNKNOWN", "confidence": 0.0,
+                # Meme correction que pour les entrees : garder la cause, pas
+                # seulement l'etiquette. `HERMES_UNAVAILABLE` ne distingue pas
+                # un disjoncteur ouvert d'un refus du fournisseur.
+                "reason": f"HERMES_UNAVAILABLE: {exc}"[:240],
+                "model_version": "none",
+                "source": "hermes-unavailable",
+                "rendered_at": datetime.now(timezone.utc).isoformat(),
+            } for request in requests]
+    written = 0
+    for verdict in verdicts:
+        written += int(append_record(POSITION_VERDICTS, verdict))
+        print(
+            f"  position {verdict.get('symbol', '?'):10} "
+            f"#{verdict.get('ticket', '?')} -> {verdict.get('state', 'UNKNOWN')} "
+            f"({float(verdict.get('confidence', 0.0) or 0.0):.2f})",
+            flush=True,
+        )
+    return written
 
 
 def passage(_inutilise=None) -> int:
@@ -266,25 +567,19 @@ def passage(_inutilise=None) -> int:
     if reste:
         print(f"  quota épuisé — reprise dans {reste:.0f} s. Les demandes "
               "restent en file, aucune n'est perdue.", flush=True)
-        return 0
+        return _traiter_positions()
 
-    en_attente = demandes_en_attente(DEMANDES, AVIS)
-    if not en_attente:
-        return 0
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
+    en_attente = demandes_en_attente(
+        DEMANDES, AVIS, maxi=ENTRY_BATCH_SIZE,
+    )
     n = 0
-    # Les délibérations sont menées de front : ce sont des attentes réseau.
-    # En séquentiel, le débit plafonnait à 31/heure pour 54 dépôts.
-    with ThreadPoolExecutor(max_workers=PARALLELE) as pool:
-        futurs = {pool.submit(_traiter, d): d for d in en_attente}
-        for futur in as_completed(futurs):
+    if en_attente:
+        # Une entree crypto M1 devient vite obsolete. Elle passe avant les
+        # revues periodiques de positions, sans jamais bloquer la boucle MT5
+        # qui tourne dans un autre processus.
+        for d, avis, duree, analystes in _traiter_lot(en_attente):
             if _stop:
-                for restant in futurs:
-                    restant.cancel()
                 break
-            d, avis, duree, analystes = futur.result()
             enregistrer(avis, AVIS)
             journaliser_cout(d.symbol, _classe_pour(d.symbol), analystes,
                              duree, avis.rating, avis.source)
@@ -294,8 +589,12 @@ def passage(_inutilise=None) -> int:
             print(f"  {d.symbol:10} {d.piliers}/{d.total_piliers} piliers · "
                   f"{'+'.join(analystes)} → {avis.rating or 'sans note'} · "
                   f"conviction {avis.conviction:.2f} · {accord} "
-                  f"({duree:.0f} s)", flush=True)
-    return n
+                  f"({duree:.0f} s pour {len(en_attente)} avis)", flush=True)
+
+    # Les positions restent revues a chaque passage, mais ne peuvent plus
+    # retarder une impulsion d'entree qui attend deja dans la file.
+    n_positions = _traiter_positions()
+    return n + n_positions
 
 
 def main() -> int:
@@ -312,10 +611,10 @@ def main() -> int:
     print("═" * 70)
     print(f"  demandes : {DEMANDES}")
     print(f"  avis     : {AVIS}")
-    print("\n  Les avis modulent la TAILLE de ±25 % au plus.")
-    print("  Ils n'ouvrent, ne ferment et n'empêchent aucune position.\n")
+    print("\n  Hermes est le cortex principal asynchrone de V14.")
+    print("  Hermes decide; indisponibilite = WAIT/UNKNOWN; protections DEMO actives.\n")
 
-    deliberateur = construire_deliberateur()
+    deliberateur = None
 
     if a.une_fois:
         print(f"\n{passage(deliberateur)} demande(s) traitée(s)")

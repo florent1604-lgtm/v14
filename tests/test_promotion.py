@@ -12,12 +12,20 @@ import json
 import pytest
 
 from titanium.analysis.promotion import (
-    BORNE_BASSE_PLANCHER, MIN_TRADES_CELLULE, PF_MIN, PromotionVerdict,
-    block_bootstrap_lower, check_demotion, evaluate_cells,
+    PF_MIN,
+    PromotionVerdict,
+    block_bootstrap_lower,
+    check_demotion,
+    evaluate_cells,
     sample_size_required,
 )
 from titanium.analysis.promotion_registry import (
-    ECHELON_DEMO, ECHELON_REEL, actives, is_promoted, load, promote, revoke,
+    ECHELON_REEL,
+    actives,
+    is_promoted,
+    load,
+    promote,
+    revoke,
 )
 
 

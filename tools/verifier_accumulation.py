@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import sys
 from collections import Counter
+from contextlib import suppress
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 from titanium.analysis.promotion import (  # noqa: E402
-    MIN_TRADES_CELLULE, STRATE_MIN_SUPPORT, evaluate_cells,
+    MIN_TRADES_CELLULE,
+    STRATE_MIN_SUPPORT,
+    evaluate_cells,
 )
 from titanium.edge import TradeJournal  # noqa: E402
 
@@ -30,10 +33,8 @@ def _configure_console_output() -> None:
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is None:
         return
-    try:
+    with suppress(OSError, ValueError):
         reconfigure(errors="replace")
-    except (OSError, ValueError):
-        pass
 
 
 def main() -> int:

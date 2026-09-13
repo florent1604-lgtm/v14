@@ -1,0 +1,322 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: titanium-v14
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: titanium-v14-quota
+  namespace: titanium-v14
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 2Gi
+    limits.cpu: "2"
+    limits.memory: 3Gi
+    requests.ephemeral-storage: 512Mi
+    limits.ephemeral-storage: 2Gi
+    pods: "6"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: titanium-v14-defaults
+  namespace: titanium-v14
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+        ephemeral-storage: 64Mi
+      default:
+        cpu: 250m
+        memory: 512Mi
+        ephemeral-storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: titanium-api
+  namespace: titanium-v14
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: titanium-api
+  template:
+    metadata:
+      labels:
+        app: titanium-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: titanium-v14:deepseek-k3s
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TITANIUM_ROLE
+              value: api
+            - name: PORT
+              value: "8080"
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+              ephemeral-storage: 128Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /api/sante
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/sante
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: results
+              mountPath: /app/results
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: results
+          hostPath:
+            path: /var/lib/titanium-v14/results
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: titanium-api
+  namespace: titanium-v14
+spec:
+  type: ClusterIP
+  selector:
+    app: titanium-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: titanium-deepseek-worker
+  namespace: titanium-v14
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: titanium-deepseek-worker
+  template:
+    metadata:
+      labels:
+        app: titanium-deepseek-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: titanium-v14:deepseek-k3s
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TITANIUM_ROLE
+              value: deepseek-worker
+            - name: TITANIUM_HERMES_PROVIDER
+              value: deepseek-api
+            - name: TITANIUM_HERMES_MODEL
+              value: deepseek-v4-flash
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: titanium-deepseek
+                  key: api-key
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+              ephemeral-storage: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+              ephemeral-storage: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "from pathlib import Path; assert b'analystes.py' in Path('/proc/1/cmdline').read_bytes()"
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os; assert os.getenv('DEEPSEEK_API_KEY') and os.getenv('TITANIUM_HERMES_PROVIDER') == 'deepseek-api'"
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          volumeMounts:
+            - name: results
+              mountPath: /app/results
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: results
+          hostPath:
+            path: /var/lib/titanium-v14/results
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: titanium-mt5-demo-adapter
+  namespace: titanium-v14
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: titanium-mt5-demo-adapter
+  template:
+    metadata:
+      labels:
+        app: titanium-mt5-demo-adapter
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: adapter
+          image: titanium-v14:deepseek-k3s
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TITANIUM_ROLE
+              value: mt5-demo-adapter
+            - name: PORT
+              value: "8081"
+            - name: TITANIUM_EXEC_MODE
+              value: DEMO
+            - name: MT5_BRIDGE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: titanium-runtime
+                  key: mt5-bridge-url
+            - name: MT5_ADAPTER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: titanium-mt5-bridge
+                  key: adapter-token
+            - name: MT5_BRIDGE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: titanium-mt5-bridge
+                  key: bridge-token
+          ports:
+            - name: http
+              containerPort: 8081
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: titanium-mt5-demo-adapter
+  namespace: titanium-v14
+spec:
+  type: ClusterIP
+  selector:
+    app: titanium-mt5-demo-adapter
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http

@@ -176,18 +176,22 @@ def collecter(symbole: str, decalage_s: int) -> int:
 
 
 def univers_portable() -> list[str]:
-    """Symboles réellement cotables maintenant, lus au catalogue du courtier."""
+    """Tout le catalogue du courtier, independamment de Market Watch.
+
+    L'archivage n'est pas une autorisation de trade. Un actif masque, ferme ou
+    non portable ne doit pas disparaitre des donnees servant a l'analyse.
+    """
     with mt5_session() as mt5:
         symboles = mt5.symbols_get()
     if not symboles:
         return []
-    return [s.name for s in symboles if getattr(s, "visible", False)]
+    return list(dict.fromkeys(s.name for s in symboles if getattr(s, "name", "")))
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--symboles", nargs="*", default=None,
-                    help="symboles à archiver (défaut : univers visible)")
+                    help="symboles à archiver (défaut : catalogue MT5 complet)")
     ap.add_argument("--intervalle", type=float, default=INTERVALLE)
     ap.add_argument("--une-passe", action="store_true",
                     help="une seule collecte puis sortie")

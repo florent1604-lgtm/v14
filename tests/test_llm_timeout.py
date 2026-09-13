@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -56,7 +55,7 @@ def test_timeout_env_overlay(monkeypatch):
 
 
 @pytest.mark.unit
-def test_analyst_worker_publishes_fast_result_first(monkeypatch, tmp_path):
+def test_analyst_worker_publishes_one_glm_batch(monkeypatch, tmp_path):
     import tools.analystes as worker
     from titanium.avis import Avis
 
@@ -69,18 +68,73 @@ def test_analyst_worker_publishes_fast_result_first(monkeypatch, tmp_path):
     monkeypatch.setattr(worker, "DEMANDES", tmp_path / "demandes.ndjson")
     monkeypatch.setattr(worker, "AVIS", tmp_path / "avis.ndjson")
     monkeypatch.setattr(worker, "purger", lambda *_args, **_kwargs: 0)
+    call_order = []
+    monkeypatch.setattr(
+        worker, "_traiter_positions",
+        lambda: call_order.append("positions") or 0,
+    )
     monkeypatch.setattr(worker, "quota_epuise", lambda: 0.0)
-    monkeypatch.setattr(worker, "demandes_en_attente", lambda *_args: [slow, fast])
+    monkeypatch.setattr(
+        worker, "demandes_en_attente", lambda *_args, **_kwargs: [slow, fast],
+    )
     monkeypatch.setattr(worker, "journaliser_cout", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(worker, "enregistrer", lambda avis, _path: published.append(avis.symbol))
 
-    def traiter(demande):
-        time.sleep(0.08 if demande.symbol == "SLOW" else 0.01)
-        avis = Avis(demande.symbol, 1, 0.5, "Hold", None, "",
-                    demande.bar_time, "", "graphe")
-        return demande, avis, 0.01, ("market",)
+    seen = []
 
-    monkeypatch.setattr(worker, "_traiter", traiter)
+    def traiter_lot(demandes):
+        call_order.append("entries")
+        seen.append([demande.symbol for demande in demandes])
+        return [
+            (
+                demande,
+                Avis(demande.symbol, 1, 0.5, "Hold", None, "",
+                     demande.bar_time, "", "graphe"),
+                0.01,
+                ("glm-local-batch",),
+            )
+            for demande in demandes
+        ]
+
+    monkeypatch.setattr(worker, "_traiter_lot", traiter_lot)
 
     assert worker.passage() == 2
-    assert published == ["FAST", "SLOW"]
+    assert seen == [["SLOW", "FAST"]]
+    assert published == ["SLOW", "FAST"]
+    assert call_order == ["entries", "positions"]
+
+
+@pytest.mark.unit
+def test_position_reviews_leave_capacity_for_fresh_entries(monkeypatch, tmp_path):
+    import titanium.hermes_cortex as cortex
+    import titanium.position_sentiment as sentiment
+    import tools.analystes as worker
+
+    request = {"request_ref": "r1", "ticket": "1", "symbol": "XAGUSD"}
+    calls = []
+    clock = {"now": 100.0}
+
+    monkeypatch.setattr(worker, "POSITION_REQUESTS", tmp_path / "requests.ndjson")
+    monkeypatch.setattr(worker, "POSITION_VERDICTS", tmp_path / "verdicts.ndjson")
+    monkeypatch.setattr(worker.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setitem(worker._DERNIERE_REVUE_POSITIONS, "at", 0.0)
+    monkeypatch.setattr(sentiment, "pending_reviews", lambda *_args, **_kwargs: [request])
+    monkeypatch.setattr(sentiment, "append_record", lambda *_args, **_kwargs: True)
+
+    def analyse(requests):
+        calls.append(list(requests))
+        return [{
+            **request,
+            "state": "CALM",
+            "confidence": 0.9,
+        }]
+
+    monkeypatch.setattr(cortex, "analyse_positions", analyse)
+
+    assert worker._traiter_positions() == 1
+    clock["now"] += worker.POSITION_REVIEW_INTERVAL_S - 1
+    assert worker._traiter_positions() == 0
+    clock["now"] += 1
+    assert worker._traiter_positions() == 1
+    assert len(calls) == 2
+    assert all(len(batch) == 1 for batch in calls)

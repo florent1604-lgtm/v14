@@ -31,16 +31,15 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-try:
+with suppress(AttributeError, ValueError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except (AttributeError, ValueError):  # pragma: no cover
-    pass
 
 #: Au-delà de ce silence, on regarde de plus près. La boucle tourne en 60 s.
 SILENCE_MIN_S = 300.0
@@ -84,7 +83,7 @@ def silences(chemin: Path, seuil_s: float = SILENCE_MIN_S) -> list[dict]:
         ts.append(d if d.tzinfo else d.replace(tzinfo=timezone.utc))
     ts.sort()
     out = []
-    for a, b in zip(ts, ts[1:]):
+    for a, b in zip(ts, ts[1:], strict=False):
         if (b - a).total_seconds() > seuil_s:
             out.append({"start": a.isoformat(), "end": b.isoformat(),
                         "minutes": round((b - a).total_seconds() / 60.0, 1)})

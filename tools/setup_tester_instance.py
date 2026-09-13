@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -167,7 +166,7 @@ def main() -> int:
     print(f"\n  terminal de test : {CIBLE / 'terminal64.exe'}")
     print("  premier lancement : le terminal doit se connecter au compte")
     print("  et télécharger l'historique — compte quelques minutes.")
-    print(f"\n  python tools/metatester.py --symbol XAUUSD --tester-instance")
+    print("\n  python tools/metatester.py --symbol XAUUSD --tester-instance")
     return 0
 
 

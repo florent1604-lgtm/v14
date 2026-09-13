@@ -36,9 +36,14 @@ def test_les_collecteurs_se_lisent_a_part(monkeypatch):
     _procs(monkeypatch, [
         (11, 1, r"python tools\enregistreur_quotes.py --symboles BTCUSD"),
         (12, 1, r"python tools\enregistreur_carnet_binance.py"),
+        (13, 1, r"python tools\collecteur_microstructure.py"),
     ])
     trouve = es.racines(es.COLLECTEURS)
-    assert trouve == {"enregistreur_quotes": [11], "enregistreur_carnet_binance": [12]}
+    assert trouve == {
+        "enregistreur_quotes": [11],
+        "enregistreur_carnet_binance": [12],
+        "collecteur_microstructure": [13],
+    }
 
 
 def test_un_relais_du_venv_ne_compte_pas_pour_une_instance(monkeypatch):

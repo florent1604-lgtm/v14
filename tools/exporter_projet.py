@@ -26,7 +26,6 @@ import argparse
 import hashlib
 import json
 import re
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -130,7 +129,7 @@ def _caviarder(texte: str, chemin: str) -> tuple[str, list[str]]:
             trouves.append(f"valeur de .env · {chemin}")
 
     for motif, libelle in MOTIFS:
-        def _remplacer(m: re.Match) -> str:
+        def _remplacer(m: re.Match, libelle: str = libelle) -> str:
             entier = m.group(0)
             # Pour les affectations, seule la VALEUR est un secret potentiel.
             valeur = m.group(1) if m.lastindex else entier
@@ -158,9 +157,7 @@ def _a_garder(p: Path) -> bool:
     if p.suffix.lower() not in EXTENSIONS:
         return False
     # Les JSON de résultats sont des données, pas du code.
-    if p.suffix == ".json" and p.stat().st_size > 200_000:
-        return False
-    return True
+    return not (p.suffix == ".json" and p.stat().st_size > 200_000)
 
 
 def main() -> int:
@@ -264,7 +261,7 @@ def main() -> int:
     mo = sortie.stat().st_size / 1_048_576
     print(f"✓ {sortie}")
     print(f"  {len(fichiers)} fichiers · {total_lignes:,} lignes · {mo:.2f} Mo")
-    print(f"  répartition : "
+    print("  répartition : "
           + ", ".join(f"{k} {v}" for k, v in
                       list(charge['statistiques']['par_dossier'].items())[:6]))
     if secrets:

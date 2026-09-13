@@ -240,10 +240,15 @@ def analyser(echantillons: list[tuple[dict, float]], *,
 
     masque = _benjamini_hochberg([x.p_brut for x in bruts], fdr)
     m = len(bruts)
+    # BH adjusted p-values require the reverse cumulative minimum. Merely
+    # multiplying by m/rank can make a smaller raw p look less significant.
+    ordre = sorted(range(m), key=lambda j: bruts[j].p_brut)
+    minimum = 1.0
+    for rang in range(m, 0, -1):
+        x = bruts[ordre[rang - 1]]
+        minimum = min(minimum, x.p_brut * m / rang)
+        x.p_corrige = round(minimum, 5)
     for i, x in enumerate(bruts):
-        # p corrigé « à la BH » : borné à 1, monotone après tri.
-        rang = sorted(range(m), key=lambda j: bruts[j].p_brut).index(i) + 1
-        x.p_corrige = round(min(1.0, x.p_brut * m / rang), 5)
         # Un effet négligeable n'est pas retenu, même significatif : sur un gros
         # échantillon, tout finit par être significatif sans être utile.
         x.retenu = bool(masque[i]) and abs(x.delta) >= DELTA_NEGLIGEABLE

@@ -30,6 +30,7 @@ import json
 import shutil
 import subprocess
 import sys
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -37,8 +38,16 @@ RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 from titanium.bridge.metatester import (  # noqa: E402
-    NOM_EA, NOM_SIGNAUX, Plage, _epoch, combinaisons, ecrire_ini,
-    exporter_signaux, lancer, lire_rapport, retenir,
+    NOM_EA,
+    NOM_SIGNAUX,
+    Plage,
+    _epoch,
+    combinaisons,
+    ecrire_ini,
+    exporter_signaux,
+    lancer,
+    lire_rapport,
+    retenir,
 )
 
 SORTIE = RACINE / "results" / "metatester"
@@ -172,10 +181,8 @@ def terminal_en_cours() -> list[int]:
         pid, chemin = ligne.split("|", 1)
         if str(INSTANCE_TEST).lower() in chemin.strip().lower():
             continue        # l'instance dédiée : sans conséquence
-        try:
+        with suppress(ValueError):
             pids.append(int(pid))
-        except ValueError:
-            pass
     return pids
 
 
@@ -252,6 +259,7 @@ def compiler(donnees: Path, portable: bool = False) -> bool:
 def produire_signaux(symbol: str, barres: int, ltf: str, htf: str) -> list:
     """Fait tourner le rejeu V14 pour obtenir ses décisions."""
     import pandas as pd  # noqa: F401
+
     from titanium.backtest import rejouer
     from titanium.data.mt5_vendor import ensure_symbol, get_rates
 
@@ -484,7 +492,7 @@ def _optimiser(symbole: str, trades: list, a, *, terminal: Path,
             if p.pas > 0:
                 print(f"      {p.nom:16s} {p.depart} → {p.fin} pas {p.pas}")
         if acquis:
-            print(f"      figé : "
+            print("      figé : "
                   + ", ".join(f"{k}={v}" for k, v in sorted(acquis.items())))
         print(f"      {ratio:.1f} signaux par combinaison", end="")
         if ratio < TRADES_PAR_COMBINAISON:

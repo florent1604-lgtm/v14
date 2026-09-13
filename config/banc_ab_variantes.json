@@ -1,0 +1,139 @@
+{
+  "schema_version": "v14.banc-ab-entrees.spec.v1",
+  "paper_demo_only": true,
+  "source": {
+    "artifact": "results/p1a/cohorte_373.json",
+    "artifact_schema": "v14.p1a.sealed-cohort.v1",
+    "artifact_sha256": "10d6277664775ea8599b9304b8e7e86055b35f9a659fce572dfc2f4b22e2e908",
+    "manifest": "results/p1a/cohorte_373.manifest.json",
+    "manifest_sha256": "7c1d257cb22b1466de0fd9718e004b01e16561fd98967815b174aabf87ea5342",
+    "through_closed_event_id": "97465104:closed"
+  },
+  "phases": {
+    "ex_ante_fields": [
+      "asset_class",
+      "context",
+      "mode",
+      "placed_at",
+      "position_ticket",
+      "quorum",
+      "side",
+      "support_pillars",
+      "symbol",
+      "timeframe",
+      "ts_open"
+    ],
+    "resolution_fields": [
+      "closed_at",
+      "ts_exit"
+    ],
+    "outcome_fields": [
+      "exit_reason",
+      "giveback_r",
+      "is_negative",
+      "mae_r",
+      "mfe_r",
+      "pnl_r"
+    ]
+  },
+  "cohort_contract": {
+    "identity_fields": [
+      "entry_policy",
+      "execution_mode",
+      "policy_epoch",
+      "config_sha256",
+      "code_sha256"
+    ],
+    "historical_373": {
+      "entry_policy": "LIMITE",
+      "execution_mode": "explore",
+      "policy_epoch": "051f50ad",
+      "config_sha256": null,
+      "code_sha256": null,
+      "status": "ANALYSIS_BLOCKED_UNTIL_SEALED"
+    },
+    "pool_across_cohorts": false,
+    "require_all_decisions_resolved": true
+  },
+  "primary": {
+    "name": "H_quality",
+    "estimand": "mean_unweighted_pnl_r_4p_minus_3p",
+    "three_p_support_pillars": 2,
+    "four_p_support_pillars": 3,
+    "gate": {
+      "min_four_p": 125,
+      "min_total": 814,
+      "min_decision_days": 20,
+      "min_symbols": 30,
+      "mde_r": 0.487,
+      "alpha": 0.05,
+      "power": 0.8,
+      "variance_model": "two_way_symbol_x_decision_day_bootstrap",
+      "source": "collab_hub_offsets_693_694"
+    }
+  },
+  "b_r": {
+    "status_for_monetary_claim": "NOT_IDENTIFIABLE",
+    "weight_three_p": 1.0,
+    "r_endpoints": [
+      1.35,
+      2.81
+    ],
+    "named_diagnostic_r": 2.25,
+    "denominator": "frozen_decision_count",
+    "normalize_by_weight_sum": false,
+    "reallocate": false,
+    "optimize_r": false
+  },
+  "secondary_hypotheses": {
+    "enabled": false,
+    "bh_alpha": 0.05,
+    "cardinality": 0,
+    "items": []
+  },
+  "inference": {
+    "bootstrap": {
+      "method": "two_way_product_symbol_decision_day",
+      "draws": 10000,
+      "seed": 140826,
+      "confidence": 0.95,
+      "min_valid_fraction": 0.95
+    },
+    "min_valid_omissions_fraction": 1.0,
+    "sensitivity": [
+      "LOSO",
+      "LODO"
+    ],
+    "walk_forward": {
+      "folds": 5,
+      "purge": "exact_interval_overlap"
+    }
+  },
+  "cli_exit_codes": {
+    "EXPLORATORY_MEASURED": 0,
+    "ANALYSIS_BLOCKED": 2,
+    "NOT_IDENTIFIABLE": 3,
+    "NOT_POWERED": 4
+  },
+  "states_priority": [
+    "ANALYSIS_BLOCKED",
+    "NOT_IDENTIFIABLE",
+    "NOT_POWERED",
+    "EXPLORATORY_MEASURED"
+  ],
+  "purge": {
+    "method": "exact_interval_overlap",
+    "left_bound": "decision_proxy_at",
+    "right_bound": "ts_exit",
+    "publish_counts": true,
+    "require_zero_train_validation_overlap": true
+  },
+  "forbidden_actions": [
+    "live_order",
+    "runtime_threshold_change",
+    "weight_normalization",
+    "capital_reallocation",
+    "cross_cohort_pooling",
+    "secondary_outcome_read"
+  ]
+}

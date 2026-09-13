@@ -22,7 +22,13 @@ RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 from titanium.selection import (  # noqa: E402
-    FORCES, RANG_A, RANG_B, RANG_C, Fiche, _cout_relatif, classer, ecrire,
+    RANG_A,
+    RANG_B,
+    RANG_C,
+    Fiche,
+    _cout_relatif,
+    classer,
+    ecrire,
 )
 
 SORTIE = RACINE / "results" / "selection_actifs.json"
@@ -48,7 +54,7 @@ def avis_tradingview(symbole: str, classe: str) -> str:
     if not place:
         return ""
     try:
-        from tradingview_ta import TA_Handler, Interval
+        from tradingview_ta import Interval, TA_Handler
 
         h = TA_Handler(symbol=symbole, exchange=place[0], screener=place[1],
                        interval=Interval.INTERVAL_1_HOUR)

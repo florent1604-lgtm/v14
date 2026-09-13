@@ -1,6 +1,5 @@
 """Le lanceur de backfill ne doit ni ecraser un echec ni mal decouper les lots."""
 import sys
-import types
 import unittest
 from pathlib import Path
 from unittest import mock

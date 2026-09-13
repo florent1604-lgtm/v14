@@ -14,15 +14,14 @@ Mission Prime ba74e58a. Lecture seule, aucun ordre.
 from __future__ import annotations
 
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-try:
+with suppress(AttributeError, ValueError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except (AttributeError, ValueError):  # pragma: no cover
-    pass
 
 
 def main() -> int:

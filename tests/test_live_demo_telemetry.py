@@ -138,6 +138,36 @@ def test_contexte_ordre_marche_ne_se_fait_pas_passer_pour_une_limite(
     assert state["contre_tendance"] is True
 
 
+def test_contexte_ordre_marche_conserve_l_identite_de_politique(
+    monkeypatch, tmp_path,
+):
+    import tools.live_demo as live_demo
+
+    monkeypatch.setattr(live_demo, "RACINE", tmp_path)
+    monkeypatch.setattr(live_demo, "_contexte_exact", lambda *_: "EURUSD|long|x|3p")
+    monkeypatch.setattr(live_demo, "_stratification", lambda *_: {"mode": "explore"})
+    out = SimpleNamespace(side=1, stop_distance=0.005)
+    res = SimpleNamespace(price=1.1000, sl=1.0950, tp=1.1075)
+    identity = {
+        "entry_policy": "MARCHE", "policy_epoch": "epoch-a",
+        "config_sha256": "a" * 64, "code_sha256": "b" * 64,
+    }
+
+    _attacher_contexte(
+        999, "EURUSD", {}, out, res, risque_devise=25.0,
+        policy_identity=identity, decision_id="epoch-a:999",
+        decision_at="2026-08-26T08:00:00+00:00",
+    )
+
+    state = json.loads((tmp_path / "results" / "positions.json").read_text())["999"]
+    assert state["entry_policy"] == "MARCHE"
+    assert state["policy_epoch"] == "epoch-a"
+    assert state["config_sha256"] == "a" * 64
+    assert state["code_sha256"] == "b" * 64
+    assert state["decision_id"] == "epoch-a:999"
+    assert state["ts_open"] == "2026-08-26T08:00:00+00:00"
+
+
 def test_echec_contexte_limite_n_est_plus_silencieux(monkeypatch):
     def fail(*_args, **_kwargs):
         raise TypeError("champ de stratification inconnu")

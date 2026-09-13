@@ -43,8 +43,29 @@ Composants principaux :
 - `titanium/execution/` : mur DEMO/réel, ordres et gestion des positions ;
 - `titanium/features/` : structure, SMC/ICT, profils et bougies ;
 - `titanium/web/` : dashboard et état opérationnel ;
+- `observability/` : Prometheus, dashboard Grafana et alertes provisionnées.
 - `collab/` : journal commun Codex, Claude, Hermes et Prime ;
 - `results/` : données de travail locales, exclues de Git.
+
+## Supervision temps réel
+
+L'exporteur Prometheus est servi par le dashboard sur
+<http://127.0.0.1:9108/metrics>. Prometheus et Grafana restent séparés du
+moteur MT5 et se lancent avec :
+
+```powershell
+docker compose -f observability\docker-compose.yml up -d
+```
+
+Sur Windows sans Docker, utiliser :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File observability\windows\start-observability.ps1
+```
+
+Grafana est ensuite disponible sur <http://127.0.0.1:3000>. La configuration
+complète, notamment le webhook Discord, est décrite dans
+[`observability/README.md`](observability/README.md).
 
 ## Sécurité et gouvernance
 

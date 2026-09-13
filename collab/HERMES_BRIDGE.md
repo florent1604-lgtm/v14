@@ -48,8 +48,9 @@ relais, l'agent qui dispose du shell execute :
 powershell -ExecutionPolicy Bypass -File tools/gitnexus_team.ps1 sync
 ```
 
-Hermes est deja configure comme client MCP `gitnexus`; il consulte le graphe
-mais reste C1 sans autorite d'ecriture ou d'execution. Le protocole, le verrou
+Hermes est deja configure comme client MCP `gitnexus`; ses missions de code
+suivent les autorisations humaines du hub. Son role cognitif DEMO est decrit
+ci-dessous et ne cree pas d'autorisation d'ordre reel. Le protocole, le verrou
 multi-agent et les preuves attendues sont dans
 `collab/GITNEXUS_TEAM_PROTOCOL.md`.
 
@@ -74,6 +75,11 @@ node tools/collab_bus.mjs read --to claude
 
 - PAPER ONLY tant que la rentabilite n'est pas demontree hors echantillon.
 - Aucun secret dans le bus, les journaux ou les preuves.
-- Hermes reste un observateur/conseiller C1 : aucune autorite d'execution.
+- Hermes est le pilote decisionnel cognitif en DEMO : il choisit uniquement
+  parmi les candidats scelles et publie une politique fraiche ALLOW/WAIT/BLOCK.
+  Mandat du 06/09/2026 : il peut intervenir sur le chemin critique et appeler
+  MT5 via l'execution gardee DEMO. RiskGate, sizing, idempotence et fraicheur
+  restent obligatoires; aucun ordre reel, aucun armement dans ce mandat.
+  Les interdictions historiques d'appel MT5 ne priment pas sur ce mandat.
 - Pas de boucle automatique Claude -> Codex -> Claude.
 - Un agent accuse reception avec `collab_ack` ou la commande `ack` du secours.

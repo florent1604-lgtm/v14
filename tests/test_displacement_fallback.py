@@ -16,7 +16,6 @@ import pytest
 
 from titanium.features import builder
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fabriques de barres — un displacement se fabrique, il ne se cherche pas.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -27,8 +26,8 @@ def _plat(n: int, prix: float = 100.0, amplitude: float = 0.10) -> pd.DataFrame:
     o = np.full(n, prix)
     c = np.full(n, prix)
     h = o + amplitude / 2
-    l = o - amplitude / 2
-    return pd.DataFrame({"open": o, "high": h, "low": l, "close": c,
+    low = o - amplitude / 2
+    return pd.DataFrame({"open": o, "high": h, "low": low, "close": c,
                          "volume": np.full(n, 100.0)}, index=idx)
 
 

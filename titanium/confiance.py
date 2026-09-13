@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from titanium.sizing import MAX_RISK_PCT, TARGET_RISK_PCT
+from titanium.sizing import MAX_RISK_PCT, TARGET_RISK_PCT as TARGET_RISK_PCT
 
 #: Plancher. Un setup au quorum minimum garde une taille réduite mais non
 #: nulle : il doit continuer à produire de la donnée pour la mesure d'edge.

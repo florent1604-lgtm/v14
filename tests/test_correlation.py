@@ -17,7 +17,11 @@ import json
 import pytest
 
 from titanium.correlation import (
-    MAX_RISQUE_GRAPPE_PCT, NB_GRAPPES, Grappes, charger, place_disponible,
+    MAX_RISQUE_GRAPPE_PCT,
+    NB_GRAPPES,
+    Grappes,
+    charger,
+    place_disponible,
     risque_par_grappe,
 )
 

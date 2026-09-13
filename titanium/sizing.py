@@ -174,8 +174,17 @@ def budget_for(spec: SymbolSpec, stop_distance: float, equity: float, *,
                     f"plafond {max_pct:.1f} %"),
         )
 
+    # L'executor recalcule le lot depuis ``risk_money``. Un arrondi au centime
+    # inferieur au cout exact peut alors ramener le volume juste sous le minimum
+    # et refuser une intention pourtant deja validee ici. Le centime superieur
+    # conserve le budget necessaire sans changer le lot ni le plafond, tous deux
+    # fondes sur ``cout_min`` exact. ``nextafter`` neutralise un bruit flottant
+    # d'un ULP lorsqu'un cout tombe exactement sur un centime.
+    risque_executeur = math.ceil(
+        math.nextafter(cout_min * 100.0, -math.inf)
+    ) / 100.0
     return Budget(
-        spec.name, True, lot=spec.volume_min, risk_money=round(cout_min, 2),
+        spec.name, True, lot=spec.volume_min, risk_money=risque_executeur,
         target_money=round(cible, 2), effective_pct=round(pct_min, 3),
         at_min_lot=True,
         reason=(f"lot minimum imposé : risque {pct_min:.2f} % "
@@ -326,10 +335,10 @@ def marches_ouverts(symboles) -> dict:
                     continue
     except Exception:  # noqa: BLE001
         # Sans mesure, on n'affirme pas qu'un marché est fermé.
-        return {s: True for s in symboles}
+        return dict.fromkeys(symboles, True)
 
     if not derniers:
-        return {s: True for s in symboles}
+        return dict.fromkeys(symboles, True)
 
     reference = max(derniers.values())
     limite = RETARD_MAX_MIN * 60.0

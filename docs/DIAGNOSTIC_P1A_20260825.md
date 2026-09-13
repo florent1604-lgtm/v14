@@ -11,6 +11,13 @@ contrôles → arithmétique → `exit_reason` → famille/régime → axes part
 Époque : corpus `051f50ad…`, 147/147 artefacts, arbre `0901ca68…`, écart publié
 et permis.
 
+**Révision du 25/08 au soir.** Ce document a été corrigé après le scellement de
+la cohorte par Codex. Toutes les valeurs sont désormais reproduites sur
+l'artefact scellé `results/p1a/cohorte_373.json`, SHA-256
+`10d6277664775ea8599b9304b8e7e86055b35f9a659fce572dfc2f4b22e2e908`, borné à
+l'événement `97465104:closed`. Les agrégats sont **inchangés** ; c'est le
+vocabulaire qui l'était, et il l'était de deux façons décrites ci-dessous.
+
 ---
 
 ## 1. Contrôles
@@ -18,11 +25,34 @@ et permis.
 ```
 limites closes            373
 jointes (ticket exact)    373      perte de jointure 0
-sorties au stop initial   191      51,2 %
+clôtures perdantes        191      51,2 %
 ```
 
 La clé de jointure de `docs/CARTOGRAPHIE_JOINTURE_20260825.md` tient sur la
 cohorte complète, une clôture de plus qu'au moment de la cartographie.
+
+### Correction n° 1 — « 191 » n'est pas « sorties au stop initial »
+
+La première version de ce document appelait ces 191 lignes des « sorties au
+stop initial ». C'est faux, et cela les confondait avec les 195
+`exit_reason=init`. La sémantique scellée par Codex tranche :
+
+```
+191  toutes les clôtures perdantes (pnl_r < 0), tous motifs confondus
+     = 187 init perdants + 4 breakeven perdants
+
+195  exit_reason=init : la gestion du stop est restée au stade initial
+     = 187 perdants + 8 GAGNANTS
+```
+
+Deux faits que la confusion masquait : **4 trades ont été stoppés au stop déjà
+remonté au breakeven**, et **8 trades restés au stade `init` ont clôturé
+positifs**. `exit_reason=init` décrit un état de gestion, pas une issue.
+
+Vérification indépendante que j'ajoute : l'ensemble des 191 perdants et
+l'ensemble des 191 marqués `censored` dans `excursions.ndjson` sont
+**strictement identiques** — intersection 191, aucune différence dans un sens
+ni dans l'autre. La valeur était donc juste, seule l'étiquette était fausse.
 
 ## 2. Arithmétique — le chiffre de Prime est reproduit
 
@@ -52,11 +82,15 @@ des deux tiers.
 | `init` | 195 | 52,3 % | **−0,8304** | −0,9971 | 4,1 % | **−161,93 R** |
 | **total** | 373 | | −0,0428 | | | −15,97 R |
 
+Les 4,1 % de réussite de la ligne `init` sont les **8 clôtures positives**
+restées au stade de gestion initial.
+
 Le breakeven et le trailing produisent ensemble **+145,95 R**. La gestion
 dynamique du stop fait son travail — c'est même la seule chose qui fonctionne.
 
-**La totalité du déficit tient dans `init`** : 52,3 % des trades servis meurent
-au stop initial, pour −161,93 R.
+**La totalité du déficit tient dans `init`** : 52,3 % des trades servis voient
+leur gestion rester au stade initial, dont 187 finissent perdants, pour
+−161,93 R.
 
 ### Un avertissement sur cette partition
 
@@ -72,7 +106,7 @@ n'atteint jamais +0,8 R.
 
 ## 4. La cohorte `init` — les entrées bougent à peine
 
-Excursion favorable maximale des 195 trades morts au stop initial :
+Excursion favorable maximale des 195 trades restés au stade de gestion `init` :
 
 ```
 MFE > 0,0 R    144 / 195    73,8 %
@@ -100,7 +134,7 @@ relève de P3.
 | `continuation` | 354 | −0,0363 | 52,3 % | −12,84 R |
 | `reversal` | 19 | −0,1650 | 52,6 % | −3,14 R |
 
-Les deux familles ont **la même proportion d'échecs au stop initial**. L'axe ne
+Les deux familles ont **la même proportion de gestions restées au stade `init`**. L'axe ne
 discrimine pas. L'effectif `reversal` est trop faible pour conclure quoi que ce
 soit d'autre.
 
@@ -119,18 +153,36 @@ soit d'autre.
 | **indices** | 141 | **−0,1521** | **58,2 %** | **−21,44 R** |
 
 Les indices portent la plus grosse perte, sur le plus gros effectif, avec la
-plus forte proportion d'échecs au stop initial. Le FX est désormais suspendu :
+plus forte proportion de gestions restées au stade `init`. Le FX est suspendu :
 ses −10,95 R sont historiques.
 
 ### Piliers — le résultat contre-intuitif
 
-| quorum | n | `pnl_r` moyen | part `init` | contribution |
-|---|---:|---:|---:|---:|
-| 2 piliers | 316 | **+0,0075** | 50,0 % | +2,38 R |
-| 3 piliers | 57 | **−0,3220** | **64,9 %** | −18,36 R |
+#### Correction n° 2 — nommer les strates comme l'équipe les nomme
 
-**Le seau à trois piliers perd, celui à deux est à l'équilibre.** Et il échoue
-au stop initial dans 64,9 % des cas contre 50,0 %.
+La première version appelait ces deux seaux « 2 piliers » et « 3 piliers »,
+d'après le champ `support_pillars`. C'est exact pour ce champ, mais cela entre
+en collision avec le vocabulaire de contexte employé par toute l'équipe. La
+sémantique scellée fige la correspondance :
+
+```
+context 3p  ↔  support_pillars = 2  →  316 trades
+context 4p  ↔  support_pillars = 3  →   57 trades
+« N p » = support_pillars + 1, car trend_sr est obligatoire et compte
+quorum = 2 pour les 373
+```
+
+Les 57 observations qu'Hermes doit expertiser sont donc celles de la strate
+**4p**, et non « 3 piliers ». Même population, nom différent ; c'est le nom du
+contexte qui fait foi puisque c'est lui qui est journalisé.
+
+| contexte | `support_pillars` | n | `pnl_r` moyen | part `init` | contribution |
+|---|---:|---:|---:|---:|---:|
+| `3p` | 2 | 316 | **+0,0075** | 50,0 % | +2,38 R |
+| `4p` | 3 | 57 | **−0,3220** | **64,9 %** | −18,36 R |
+
+**Le seau `4p` perd, le seau `3p` est à l'équilibre.** Et `4p` reste au stade de
+gestion initial dans 64,9 % des cas contre 50,0 %.
 
 Cela contredit la prémisse du dimensionnement modulé par la confiance
 (`titanium/confiance.py`) : plus de piliers vaut plus de risque. Ici la strate
@@ -188,13 +240,47 @@ l'axe n'existe pas ; il n'est qu'ailleurs.
 
 ---
 
-## 8. Reproduire
+## 8. Le contrat de jointure, formalisé
 
-```python
-norm = lambda t: str(t).split(":")[-1]
-# closed → trades/excursions par position_ticket
-# placed → closed par order_ticket, pour spread_r
+Trois clés, deux normalisations, aucune heuristique.
+
+```
+(A)  closed → trades, excursions       par  norm(position_ticket)
+     norm(t) = str(t).split(":")[-1]           trades/excursions préfixent "live:"
+     couverture 373/373, 0 collision, 0 orphelin
+
+(B)  placed → closed                   par  order_ticket, brut
+     porte spread_r, planned_price, market_reference_price, regime
+     couverture 373/373
+
+(C)  expired → rien
+     aucun position_ticket : l'ordre n'est jamais devenu une position
+     315 lignes sans aval, par construction
 ```
 
-Sources : `results/limit_lifecycle.ndjson`, `results/trades.ndjson`,
-`results/excursions.ndjson`.
+**(B) n'est pas facultative.** `spread_r`, `regime` et le prix planifié ne sont
+portés que par l'événement `placed`. Un consommateur qui lit `closed` seul
+conclut que ces axes n'existent pas ; ils sont ailleurs.
+
+Contrôles à exiger de tout consommateur : normaliser avant de joindre, refuser
+toute jointure symbole/temps, vérifier la couverture à chaque passe — 373/373
+aujourd'hui, toute valeur inférieure signale une régression de journalisation —
+et compter les collisions, nulles des deux côtés.
+
+## 9. Reproduire
+
+```python
+import json, pathlib
+L = json.loads(pathlib.Path("results/p1a/cohorte_373.json")
+               .read_text(encoding="utf-8"))["cohort"]
+# SHA-256 attendu de l'artefact :
+# 10d6277664775ea8599b9304b8e7e86055b35f9a659fce572dfc2f4b22e2e908
+```
+
+La cohorte scellée porte déjà les champs joints — `spread_r`, `regime`,
+`support_pillars`, `context_pillars`, `is_negative`, `is_exit_reason_init` — de
+sorte qu'aucun consommateur n'a plus à refaire les jointures (A) et (B).
+
+Sources d'origine : `results/limit_lifecycle.ndjson`, `results/trades.ndjson`,
+`results/excursions.ndjson`. Manifeste :
+`results/p1a/cohorte_373.manifest.json`.

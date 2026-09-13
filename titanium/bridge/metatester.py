@@ -402,10 +402,7 @@ def _flottant(txt: str) -> float:
     # MT5 écrit selon la locale : espaces fines de milliers, virgule
     # décimale. Les deux cassent `float()` sans nettoyage.
     net = txt.replace(" ", "").replace(" ", "").replace("%", "")
-    if "," in net and "." not in net:
-        net = net.replace(",", ".")
-    else:
-        net = net.replace(",", "")
+    net = net.replace(",", ".") if "," in net and "." not in net else net.replace(",", "")
     try:
         return float(net)
     except ValueError:

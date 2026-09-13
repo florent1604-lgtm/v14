@@ -264,7 +264,7 @@ def evaluate_cells(trades, *, rejected_lines: int = 0) -> list:
         ps = [_p_unilaterale([float(t.pnl_r) for t in seaux[v.cell]],
                              BORNE_BASSE_PLANCHER) for v in verdicts]
         rejets = _benjamini_hochberg(ps, FDR_Q)
-        for v, rejete in zip(verdicts, rejets):
+        for v, rejete in zip(verdicts, rejets, strict=False):
             v.survit_fdr = bool(rejete)
             if not v.survit_fdr:
                 v.bloquants.append("C7_FDR_NON_SIGNIFICATIF")

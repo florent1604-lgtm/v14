@@ -123,7 +123,7 @@ def snapshot(path: Path = JOURNAL) -> dict:
             str(item.get("updated_at") or ""),
         ),
     )
-    counts = {status: 0 for status in STATUTS}
+    counts = dict.fromkeys(STATUTS, 0)
     for task in ordered:
         if task.get("status") in counts:
             counts[task["status"]] += 1

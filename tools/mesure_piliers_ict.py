@@ -25,16 +25,15 @@ import argparse
 import json
 import sys
 from collections import Counter
+from contextlib import suppress
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 # Console Windows en cp1252 : la mesure ne doit pas mourir sur un accent.
-try:
+with suppress(AttributeError, ValueError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except (AttributeError, ValueError):  # pragma: no cover
-    pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -100,7 +99,8 @@ def ict_g4(ltf, prix: float, side: int, atr: float) -> dict:
     REJETER sur pièces, pas pour s'en servir.
     """
     from titanium.features.ict_structure import (
-        detect_breaker_blocks, premium_discount_zone,
+        detect_breaker_blocks,
+        premium_discount_zone,
     )
 
     out = {"breaker": False, "discount": False}
@@ -109,12 +109,12 @@ def ict_g4(ltf, prix: float, side: int, atr: float) -> dict:
         for bb in detect_breaker_blocks(ltf):
             # Un breaker devenu support porte les achats, devenu résistance
             # les ventes. On exige aussi que le prix soit AU CONTACT.
-            if bb.new_role == "support" and side > 0:
-                if bb.bottom - tol <= prix <= bb.top + tol:
-                    out["breaker"] = True
-            elif bb.new_role == "resistance" and side < 0:
-                if bb.bottom - tol <= prix <= bb.top + tol:
-                    out["breaker"] = True
+            if (
+                (bb.new_role == "support" and side > 0
+                 or bb.new_role == "resistance" and side < 0)
+                and bb.bottom - tol <= prix <= bb.top + tol
+            ):
+                out["breaker"] = True
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -165,7 +165,7 @@ def analyser(sym: str, ouverts: dict) -> dict | None:
     """Une ligne de mesure, ou None si l'actif n'est pas mesurable."""
     from titanium.data.mt5_vendor import get_rates, get_rates_cache
     from titanium.features import candlesticks
-    from titanium.features.builder import _setup_side, build_feats
+    from titanium.features.builder import build_feats
     from titanium.features.structure import fib_context
 
     if not ouverts.get(sym, True):
@@ -221,12 +221,12 @@ def rapport(lignes: list[dict]) -> str:
     w("TAUX DE PASSAGE PAR PILIER")
     for k, nom in (("g2", "G2 fair_value"), ("g3", "G3 liquidity"),
                    ("g4", "G4 ote_ob"), ("g5", "G5 candle")):
-        p = sum(1 for l in lignes if l[k])
+        p = sum(1 for ligne in lignes if ligne[k])
         w(f"  {nom:<18} {p:>4} / {n}   {_pct(p, n)}   "
           f"manquant {_pct(n - p, n)}")
     w("")
 
-    dist = Counter(l["support"] for l in lignes)
+    dist = Counter(ligne["support"] for ligne in lignes)
     w("PILIERS PAR SETUP")
     for s in sorted(dist):
         w(f"  {s} pilier(s)  {dist[s]:>4}   {_pct(dist[s], n)}")
@@ -234,7 +234,7 @@ def rapport(lignes: list[dict]) -> str:
 
     for cle, titre in (("cause_g4", "POURQUOI G4 ÉCHOUE"),
                        ("cause_g5", "POURQUOI G5 ÉCHOUE")):
-        causes = Counter(l[cle] for l in lignes if l[cle] != "PASSE")
+        causes = Counter(ligne[cle] for ligne in lignes if ligne[cle] != "PASSE")
         total = sum(causes.values())
         w(f"{titre}  ({total} échecs)")
         for cause, c in causes.most_common():
@@ -247,21 +247,21 @@ def rapport(lignes: list[dict]) -> str:
                           ("g5", "displacement", "G5 <- displacement"),
                           ("g5", "bos", "G5 <- BOS structurel")):
         src = f"ict_{cle}"
-        gain = sum(1 for l in lignes if not l[cle] and l[src].get(sig))
+        gain = sum(1 for ligne in lignes if not ligne[cle] and ligne[src].get(sig))
         w(f"  {nom:<26} +{gain:>4} setups   {_pct(gain, n)} du catalogue")
     w("")
 
     # Effet réel : le quorum est ce qui décide, pas le pilier isolé.
     quorum = 2
-    avant = sum(1 for l in lignes if l["support"] >= quorum)
+    avant = sum(1 for ligne in lignes if ligne["support"] >= quorum)
 
     def _apres(sigs_g4: tuple[str, ...], sigs_g5: tuple[str, ...]) -> int:
         c = 0
-        for l in lignes:
-            s = l["support"]
-            if not l["g4"] and any(l["ict_g4"].get(x) for x in sigs_g4):
+        for ligne in lignes:
+            s = ligne["support"]
+            if not ligne["g4"] and any(ligne["ict_g4"].get(x) for x in sigs_g4):
                 s += 1
-            if not l["g5"] and any(l["ict_g5"].get(x) for x in sigs_g5):
+            if not ligne["g5"] and any(ligne["ict_g5"].get(x) for x in sigs_g5):
                 s += 1
             if s >= quorum:
                 c += 1

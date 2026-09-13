@@ -149,7 +149,9 @@ proche n'est pas un papier, c'est le **carnet L2 de 20 Go déjà enregistré** (
 qui n'alimente aujourd'hui aucune feature et permettrait de **valider ou invalider** le modèle de
 coût (spread fixe, impact nul) sur lequel repose la porte des 12,5 %. Et son verdict tranché :
 **GEX, 0DTE et options sont hors de portée** sur ce compte — aucun contrat d'option n'est exposé, et
-le resterait sans changer de courtier.
+le resterait sans changer de courtier. Le backlog qui en découle, nommé et falsifiable, est dans
+`CATALOGUE_HYPOTHESES_ALPHA_V14_20260913.md` — dont la première entrée (H1, impact linéaire en
+déséquilibre du flux) est précisément la mesure qui teste le modèle de coût de la porte des 12,5 %.
 
 ---
 

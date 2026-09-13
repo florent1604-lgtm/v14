@@ -190,10 +190,66 @@ def _has_real_deepseek_key():
     return bool(key) and "placeholder" not in lowered and not lowered.endswith("test")
 
 
+def _credit_epuise(exc: BaseException) -> bool:
+    """Le fournisseur refuse-t-il faute de solde ?
+
+    Un compte sans credit ne peut pas servir un appel live : c'est la MEME
+    situation qu'une cle absente, et la suite doit donc SAUTER, pas echouer.
+    La garde `_has_real_deepseek_key` ne verifie que la FORME de la cle ; une
+    cle valide dont le compte est a sec la franchit et fait echouer la suite
+    pour une raison qui n'est pas un defaut du code.
+
+    Tout autre refus reste un echec : 401 (cle invalide), 400 (le bug #678
+    que ce test surveille), reponse illisible. C'est ce qui lui conserve son
+    pouvoir de detection — un `except` large ferait de ce test un figurant.
+    """
+    statut = getattr(exc, "status_code", None) or getattr(
+        getattr(exc, "response", None), "status_code", None)
+    if statut == 402:
+        return True
+    return "insufficient balance" in str(exc).lower()
+
+
 @pytest.mark.parametrize("value", ["", "placeholder", "sk-test", "demo-test"])
 def test_deepseek_live_probe_rejette_les_cles_factices(monkeypatch, value):
     monkeypatch.setenv("DEEPSEEK_API_KEY", value)
     assert _has_real_deepseek_key() is False
+
+
+class _Reponse:
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+def _erreur(message="boom", statut=None, statut_reponse=None):
+    exc = RuntimeError(message)
+    if statut is not None:
+        exc.status_code = statut
+    if statut_reponse is not None:
+        exc.response = _Reponse(statut_reponse)
+    return exc
+
+
+@pytest.mark.parametrize("exc", [
+    _erreur(statut=402),
+    _erreur(statut_reponse=402),
+    _erreur("Error code: 402 - {'message': 'Insufficient Balance'}"),
+    _erreur("insufficient balance"),
+])
+def test_le_solde_epuise_est_reconnu(exc):
+    assert _credit_epuise(exc) is True
+
+
+@pytest.mark.parametrize("exc", [
+    _erreur(statut=401),                       # cle invalide : vrai echec
+    _erreur(statut=400),                       # le bug #678 que le test garde
+    _erreur(statut_reponse=429),               # quota : a retenter, pas a sauter
+    _erreur("connection reset"),
+    ValueError("reponse illisible"),
+])
+def test_tout_autre_refus_reste_un_echec(exc):
+    """Sauter sur autre chose que le solde ferait de ce test un figurant."""
+    assert _credit_epuise(exc) is False
 
 
 @pytest.mark.integration
@@ -221,10 +277,17 @@ class TestDeepSeekLiveStructuredOutput:
             timeout=60,
         )
         bound = client.with_structured_output(self._Pick)
-        result = bound.invoke(
-            "Pick BUY or SELL or HOLD for a tech stock with strong earnings. "
-            "Confidence is a float between 0 and 1."
-        )
+        try:
+            result = bound.invoke(
+                "Pick BUY or SELL or HOLD for a tech stock with strong earnings. "
+                "Confidence is a float between 0 and 1."
+            )
+        except Exception as exc:  # noqa: BLE001 — retriee juste apres
+            if _credit_epuise(exc):
+                pytest.skip(
+                    "compte DeepSeek sans credit (HTTP 402) : aucun appel live "
+                    "n'est possible, meme categorie qu'une cle absente")
+            raise
         assert isinstance(result, self._Pick)
         assert result.action in {"BUY", "SELL", "HOLD"}
         assert 0.0 <= result.confidence <= 1.0

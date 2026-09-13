@@ -12,8 +12,6 @@ import json
 import math
 import os
 import re
-import shutil
-import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -23,7 +21,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from titanium import cortex_codex
+from titanium import cortex_cli, cortex_codex
 from titanium.fundamental_intelligence import Evidence, _balanced, collect, evidence_freshness
 from titanium.organism.contracts import (
     CORTEX_DECISION_MODEL_VERSION,
@@ -75,7 +73,7 @@ HERMES_OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 # Ce qui restait — « une fenetre d'usage glissante qui se recharge » — etait
 # FAUX, et l'a ete jusqu'au 08/09/2026. La vraie cause est l'heritage de
 # `ANTHROPIC_API_KEY` : le CLI basculait de l'abonnement vers une cle API au
-# solde vide (cf. `_env_abonnement`, qui corrige le defaut). Ce qui « se
+# solde vide (cf. `cortex_cli.purger_environnement`, qui corrige le defaut). Ce qui « se
 # rechargeait » etait le shell d'ou l'on relancait, pas un quota. Les quatre
 # hypotheses ci-dessus restent refutees ; la cinquieme leur manquait.
 #
@@ -106,7 +104,8 @@ HERMES_ATTENTE_REFUS_S = 20.0
 # Espacement minimal entre deux appels Hermes, pour tout le processus.
 #
 # Attention a la justification d'origine (07/09) : elle invoquait une « fenetre
-# d'usage partagee » que la mesure du 08/09 a refutee (cf. `_env_abonnement`).
+# d'usage partagee » que la mesure du 08/09 a refutee (cf.
+# `cortex_cli.purger_environnement`).
 # L'espacement reste, sur un motif plus modeste mais reel : il borne le DEBIT
 # d'un worker qui produit des salves — 5 decisions par minute en mediane,
 # jusqu'a 15 — et evite d'ouvrir autant de sous-processus CLI simultanes.
@@ -173,34 +172,6 @@ class HermesLotTropGrand(HermesCortexUnavailable):
     def __init__(self, message: str, *, provider: str | None = None) -> None:
         super().__init__(message)
         self.provider = provider
-
-
-def _hermes_executable() -> Path:
-    explicit = os.getenv("HERMES_CORTEX_EXECUTABLE", "").strip()
-    candidates = [Path(explicit)] if explicit else []
-    if os.name == "nt":
-        local = os.getenv("LOCALAPPDATA", "").strip()
-        if local:
-            candidates.append(
-                Path(local) / "hermes" / "hermes-agent" / "venv" /
-                "Scripts" / "python.exe"
-            )
-    discovered = shutil.which("hermes.exe")
-    if discovered:
-        candidates.append(Path(discovered))
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    raise HermesCortexUnavailable("executable Hermes introuvable")
-
-
-def _hermes_command_prefix() -> list[str]:
-    """Use Hermes' Python entrypoint when Windows blocks its generated exe shim."""
-    executable = _hermes_executable()
-    command = [str(executable)]
-    if os.name == "nt" and executable.name.lower() == "python.exe":
-        command.extend(["-c", "from hermes_cli.main import main; main()"])
-    return command
 
 
 def _json_object(text: str) -> dict[str, Any]:
@@ -318,24 +289,6 @@ def _fournisseurs() -> list[str]:
     return list(dict.fromkeys(noms))
 
 
-def _hermes_command(prompt: str, provider: str) -> list[str]:
-    """La ligne de commande reellement construite, en un seul endroit.
-
-    Le CLI tourne sous ABONNEMENT, et son invocation est inseparable de la
-    purge d'environnement : `_env_abonnement` la lance sans `ANTHROPIC_API_KEY`.
-    Les deux vivent donc dans le meme contrat, fige par un test qui relit ce
-    que `_ask` passe vraiment au processus — arguments ET environnement.
-    """
-    return [
-        *_hermes_command_prefix(),
-        "-z", prompt,
-        "--provider", provider,
-        "--model", HERMES_MODEL,
-        "--ignore-rules",
-        "-t", "todo",
-    ]
-
-
 def _safe_cli_error(stdout: str, stderr: str) -> str:
     """Classify failure without storing arbitrary CLI output or credentials.
 
@@ -396,60 +349,6 @@ def _refus_du_fournisseur(detail: str) -> bool:
         return True
     statut = re.search(r"\bhttp\s+(\d{3})\b", texte)
     return statut is not None and statut.group(1) in {"402", "429"}
-
-
-#: Les variables qui font ABANDONNER l'abonnement a un CLI.
-#:
-#: Une seule liste pour les deux CLI, partagee par l'environnement de tout
-#: sous-processus Hermes comme du bassin Codex : la regle est la meme — le
-#: cortex doit tourner sur le forfait, jamais sur une cle API.
-#:
-#:   ANTHROPIC_*  le CLI Hermes bascule sur une cle API dont le solde est vide
-#:                (cause racine mesuree le 08/09, cf. `_env_abonnement`) ;
-#:   OPENAI_*     la documentation Codex est explicite : `codex exec` reutilise
-#:   CODEX_*      l'authentification sauvegardee par defaut, mais facture la cle
-#:                des que `OPENAI_API_KEY` ou `CODEX_API_KEY` est dans
-#:                l'environnement. C'est le meme mode de panne, transpose.
-IDENTIFIANTS_API = (
-    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
-    "OPENAI_API_KEY", "CODEX_API_KEY",
-)
-
-
-def _env_abonnement() -> dict[str, str]:
-    """Environnement du sous-processus, purge des identifiants API Anthropic.
-
-    CAUSE RACINE MESUREE LE 08/09/2026, et correction du diagnostic du 07/09.
-
-    Le CLI Hermes, des qu'il voit `ANTHROPIC_API_KEY` dans son environnement,
-    abandonne l'abonnement Claude Pro/Max et facture la CLE API — dont le solde
-    est vide. Le fournisseur repond alors « HTTP 400: credit balance is too
-    low ». Le message etait exact ; il parlait simplement d'un compte que V14 ne
-    doit jamais utiliser. Preuve, meme prompt et meme binaire :
-
-        sans ANTHROPIC_API_KEY   rc=0, verdicts JSON, ~10 s
-        avec ANTHROPIC_API_KEY   HTTP 401: API key is invalid
-
-    Le chaînon : `PRIME_V14.bat` exporte la cle depuis `.env`; tout service
-    lance depuis un shell ayant execute PRIME en herite, `cmd /k` la propageant
-    au worker. D'ou l'intermittence — elle dependait du shell de depart, pas
-    d'une « fenetre d'usage » du fournisseur.
-
-    Ce que cela invalide : l'enquete du 07/09 concluait a un quota glissant qui
-    « se recharge ». Ce qui se rechargeait, c'etait le shell d'ou l'on
-    relancait. `HERMES_LOT_MAX` et `HERMES_INTERVALLE_MIN_S` ont ete calibres
-    contre une cause inexistante ; ils restent en place car ils bornent
-    utilement le debit, mais ils ne soignent pas ce defaut.
-
-    La purge vit ICI, au plus pres du `subprocess.run`, pour qu'aucun chemin
-    d'appel — entrees, positions, diagnostic — ne puisse la contourner, et
-    qu'aucun shell parent ne puisse la defaire. Aucune valeur de secret n'est
-    lue, ni journalisee : les cles sont retirees, jamais inspectees.
-    """
-    env = dict(os.environ)
-    for cle in IDENTIFIANTS_API:
-        env.pop(cle, None)
-    return env
 
 
 def _ask_ollama_local(prompt: str, timeout_s: float) -> dict[str, Any]:
@@ -578,9 +477,7 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
 
         if nom in cortex_codex.NOMS:
             try:
-                result = cortex_codex.executer(
-                    prompt, timeout_s=timeout_s, env=_env_abonnement()
-                )
+                result = cortex_codex.executer(prompt, timeout_s=timeout_s)
             except cortex_codex.CodexHorsSchema as exc:
                 # Le fournisseur a repondu : ouvrir son disjoncteur punirait un
                 # service disponible, et un lot plus petit ne repare pas une
@@ -623,32 +520,27 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
             _etat_circuit(nom).update(retry_at=0.0, error="")
             return result
 
-        command = _hermes_command(prompt, nom)
-        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        # Le lancement appartient a `cortex_cli` : binaire, ligne de commande,
+        # environnement purge. Cet appelant ne peut donc pas l'oublier — il n'a
+        # plus de parametre d'environnement a passer.
         try:
-            completed = subprocess.run(
-                command,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=max(1.0, float(timeout_s)),
-                check=False,
-                creationflags=flags,
-                env=_env_abonnement(),
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            _trip(type(exc).__name__, provider=nom)
-            raise HermesCortexUnavailable(type(exc).__name__) from exc
-        if completed.returncode != 0:
-            detail = _safe_cli_error(completed.stdout, completed.stderr)
+            rendu = cortex_cli.lancer(nom, prompt, timeout_s=timeout_s,
+                                      modele=HERMES_MODEL)
+        except cortex_cli.BassinIntrouvable as exc:
+            # Rien n'a ete appele : ce n'est pas une panne du fournisseur, donc
+            # aucun disjoncteur ne s'ouvre pour son compte.
+            raise HermesCortexUnavailable(str(exc)) from exc
+        except cortex_cli.EchecBassin as exc:
+            _trip(str(exc), provider=nom)
+            raise HermesCortexUnavailable(str(exc)) from exc
+        if rendu.returncode != 0:
+            detail = _safe_cli_error(rendu.stdout, rendu.stderr)
             if scindable and _refus_prealable(detail):
                 raise HermesLotTropGrand(detail[:240], provider=nom)
             _trip(detail, provider=nom)
             raise HermesCortexUnavailable(detail[:240])
         try:
-            result = _json_object(completed.stdout)
+            result = _json_object(rendu.stdout)
         except HermesCortexUnavailable as exc:
             # Le CLI Hermes rend 0 meme quand l'API refuse : le motif reel est
             # alors du texte sur stdout, pas un code de sortie. Signaler seulement
@@ -656,7 +548,7 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
             # appliquait 60 s de backoff a un probleme de quota qui en demande 600.
             # Constate le 07/09/2026 : stdout portait « HTTP 400: Your credit
             # balance is too low », diagnostique comme un defaut de parsing.
-            detail = _safe_cli_error(completed.stdout, completed.stderr)
+            detail = _safe_cli_error(rendu.stdout, rendu.stderr)
             motif = f"{exc}: {detail}"
             # Cas mesure le 07/09 : returncode 0, stdout = « HTTP 400: Your credit
             # balance is too low », donc echec de parsing ET refus prealable. Un
@@ -667,7 +559,7 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
             _trip(motif, provider=nom)
             raise HermesCortexUnavailable(motif) from exc
         if result.get("error") or result.get("type") == "error":
-            detail = _safe_cli_error(completed.stdout, completed.stderr)
+            detail = _safe_cli_error(rendu.stdout, rendu.stderr)
             if scindable and _refus_prealable(detail):
                 raise HermesLotTropGrand(detail, provider=nom)
             _trip(detail, provider=nom)
@@ -676,13 +568,19 @@ def _ask(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
         return result
 
 
-def _ask_avec_repli(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
-                    scindable: bool = False) -> dict[str, Any]:
-    """Interroge le premier fournisseur disponible de la liste.
+def interroger_bassins(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
+                       scindable: bool = False) -> dict[str, Any]:
+    """LA porte d'entree d'un appel fournisseur, seule et nommable.
 
-    Un fournisseur a sec n'arrete plus les autres : son disjoncteur est a lui,
-    il est saute, et le suivant repond. C'est la raison d'etre de l'etape C1 —
-    sans liste, nommer les disjoncteurs ne changerait rien d'observable.
+    Aucun appelant ne doit court-circuiter la politique en s'adressant a `_ask`
+    directement : ce faisant il ignorerait la quarantaine, et relancerait un
+    bassin a sec que la liste savait deja sec. C'est exactement ce que faisait le
+    chemin de diagnostic.
+
+    Interroge le premier fournisseur disponible de la liste. Un fournisseur a
+    sec n'arrete plus les autres : son disjoncteur est a lui, il est saute, et
+    le suivant repond. C'est la raison d'etre de l'etape C1 — sans liste, nommer
+    les disjoncteurs ne changerait rien d'observable.
 
     Le refus prealable est le cas qui rend la distinction necessaire. Un refus
     dit « cette requete », pas « ce fournisseur » : il ne ferme aucun
@@ -849,9 +747,10 @@ def _ask_par_lots(prepared: list[dict], entete: list[str], cle_payload: str,
             try:
                 # Toujours scindable : c'est ici, et non dans `_ask`, que se
                 # decide l'ouverture du disjoncteur — apres avoir reessaye.
-                # `_ask_avec_repli` garde le meme contrat et ajoute une seule
-                # chose : sauter un fournisseur dont le disjoncteur est ouvert.
-                parsed = _ask_avec_repli(prompt, scindable=True)
+                # `interroger_bassins` garde le meme contrat et ajoute une
+                # seule chose : sauter un fournisseur dont le disjoncteur est
+                # ouvert, et marquer celui qui refuse pour son COMPTE.
+                parsed = interroger_bassins(prompt, scindable=True)
             except HermesLotTropGrand as exc:
                 motif = str(exc)
                 if len(lot) > 1:

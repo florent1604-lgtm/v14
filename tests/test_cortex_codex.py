@@ -35,7 +35,7 @@ from pathlib import Path
 
 import pytest
 
-from titanium import cortex_codex, hermes_cortex as hc
+from titanium import cortex_cli, cortex_codex, hermes_cortex as hc
 
 #: Deliberement PAS de forme de cle : la garde de secrets du depot refuse, a
 #: juste titre, tout ce qui ressemble a un jeton. Ces tests n'ont besoin que
@@ -147,7 +147,7 @@ def faux_codex(tmp_path, monkeypatch):
     script.write_text(FAUX_CODEX, encoding="utf-8")
     journal = tmp_path / "journal_codex.ndjson"
     prefixe = [sys.executable, str(script)]
-    monkeypatch.setattr(cortex_codex, "_prefixe", lambda: list(prefixe))
+    monkeypatch.setattr(cortex_cli, "prefixe", lambda _bassin: list(prefixe))
     monkeypatch.setenv("FAUX_CODEX_JOURNAL", str(journal))
     monkeypatch.setenv("FAUX_CODEX_MODE", "ok")
     monkeypatch.setattr(hc, "HERMES_INTERVALLE_MIN_S", 0.0)
@@ -181,8 +181,7 @@ def _mode(monkeypatch, mode: str) -> None:
 def test_la_ligne_de_commande_reellement_recue_est_figee(faux_codex, monkeypatch):
     """Ce que le processus a recu, pas ce que le code croit construire."""
     _mode(monkeypatch, "ok")
-    cortex_codex.executer("diagnostic simple", timeout_s=5.0,
-                          env=hc._env_abonnement())
+    cortex_codex.executer("diagnostic simple", timeout_s=5.0)
     recu = faux_codex()
     assert len(recu) == 1
     # `sys.argv[0]` est le script ; ce que le code a construit commence a
@@ -192,7 +191,8 @@ def test_la_ligne_de_commande_reellement_recue_est_figee(faux_codex, monkeypatch
     # reconstruit la ligne avec le chemin que le processus a REELLEMENT recu :
     # c'est la seule facon de comparer toute la ligne, `-o` compris.
     sortie_recue = Path(recu[0]["sortie"])
-    attendu = cortex_codex._commande("diagnostic simple", sortie_recue)
+    attendu = cortex_cli.commande("codex-cli", "diagnostic simple",
+                                  sortie=sortie_recue)
     # `_commande` rend [executable, script, ...] ; `sys.argv` du processus vaut
     # [script, ...]. Ce qui doit coincider au mot pres est ce qui SUIT le
     # prefixe injecte — c'est-a-dire ce que le CLI a reellement recu.
@@ -204,18 +204,26 @@ def test_la_ligne_de_commande_reellement_recue_est_figee(faux_codex, monkeypatch
 
 @pytest.mark.unit
 def test_les_drapeaux_du_bassin_codex_sont_ceux_du_dossier(faux_codex, monkeypatch, tmp_path):
-    """`--json`, `--ephemeral`, `--ignore-user-config`, `--sandbox read-only`.
+    """`--ephemeral`, `--ignore-user-config`, `--ignore-rules`, `--sandbox read-only`.
 
     Chacun est ecrit pour une raison : sans `--ignore-user-config`, un
     `config.toml` utilisateur pourrait changer le verdict d'un composant qui
     publie des politiques.
+
+    `--json` n'y est pas, et c'est delibere : le verdict vient de `-o`, personne
+    ne lit les evenements JSONL, et SANS le drapeau c'est le message final qui
+    part sur stdout — exactement ce que le classificur et le repli veulent.
     """
     _mode(monkeypatch, "ok")
-    cortex_codex.executer("diagnostic simple", timeout_s=5.0,
-                          env=hc._env_abonnement())
+    cortex_codex.executer("diagnostic simple", timeout_s=5.0)
     recu = faux_codex()[0]
-    for drapeau in ("--json", "--ephemeral", "--ignore-user-config", "--ignore-rules"):
+    for drapeau in ("--ephemeral", "--ignore-user-config", "--ignore-rules"):
         assert drapeau in recu["drapeaux"], drapeau
+    assert "--json" not in recu["drapeaux"], (
+        "--json n'a aucun lecteur : le verdict vient de `-o`, et le message "
+        "final sur stdout sert de repli. L'activer serait de la machinerie sans "
+        "consommateur."
+    )
     assert recu["sandbox"] == "read-only"
 
 
@@ -223,11 +231,10 @@ def test_les_drapeaux_du_bassin_codex_sont_ceux_du_dossier(faux_codex, monkeypat
 def test_le_schema_pointe_sur_le_fichier_versionne(faux_codex, monkeypatch):
     """Le contrat n'est pas une convention en prose : c'est un fichier du depot."""
     _mode(monkeypatch, "ok")
-    cortex_codex.executer("diagnostic simple", timeout_s=5.0,
-                          env=hc._env_abonnement())
+    cortex_codex.executer("diagnostic simple", timeout_s=5.0)
     recu = faux_codex()[0]
-    assert Path(recu["schema"]).resolve() == cortex_codex.SCHEMA.resolve()
-    assert cortex_codex.SCHEMA.is_file()
+    assert Path(recu["schema"]).resolve() == cortex_cli.SCHEMA_VERDICT.resolve()
+    assert cortex_cli.SCHEMA_VERDICT.is_file()
     assert recu["sortie"], "`-o` doit nommer un fichier de sortie"
 
 
@@ -243,8 +250,7 @@ def test_aucun_identifiant_api_n_atteint_le_bassin_codex(faux_codex, monkeypatch
     monkeypatch.setenv("CODEX_API_KEY", FACTICE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", FACTICE)
     _mode(monkeypatch, "ok")
-    cortex_codex.executer("diagnostic simple", timeout_s=5.0,
-                          env=hc._env_abonnement())
+    cortex_codex.executer("diagnostic simple", timeout_s=5.0)
     recu = faux_codex()[0]
     assert recu["openai_api_key"] == ""
     assert recu["codex_api_key"] == ""
@@ -255,10 +261,9 @@ def test_aucun_identifiant_api_n_atteint_le_bassin_codex(faux_codex, monkeypatch
 def test_le_bassin_codex_tourne_dans_la_racine_du_depot(faux_codex, monkeypatch):
     """Ce qui n'etait fige nulle part : le `cwd` du lancement reel."""
     _mode(monkeypatch, "ok")
-    cortex_codex.executer("diagnostic simple", timeout_s=5.0,
-                          env=hc._env_abonnement())
+    cortex_codex.executer("diagnostic simple", timeout_s=5.0)
     recu = faux_codex()[0]
-    assert Path(recu["cwd"]).resolve() == cortex_codex.ROOT.resolve()
+    assert Path(recu["cwd"]).resolve() == cortex_cli.ROOT.resolve()
 
 
 @pytest.mark.unit
@@ -270,9 +275,9 @@ def test_le_shim_cmd_de_windows_passe_par_cmd_c(monkeypatch, tmp_path):
     """
     shim = tmp_path / "codex.cmd"
     shim.write_text("@echo off\n", encoding="utf-8")
-    monkeypatch.setattr(cortex_codex, "_executable", lambda: shim)
-    monkeypatch.setattr(cortex_codex.os, "name", "nt")
-    assert cortex_codex._prefixe() == ["cmd", "/c", str(shim)]
+    monkeypatch.setattr(cortex_cli, "executable", lambda _bassin: shim)
+    monkeypatch.setattr(cortex_cli.os, "name", "nt")
+    assert cortex_cli.prefixe("codex-cli") == ["cmd", "/c", str(shim)]
 
 
 @pytest.mark.unit
@@ -280,18 +285,18 @@ def test_un_binaire_natif_n_est_pas_emballe_dans_cmd_c(monkeypatch, tmp_path):
     """Le shim est le cas de Windows ; ailleurs, la ligne reste nue."""
     natif = tmp_path / "codex"
     natif.write_text("#!/bin/sh\n", encoding="utf-8")
-    monkeypatch.setattr(cortex_codex, "_executable", lambda: natif)
-    monkeypatch.setattr(cortex_codex.os, "name", "posix")
-    assert cortex_codex._prefixe() == [str(natif)]
+    monkeypatch.setattr(cortex_cli, "executable", lambda _bassin: natif)
+    monkeypatch.setattr(cortex_cli.os, "name", "posix")
+    assert cortex_cli.prefixe("codex-cli") == [str(natif)]
 
 
 @pytest.mark.unit
 def test_un_binaire_absent_est_nomme_et_non_invente(monkeypatch):
     """Sans binaire, l'erreur dit la cause ; elle n'invente pas un verdict."""
-    monkeypatch.setattr(cortex_codex.shutil, "which", lambda _nom: None)
+    monkeypatch.setattr(cortex_cli.shutil, "which", lambda _nom: None)
     monkeypatch.delenv("CODEX_CORTEX_EXECUTABLE", raising=False)
-    with pytest.raises(cortex_codex.CodexEchec, match="introuvable"):
-        cortex_codex._executable()
+    with pytest.raises(cortex_cli.BassinIntrouvable, match="introuvable"):
+        cortex_cli.executable("codex-cli")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -376,8 +381,7 @@ def test_une_reponse_non_json_est_hors_schema(faux_codex, monkeypatch):
     """Avec `--output-schema`, un texte libre est deja une rupture de contrat."""
     _mode(monkeypatch, "nonjson")
     with pytest.raises(cortex_codex.CodexHorsSchema, match="sans JSON"):
-        cortex_codex.executer("diagnostic simple", timeout_s=5.0,
-                              env=hc._env_abonnement())
+        cortex_codex.executer("diagnostic simple", timeout_s=5.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -485,7 +489,7 @@ def test_le_second_bassin_repond_quand_le_premier_est_a_sec(faux_codex, monkeypa
     monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,codex-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     _mode(monkeypatch, "ok")
-    assert hc._ask_avec_repli("diagnostic simple") == VERDICT_CONFORME
+    assert hc.interroger_bassins("diagnostic simple") == VERDICT_CONFORME
     # Le bassin a sec n'a meme pas ete interroge : aucun sous-processus pour lui.
     assert len(faux_codex()) == 1
     assert hc.circuit_status("claude-cli")["available"] is False
@@ -499,7 +503,7 @@ def test_un_bassin_a_sec_puis_l_autre_en_panne_dit_laquelle(faux_codex, monkeypa
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     _mode(monkeypatch, "panne")
     with pytest.raises(hc.HermesCortexUnavailable):
-        hc._ask_avec_repli("diagnostic simple")
+        hc.interroger_bassins("diagnostic simple")
     assert hc.circuit_status("claude-cli")["available"] is False
     assert hc.circuit_status("codex-cli")["available"] is False
 
@@ -524,7 +528,7 @@ def test_le_bassin_codex_est_interroge_par_son_propre_nom(faux_codex, monkeypatc
     """Sans cela, le repli interrogerait toujours la voie Claude."""
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "codex-cli")
     _mode(monkeypatch, "ok")
-    assert hc._ask_avec_repli("diagnostic simple") == VERDICT_CONFORME
+    assert hc.interroger_bassins("diagnostic simple") == VERDICT_CONFORME
     assert len(faux_codex()) == 1
     assert hc.circuit_status()["provider"] == "codex-cli"
 

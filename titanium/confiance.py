@@ -9,7 +9,9 @@ qui en satisfait le minimum.
 
 Ce que ce module ne fait PAS
 ----------------------------
-Il ne touche pas au plafond. `MAX_RISK_PCT = 2 %` reste un mur : moduler
+Il ne touche pas au plafond par trade. `MAX_RISK_PCT = 2 %` — le risque d'UN
+trade, à ne pas confondre avec le budget global d'exposition — reste un
+mur : moduler
 c'est répartir le risque, pas l'augmenter globalement. Un module qui pourrait
 dépasser le plafond ne serait pas un module de confiance, ce serait une
 suppression de garde-fou déguisée.

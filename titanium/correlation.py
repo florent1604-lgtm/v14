@@ -4,7 +4,8 @@ Le défaut que ce module comble
 -------------------------------
 `MAX_RISQUE_CUMULE_PCT` compte le risque total mais il est **aveugle à la
 corrélation**. Le 07/08/2026, huit positions ouvertes respectaient le budget
-de 6 % — et six d'entre elles portaient le yen, corrélées à **0.69** en
+global **d'alors — 6,0 %, contre 17,1 % aujourd'hui** — et six d'entre elles
+portaient le yen, corrélées à **0.69** en
 moyenne. Ce n'étaient pas six paris, c'était un pari pris six fois. Le
 budget global était respecté ; l'exposition réelle valait le triple.
 
@@ -40,8 +41,13 @@ CACHE = RACINE / "results" / "grappes.json"
 
 #: Risque cumulé maximal par grappe, en % de l'équité.
 #:
-#: Plafond DEMO explicitement promu à 5,7 % le 13/09/2026. Le budget global
-#: de 6 % reste la dernière barrière et conserve 0,3 point hors de la grappe.
+#: Plafond DEMO promu de 2,0 % à 5,7 % le 13/09/2026, en même temps que le
+#: budget global passait de 6,0 % à 17,1 %. L'invariant tenu est
+#: `3 x 5,7 = 17,1` : trois grappes indépendantes saturent l'enveloppe, et
+#: c'est le budget global — pas ce plafond-ci — qui borne la quatrième.
+#: Ce plafond reste la barrière de l'exposition CORRÉLÉE ; le budget global
+#: est celle de l'ensemble. Mesure des deux en euros :
+#: `tools/mesure_budget_risque.py`.
 MAX_RISQUE_GRAPPE_PCT = 5.7
 
 #: Version de la table des *doublons de contrat* verifies sur la collecte H1.

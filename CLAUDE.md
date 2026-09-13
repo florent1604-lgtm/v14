@@ -1047,7 +1047,8 @@ Compte **10055401** Axi-US50-Demo, 5000 EUR. `TITANIUM_EXEC_ENABLED=1`,
 | 3/4 (quorum PROD) | ~1.13 % |
 | 4/4 | 1.75 % — plafond de modulation |
 
-`MAX_RISK_PCT = 2 %` reste un **mur intact** : le plafond de modulation est
+`MAX_RISK_PCT = 2 %` — risque d'**un** trade, distinct du budget global
+d'exposition (17,1 %) — reste un **mur intact** : le plafond de modulation est
 délibérément en dessous, pour que le plafond dur garde son rôle de dernier
 recours. La conviction du délibérateur nuance de ±25 % au plus — un LLM
 nuance la taille, il ne la décide pas.
@@ -1172,6 +1173,11 @@ repli par date ne sert plus que si MT5 est injoignable.
 la déduire. Même leçon que `_SUPPORT_PILLARS` lu à la source.
 
 ## Plafonds relevés — 8 positions + budget de risque (07/08/2026)
+
+> **État au 13/09/2026** : `MAX_RISQUE_CUMULE_PCT = 17,1 %` et
+> `MAX_RISQUE_GRAPPE_PCT = 5,7 %`, invariant `3 x 5,7 = 17,1`. La section
+> ci-dessous décrit l'état du **07/08/2026** ; les 6 % qu'elle cite sont
+> ceux d'alors. Mesure courante : `tools/mesure_budget_risque.py`.
 
 `MAX_POSITIONS` 3 → **8**, mais **jamais seul** : `MAX_RISQUE_CUMULE_PCT = 6`.
 

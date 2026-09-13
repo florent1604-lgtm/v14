@@ -74,8 +74,9 @@ nombres étaient faux, et ils ont servi à décider.
 
 ## E4 — Un budget de risque aveugle à la corrélation
 
-**Coût : six positions sur le yen, corrélées à 0.69, sous un budget de 6 %
-parfaitement respecté.**
+**Coût : six positions sur le yen, corrélées à 0.69, sous le budget global
+d'alors — 6 %, contre 17,1 % depuis le 13/09/2026 — parfaitement
+respecté.**
 
 `MAX_RISQUE_CUMULE_PCT` comptait le risque total. Il ne voyait pas que six
 positions portaient le même sous-jacent. Ce n'étaient pas six paris, c'était

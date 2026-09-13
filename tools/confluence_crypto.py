@@ -21,7 +21,7 @@ contraire serait inventer une mesure.
     risque     le RiskGate refuse (contre-tendance, exposition…)
     grappe     la famille de corrélation porte déjà son plafond
     dérive     le prix a bougé depuis la décision, le setup est périmé
-    plafond    8 positions ou 6 % de risque déjà engagés
+    plafond    le budget de risque ou le nombre de positions est atteint
     ENVOI      rien ne s'y oppose — l'ordre partirait
 
 Ce script n'envoie **aucun** ordre. Il rejoue la décision, il ne l'exécute pas.

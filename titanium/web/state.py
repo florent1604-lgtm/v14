@@ -614,14 +614,15 @@ def macro() -> dict:
         return publie
 
     try:
-        from titanium.macro import macro_bloc_indisponible, macro_publication
+        from titanium.macro import macro_bloc_pour_publication
 
-        bloc = macro_publication()
+        bloc = macro_bloc_pour_publication()
     except Exception as exc:  # noqa: BLE001 — une sonde ne noircit pas le tableau
-        from titanium.macro import macro_bloc_indisponible
-
-        return {**macro_bloc_indisponible(f"{type(exc).__name__}: {exc}"),
-                "source": "processus"}
+        # Cas distinct du filet precedent : le paquet lui-meme ne se charge pas,
+        # donc son bloc rouge n'est pas joignable. Le gabarit ne demande que
+        # `disponible` et `error` pour rester lisible — et rouge.
+        return {"disponible": False, "severity": "crit", "source": "processus",
+                "error": f"{type(exc).__name__}: {exc}"}
     bloc["source"] = "processus"
     return bloc
 

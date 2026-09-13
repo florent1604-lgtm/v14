@@ -115,14 +115,3 @@ class MacroFeed:
             await asyncio.gather(sommeil, reveil, return_exceptions=True)
         for tache in faites:  # une exception du sommeil se propage ici
             tache.result()
-
-    def refresh_blocking(self) -> bool:
-        """Lecture synchrone, pour la CLI ou un job planifie sans boucle asyncio."""
-        depart = monotonic_ms()
-        try:
-            calendar = self.source.fetch()
-        except Exception as exc:  # noqa: BLE001
-            self.cache.record_failure(getattr(self.source, "name", ""), exc)
-            return False
-        self.cache.publish(calendar, latency_ms=monotonic_ms() - depart)
-        return True

@@ -253,3 +253,22 @@ def macro_publication(
               "provider": politique.provider, "thread": "", "error": ""}
     )
     return bloc
+
+
+def macro_bloc_pour_publication(
+    *,
+    policy: MacroPolicy | None = None,
+    cache: MacroCache | None = None,
+    service: MacroService | None = None,
+) -> dict[str, Any]:
+    """Le bloc a publier, ou le rouge lisible si la configuration est illisible.
+
+    NE LEVE JAMAIS, et c'est UN SEUL exemplaire de ce filet : la boucle armee le
+    publie dans son battement, la sonde du tableau de bord le recalcule a defaut.
+    Deux copies de ce `try/except` finissaient par diverger — et c'est justement
+    le cas ou le tableau de bord doit dire la verite plutot que de rester muet.
+    """
+    try:
+        return macro_publication(policy=policy, cache=cache, service=service)
+    except Exception as exc:  # noqa: BLE001 — un rouge lisible vaut mieux qu'une exception
+        return macro_bloc_indisponible(f"{type(exc).__name__}: {exc}")

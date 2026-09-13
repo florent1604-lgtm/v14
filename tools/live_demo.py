@@ -476,17 +476,13 @@ def _bloc_macro() -> dict:
 
     C'est le canal que le tableau de bord relit deja : publier ici, plutot qu'un
     fichier de plus, garantit que la jauge affiche le verdict DE LA BOUCLE — le
-    seul qui decide. Une configuration illisible y devient un rouge lisible au
-    lieu d'une exception dans un battement d'observabilite.
+    seul qui decide. Le filet « configuration illisible devient un rouge lisible »
+    vit dans `titanium.macro`, en un seul exemplaire : la sonde du tableau de bord
+    a donc exactement le meme, et les deux ne peuvent plus diverger.
     """
-    try:
-        from titanium.macro import macro_bloc_indisponible, macro_publication
+    from titanium.macro import macro_bloc_pour_publication
 
-        return macro_publication(service=_SERVICE_MACRO)
-    except Exception as exc:  # noqa: BLE001 — le battement ne fait pas echouer un tour
-        from titanium.macro import macro_bloc_indisponible
-
-        return macro_bloc_indisponible(f"{type(exc).__name__}: {exc}")
+    return macro_bloc_pour_publication(service=_SERVICE_MACRO)
 
 
 def battre(stats: dict, *, armer: bool, equity: float = 0.0,

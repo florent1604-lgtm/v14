@@ -57,7 +57,7 @@ et chacune a un propriétaire distinct :
                                                               ┌─────────┴─────────┐
                                                               ▼                   ▼
                                                     battre() publie      state.macro()
-                                                    dans le battement    (sonde, CLI)
+                                                    dans le battement    (sonde)
                                                               │                   │
                                                               └──── relit ─────────┘
                                                            results/loop_heartbeat.json
@@ -87,11 +87,11 @@ battement — boucle arrêtée — elle calcule en local et le DIT (`source`).
 | `cache.py` | 147 | Que croit savoir ce processus, et qu'est-il arrivé au dernier essai ? | N'attend jamais le réseau, ne lève jamais |
 | `sources.py` | 263 | Comment lit-on un fournisseur ? | Ne décide pas, ne met rien en cache |
 | `risk.py` | 205 | Faut-il du risque neuf, maintenant, pour ce symbole ? | Aucune E/S, aucune horloge implicite |
-| `feed.py` | 128 | Quand relit-on, et avec quel repli ? | Ne décide pas de la prudence, ne démarre rien |
-| `service.py` | 255 | **Qui** relit, dans ce processus, et quand cela s'arrête | Ne décide rien du risque |
+| `feed.py` | 117 | Quand relit-on, et avec quel repli ? | Ne décide pas de la prudence, ne démarre rien |
+| `service.py` | 274 | **Qui** relit, dans ce processus, et quand cela s'arrête | Ne décide rien du risque |
 | `gate.py` | 66 | Sous quelle forme le verdict entre-t-il dans une décision ? | Ne connaît ni la porte ni l'interface |
 | `telemetry.py` | 94 | Comment l'interface voit-elle le verdict ? | Ne lit pas de texte libre |
-| `__init__.py` | 164 | Le cache du processus, la politique courante, le point d'entrée | — |
+| `__init__.py` | 151 | Le cache du processus, la politique courante, le point d'entrée | — |
 
 Trois conséquences directes :
 
@@ -104,6 +104,41 @@ Trois conséquences directes :
 * **Le rythme de relecture change** → `policy.py` (`refresh_s`, `max_backoff_s`),
   et `service.py` ne fait que l'executer : c'est le SEUL endroit qui cree le fil,
   et il n'en cree aucun quand le flux est eteint.
+
+### 3.1 La règle : aucun état sans lecteur
+
+**Tout ce qui est produit est lu par quelque chose de nommable.** Un champ, un
+fichier, un outil dont le seul lecteur est ce document n'existe pas : il est un
+mensonge en attente, parce que rien ne le contredira jamais.
+
+Ce que la règle a fait tomber, et pourquoi :
+
+* **Trois champs macro sur le vecteur d'arrivée** (`macro_allows_new_risk`,
+  `macro_conservative`, `macro_score`). Le premier était `True` par
+  construction ; les deux autres n'étaient lus par personne. Or la seule
+  information que le macro apporte à ce vecteur est « on a le droit de
+  planifier » : elle est portée par le fait que `build_features` rend un vecteur
+  plutôt que `None`. Les recopier ne les rendait pas vrais, seulement
+  invérifiables. Le **refus** (bloc incomplet ou `allows_new_risk` faux ⇒ `None`)
+  reste, intact — c'est lui qui satisfait le besoin.
+* **`tools/macro_status.py`**, dont le seul lecteur était ce document. La
+  vérification « la source répond-elle » est faite par la boucle elle-même au
+  démarrage, dans le processus qui trade — le contrôle préalable en ligne de
+  commande ne partageait pas son cache et affichait donc l'état d'un *autre*
+  processus.
+* **`build_feed()` et `MacroFeed.refresh_blocking()`**, qui n'avaient d'autre
+  appelant que ce CLI. Les supprimer ensemble est la conséquence directe : les
+  garder aurait recreé exactement l'état sans lecteur qu'on venait d'enlever.
+* **Le second filet des constructeurs de bloc.** La boucle et la sonde du tableau
+  de bord refaisaient chacune `try: macro_publication() except:
+  macro_bloc_indisponible(...)`. Il ne subsiste qu'un exemplaire,
+  `macro_bloc_pour_publication()`, et les deux appelants s'y adressent : les deux
+  ne peuvent plus raconter deux histoires du même calendrier.
+
+Ce qui *n'est pas* tombé, et pourquoi : les champs de trace (`state`, `score`,
+`next_event`, `source_digest`) restent dans le bloc parce que **la porte les
+cite** dans ses motifs — un `WAIT` qui ne nomme pas la publication qui l'a causé
+oblige à relire le calendrier à la main, donc à ne pas le faire.
 
 ## 4. Contrats et invariants
 
@@ -189,15 +224,17 @@ mauvaise raison.
 
 ### 6.3 Le contexte d'arrivée de l'exécution — `titanium/execution_sim/`
 
-`PolicyContext` gagne un champ `macro` **en dernier, avec un défaut** : toute
-construction positionnelle existante reste valide. `build_features` refuse de
-planifier (`None`) quand le calendrier interdit le risque neuf, et transmet
-l'attitude conservatrice dans `AdaptiveFeatures` (`macro_conservative`,
-`macro_score`) sans qu'aucune des 17 techniques ne change de comportement.
+`PolicyContext` gagne un champ `macro`, **en dernier et avec un défaut `None`** :
+toute construction positionnelle existante reste valide. `build_features` refuse
+de planifier (`None`) quand le calendrier interdit le risque neuf, et ne fait que
+cela : c'est la seule information que le macro apporte à ce vecteur, et elle est
+portée par le fait qu'un vecteur est rendu.
 
-Valeurs **neutres** par défaut (`allows=True`, `conservative=False`, `score=0.0`) :
-absentes, elles donnent le comportement d'avant, ce qui rend la non-régression
-démontrable plutôt que promise.
+Défaut `None` ⇒ **comportement d'avant, au bit près** : c'est ce qui rend la
+non-régression de la matrice adaptative démontrable plutôt que promise, et c'est
+vérifié sur le vecteur ENTIER (`test_le_contexte_d_arrivee_reste_neutre_sans_macro`
+compare un contexte portant `macro=None` à un contexte construit sans le champ),
+pas sur quelques copies de champs.
 
 ### 6.4 Le propriétaire du service — `titanium/macro/service.py`
 
@@ -251,18 +288,12 @@ Copy-Item config\macro.example.json config\macro.json
 #    Il n'existe pas de troisieme booleen « obligatoire » — la semantique est
 #    deja portee par l'etat : flux allume sans donnee fraiche => STALE => refus.
 
-# 4. Verifier la SOURCE avant d'armer (lecture unique, sans lancer la boucle).
-.\.venv\Scripts\python.exe tools\macro_status.py --refresh --upcoming 3
-#    code de sortie 0 = risque neuf autorise, 1 = refuse. Utilisable comme porte.
-#    Ce controle est un instantane : il ne remplit PAS le cache de la boucle,
-#    qui est un autre processus. C'est la boucle elle-meme qui releve.
-
-# 5. Demarrer la boucle. Elle releve le calendrier dans son propre processus :
-#    elle affiche 'macro : flux actif' au demarrage et publie son verdict dans
-#    results/loop_heartbeat.json a chaque tour.
+# 4. Demarrer la boucle. C'est ELLE qui valide la source, dans son propre
+#    processus : elle affiche 'macro : flux actif' si le calendrier est lisible,
+#    et publie son verdict dans results/loop_heartbeat.json a chaque tour.
 .\.venv\Scripts\python.exe tools\live_demo.py            # observation d'abord
 
-# 6. Lire la jauge. Elle affiche le verdict DE LA BOUCLE, et le dit :
+# 5. Lire la jauge. Elle affiche le verdict DE LA BOUCLE, et le dit :
 #    'Verdict de la BOUCLE (il y a 3 s)' ; sans battement, 'Verdict LOCAL'.
 ```
 
@@ -302,8 +333,12 @@ vide. Les chiffres publiés dans `docs/PLAN_EXECUTION_ADAPTATIVE_V14.md` restent
 exacts — l'écart avec la base est nul sur les deux arènes.
 
 L'empreinte de paquet (`engine_version`) change, par construction : des fichiers
-de plus dans `titanium/execution_sim/` suffisent. C'est le seul écart attendu, et
-il est exclu de la comparaison cellule par cellule.
+de plus dans `titanium/execution_sim/` suffisent — et **modifier** une source du
+moteur la déplace tout autant, sans ajouter un seul fichier. C'est le cas du
+nettoyage décrit en §3.1, dont l'empreinte passe de `0a43328a…` à `70b26be0…`
+alors que toutes les lignes de mesure, tous les classements et les deux rapports
+restent identiques. C'est le seul écart attendu, et il est exclu de la
+comparaison cellule par cellule.
 
 **Ce que cette mesure ne dit pas.** Elle porte sur les deux arènes
 `execution_sim`, pas sur la boucle armée : rien ici ne prouve qu'un ordre réel se
@@ -312,11 +347,11 @@ sa garantie.
 
 ## 9. Tests livrés
 
-**76 cas, dont 23 ajoutés avec la fonctionnalité complète** :
+**75 cas, dont 22 ajoutés avec la fonctionnalité complète** :
 
 | Fichier | Cas | Ce qu'il couvre |
 |---|---:|---|
-| `tests/test_macro_feed.py` | 58 | contrats, cache, risque, sources — **dont le chemin HTTP**, exerce pour la premiere fois |
+| `tests/test_macro_feed.py` | 57 | contrats, cache, risque, sources — **dont le chemin HTTP**, exerce pour la premiere fois |
 | `tests/test_macro_service.py` | 11 | cycle de vie du service, arret immediat et delai derive, publication et relecture |
 | `tests/test_web_macro_gauges.py` | 7 | route `/ui/macro`, rendu des jauges, severite, verdict de boucle perime |
 
@@ -365,10 +400,12 @@ Assumé, et pas seulement reporté :
 * **Historique du calendrier.** Le cache ne garde que la dernière lecture :
   impossible de rejouer « ce que le système savait à 14 h 25 ». Le `digest`
   stable existe pour ça, mais rien ne l'archive encore.
-* **Une technique adaptative sensible au macro.** Les champs existent
-  (`macro_conservative`, `macro_score`), aucune des 17 ne les lit. C'est
-  délibéré : en faire lire une changerait les nombres publiés, donc exige un
-  nouveau lot de mesure complet, pas un ajout discret.
+* **Une technique adaptative sensible au macro.** Aucune des 17 ne lit le
+  macro, et le vecteur n'en porte plus rien (voir §3.1) : seuls le refus de
+  planifier et le `WAIT`/`BLOCK` de la porte en dépendent aujourd'hui. En faire
+  lire une changerait les nombres publiés, donc exige un nouveau lot de mesure
+  complet, pas un ajout discret — et le champ à lui donner est `conservative`,
+  qui est déjà publié par la porte.
 
 ## 11. Limites connues et honnêteté
 
@@ -384,9 +421,10 @@ Assumé, et pas seulement reporté :
   est une valeur de départ raisonnable, pas un résultat empirique. La caler
   demande de corréler le slippage observé à la proximité d'une publication —
   c'est un travail de mesure, et il n'est pas fait.
-* **L'encodage console sous Windows.** `tools/macro_status.py` affiche des
-  accents ; un terminal en page de code 1252 les rend mal. La sortie `--json`
-  est correcte et machine-lisible.
+* **L'encodage console sous Windows.** La ligne d'etat de `tools/live_demo.py`
+  et ses motifs macro sont accentues ; un terminal en page de code 1252 les rend
+  mal. Ce qui decide et s'affiche — le battement et la jauge — est de l'UTF-8
+  correct.
 * **La jauge a un TTL de 5 s.** Elle peut donc retarder de cinq secondes au plus
   — c'est un choix, pas une mesure : la relire a chaque battement de front
   couterait un calcul pur toutes les deux secondes pour un etat qui change au

@@ -52,6 +52,7 @@ from titanium.macro.risk import evaluate_macro_risk
 from titanium.macro.service import (
     MacroService,
     macro_bloc_indisponible,
+    macro_bloc_pour_publication,
     macro_publication,
 )
 from titanium.macro.sources import (
@@ -87,6 +88,7 @@ __all__ = [
     "get_cache",
     "load_policy",
     "macro_bloc_indisponible",
+    "macro_bloc_pour_publication",
     "macro_block",
     "macro_features",
     "macro_publication",
@@ -147,18 +149,3 @@ def macro_risk(
     politique = policy or load_policy()
     vue = (cache or get_cache()).view()
     return evaluate_macro_risk(vue, now=instant, policy=politique, symbols=symbols)
-
-
-def build_feed(
-    *,
-    policy: MacroPolicy | None = None,
-    cache: MacroCache | None = None,
-    source: MacroSource | None = None,
-) -> MacroFeed:
-    """Assemble un service de rafraichissement pret a servir."""
-    politique = policy or load_policy()
-    return MacroFeed(
-        source or build_source(politique),
-        cache or get_cache(),
-        policy=politique,
-    )

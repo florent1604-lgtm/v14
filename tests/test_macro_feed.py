@@ -16,7 +16,7 @@ import asyncio
 import json
 import sys
 import threading
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -583,13 +583,6 @@ def test_le_delai_double_apres_echec_et_plafonne():
     assert flux._delai_suivant() == 60.0
 
 
-def test_lecture_synchrone_publie_le_calendrier():
-    cache = MacroCache()
-    flux = MacroFeed(_SourceEspionne(), cache, policy=politique())
-    assert flux.refresh_blocking() is True
-    assert cache.view().total_successes == 1
-
-
 # ═══════════════════════════ 8. integration porte ═══════════════════════════
 
 def features_parfaites(**surcharges) -> dict:
@@ -681,11 +674,17 @@ def intention() -> ExecutionIntent:
 
 
 def test_le_contexte_d_arrivee_reste_neutre_sans_macro():
-    f = build_features(intention(), contexte_macro(None))
-    assert f is not None
-    assert f.macro_allows_new_risk is True
-    assert f.macro_conservative is False
-    assert f.macro_score == 0.0
+    """Sans bloc macro, le vecteur est EXACTEMENT celui d'avant le macro.
+
+    La comparaison porte sur le contexte construit sans le champ `macro` du tout
+    (le `replace` ci-dessous) : c'est la garantie de non-regression, et elle est
+    verifiee sur le vecteur entier — pas sur trois champs recopies, qui ne
+    prouvaient que leur propre presence.
+    """
+    avec_champ = build_features(intention(), contexte_macro(None))
+    sans_champ = build_features(intention(), replace(contexte_macro(None), macro=None))
+    assert avec_champ is not None
+    assert avec_champ == sans_champ
 
 
 def test_le_contexte_d_arrivee_refuse_de_planifier_en_gel():
@@ -696,11 +695,18 @@ def test_le_contexte_d_arrivee_refuse_un_bloc_incomplet():
     assert build_features(intention(), contexte_macro({"conservative": True})) is None
 
 
-def test_l_attitude_conservatrice_est_transmise_sans_interdire():
+def test_l_attitude_conservatrice_laisse_planifier_et_c_est_la_porte_qui_attend():
+    """`conservative` n'interdit pas de planifier : la porte en fait un WAIT.
+
+    Le vecteur ne recopie pas l'attitude — il n'en ferait rien. Ce qui compte
+    est verifie la ou elle decide : `evaluate` ci-dessus (WAIT_MACRO_IMMINENT,
+    publication nommee).
+    """
     f = build_features(intention(), contexte_macro(bloc(conservative=True, score=0.6)))
     assert f is not None
-    assert f.macro_conservative is True
-    assert f.macro_score == pytest.approx(0.6)
+    verdict = evaluate(features_parfaites(macro=bloc(conservative=True, score=0.6)))
+    assert verdict.verdict == "WAIT"
+    assert verdict.code == "WAIT_MACRO_IMMINENT"
 
 
 def test_le_bloc_de_la_porte_est_le_meme_objet_que_celui_du_contexte():

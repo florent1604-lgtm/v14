@@ -31,6 +31,12 @@ const montantNet = (position) => {
   return Number(valeur ?? 0);
 };
 
+/* MAX_POSITIONS vaut 0 pour « illimité » — c'est le budget de risque qui borne
+   l'exposition. Afficher la valeur brute ferait lire « 3 / 0 » comme « trois
+   positions pour une limite nulle », l'inverse exact de l'intention. */
+const limitePositions = (valeur) =>
+  valeur == null ? '—' : valeur > 0 ? String(valeur) : 'illimité';
+
 let ETAT = {};
 let TF = 'M15';
 let CHART = null;
@@ -136,8 +142,8 @@ function vitaux(d) {
 
   const n = positions.length;
   $('#v-positions').textContent = limites.length
-    ? `${n} + ${limites.length}L / ${l.max_positions ?? '—'}`
-    : `${n} / ${l.max_positions ?? '—'}`;
+    ? `${n} + ${limites.length}L / ${limitePositions(l.max_positions)}`
+    : `${n} / ${limitePositions(l.max_positions)}`;
 
   const mur = $('#v-mur');
   mur.innerHTML = '';
@@ -318,7 +324,7 @@ function execution(d) {
   ligne('login attendu', String(w.expected_login ?? '—'));
   ligne('compte réel', w.real_allowed ? 'AUTORISÉ' : 'interdit',
         w.real_allowed ? 'mal' : 'ok');
-  ligne('positions max', String(l.max_positions ?? '—'));
+  ligne('positions max', limitePositions(l.max_positions));
   ligne('budget de risque', `${nb(l.max_risque_cumule_pct, 0)} %`);
   ligne('gestion', `BE +${l.breakeven_r ?? '—'} R · trail +${l.trail_start_r ?? '—'} R`);
   ligne('dernier battement', l.age_s == null ? '—' : `il y a ${nb(l.age_s, 0)} s`,

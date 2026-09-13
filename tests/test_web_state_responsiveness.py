@@ -263,3 +263,29 @@ def test_la_carte_se_rend_sans_contexte_dintentions():
     rendu = _rendre({"b": _enveloppe({"positions": [], "pending": []})})
 
     assert "Aucune position ouverte." in rendu
+
+
+def _rendre_boucle(max_positions):
+    from titanium.web.dashboard_app import gabarits
+
+    return gabarits.env.get_template("components/boucle.html").render(
+        boucle={"data": {"running": True, "armed": True, "age_s": 1,
+                         "max_positions": max_positions, "max_per_symbol": 3,
+                         "breakeven_r": 0.8, "trail_start_r": 1.2,
+                         "trail_dist_r": 0.8},
+                "stale": False},
+        risque={"data": {"disponible": False}, "stale": False},
+    )
+
+
+def test_la_limite_de_positions_dit_lintention():
+    """``MAX_POSITIONS = 0`` veut dire « illimité », pas « limite nulle ».
+
+    Le budget de risque borne l'exposition ; la constante dit seulement
+    « aucune limite de comptage ». Afficher « 0 » ferait lire l'inverse.
+    """
+    illimite = _rendre_boucle(0)
+
+    assert "illimité · 3/actif" in illimite
+    assert "0 · 3/actif" not in illimite
+    assert "8 · 3/actif" in _rendre_boucle(8)

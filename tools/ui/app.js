@@ -390,7 +390,9 @@ function rendreBoucle(l) {
       l.stale ? 'bad' : 'dim'],
     ['exécution', l.armed ? 'ARMÉE' : 'désarmée', l.armed ? 'bad' : 'ok'],
     ['activité', s.tours ? `${s.tours} tours · ${s.enter || 0} ENTER · ${s.envoyes || 0} ordre(s)` : '—'],
-    ['plafonds', `${l.max_positions} positions · ${l.max_per_symbol}/actif`],
+    // MAX_POSITIONS = 0 veut dire « illimité » : « 0 positions » se lirait
+    // comme une limite nulle, l'inverse de l'intention (voir poste.js).
+    ['plafonds', `${l.max_positions == null ? '—' : l.max_positions > 0 ? l.max_positions : 'illimité'} positions · ${l.max_per_symbol}/actif`],
     ['gestion', `breakeven +${l.breakeven_r} R · trailing dès +${l.trail_start_r} R`],
   ];
   if (Object.keys(flow).length) {

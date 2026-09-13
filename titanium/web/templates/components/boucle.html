@@ -14,7 +14,8 @@
   <tr><td class="gris">Battement</td>
       <td>{{ (l.age_s ~ ' s') if l.age_s is not none else '—' }}</td></tr>
   <tr><td class="gris">Positions max</td>
-      <td>{{ l.max_positions }} · {{ l.max_per_symbol }}/actif</td></tr>
+      {# 0 veut dire « illimité » : c'est le budget de risque qui borne. #}
+      <td>{{ l.max_positions if l.max_positions else 'illimité' }} · {{ l.max_per_symbol }}/actif</td></tr>
   <tr><td class="gris">Break-even</td><td>{{ l.breakeven_r }} R</td></tr>
   <tr><td class="gris">Trailing</td>
       <td>dès {{ l.trail_start_r }} R · dist. {{ l.trail_dist_r }} R</td></tr>

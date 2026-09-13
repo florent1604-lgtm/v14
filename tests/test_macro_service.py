@@ -5,8 +5,11 @@ Trois proprietes, et chacune repond a un defaut mesure :
 1. **Il demarre.** La brique savait relire, personne ne la lancait : le
    processus arme restait sur ``UNKNOWN``, donc sur un refus, alors que sa
    configuration disait ``enabled=true``.
-2. **Il s'arrete vite.** Un arret qui attend le prochain rafraichissement
-   ferait traîner la fermeture du processus jusqu'a une heure.
+2. **Il s'arrete vite, et toujours.** Un arret qui attend le prochain
+   rafraichissement ferait traîner la fermeture du processus jusqu'a une heure ;
+   un arret arrive avant que le fil n'arme son evenement le laissait carrement
+   vivant — 40 essais sur 40. Les deux sont mesures ici, et le delai d'arret
+   couvre la lecture que la politique autorise.
 3. **Son verdict traverse le processus.** La boucle le publie dans le battement
    qu'elle ecrit deja, la sonde du tableau de bord le relit — sans quoi la jauge
    afficherait un verdict local a la place de celui qui decide.
@@ -125,6 +128,65 @@ def test_l_arret_n_attend_pas_le_prochain_rafraichissement(tmp_path):
     assert service.stop() is True
     ecoule = time.monotonic() - depart
     assert ecoule < 2.0, f"arret trop lent ({ecoule:.2f} s) — le sommeil n'est pas reveillable"
+
+
+def test_un_arret_immediat_ne_laisse_aucun_fil(tmp_path):
+    """`start()` puis `stop()` sans le moindre delai.
+
+    Defaut mesure : entre `Thread.start()` et l'instant ou le fil cree le sien,
+    la demande d'arret tombait dans le vide. `stop()` attendait alors son delai
+    entier, rendait `False`, et le fil survivait — 40 essais sur 40. Le nom de
+    fil est distinct pour qu'aucun autre test ne puisse faire passer ce controle
+    a tort, et le cycle est repete parce que le defaut dependait de l'instant.
+    """
+    import threading
+
+    calendrier = ecrire_calendrier(tmp_path / "calendrier.json")
+    nom = "macro-feed-arret-immediat"
+    for _ in range(25):
+        service = MacroService(
+            policy=politique(file=str(calendrier)), cache=MacroCache(),
+            source=FileMacroSource(calendrier), thread_name=nom,
+        )
+        assert service.start() is True
+        assert service.stop() is True, "l'arret immediat a echoue"
+        assert service.running is False
+    assert not [f for f in threading.enumerate() if f.name == nom], (
+        "un fil du service a survecu a son arret"
+    )
+
+
+def test_le_delai_d_arret_couvre_le_budget_de_lecture(tmp_path):
+    """Un fil bloque dans un `fetch` ne peut pas etre tue : le delai doit le couvrir.
+
+    La lecture dure 6 s et la politique declare un budget de 8 s : le contrat
+    d'arret doit donc valoir au moins ce budget. C'est le cas que la constante
+    fixe (5 s) rendait impossible a tenir — l'arret rendait `False` et laissait
+    le fil vivant. Le test coute les 6 s de la lecture, et c'est le prix de la
+    seule version qui echoue sur l'ancien contrat : un budget court passerait
+    des deux cotes.
+    """
+    calendrier = ecrire_calendrier(tmp_path / "calendrier.json")
+    reel = FileMacroSource(calendrier)
+
+    class SourceLente:
+        name = "lente"
+
+        def fetch(self):
+            time.sleep(6.0)
+            return reel.fetch()
+
+    service = MacroService(
+        policy=politique(file=str(calendrier), timeout_s=8.0),
+        cache=MacroCache(), source=SourceLente(),
+    )
+    assert service.start() is True
+    time.sleep(0.2)  # le fil est entre dans la lecture
+    depart = time.monotonic()
+    assert service.stop() is True, "le delai ne couvre pas la lecture autorisee"
+    ecoule = time.monotonic() - depart
+    assert 4.0 < ecoule < 9.0, f"arret hors contrat ({ecoule:.2f} s)"
+    assert service.running is False
 
 
 def test_une_source_en_panne_laisse_le_verdict_ferme(tmp_path):

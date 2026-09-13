@@ -72,9 +72,15 @@ class MacroFeed:
             float(self.policy.max_backoff_s),
         )
 
-    async def run(self, stop: asyncio.Event | None = None) -> None:
-        """Sert jusqu'a ``stop``. La premiere lecture est immediate."""
-        self._stop = stop or asyncio.Event()
+    async def run(self, stop: asyncio.Event) -> None:
+        """Sert jusqu'a ce que ``stop`` soit pose. La premiere lecture est immediate.
+
+        L'evenement appartient a l'APPELANT : c'est lui qui sait depuis quel fil
+        on l'arrete, et lui seul peut le reveiller par ``call_soon_threadsafe``.
+        Le flux n'en cree donc plus, et n'expose plus de ``stop()`` — deux
+        proprieties de la meme decision finissaient par diverger.
+        """
+        self._stop = stop
         while not self._stop.is_set():
             await self.refresh_once()
             if self._stop.is_set():
@@ -109,11 +115,6 @@ class MacroFeed:
             await asyncio.gather(sommeil, reveil, return_exceptions=True)
         for tache in faites:  # une exception du sommeil se propage ici
             tache.result()
-
-    def stop(self) -> None:
-        """Demande l'arret. Depuis un autre fil, passer par ``MacroService``."""
-        if self._stop is not None:
-            self._stop.set()
 
     def refresh_blocking(self) -> bool:
         """Lecture synchrone, pour la CLI ou un job planifie sans boucle asyncio."""

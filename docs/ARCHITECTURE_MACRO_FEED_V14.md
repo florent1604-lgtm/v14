@@ -83,12 +83,12 @@ battement — boucle arrêtée — elle calcule en local et le DIT (`source`).
 | Module | Lignes | Question dont il est LE propriétaire | Ce qu'il ne fait jamais |
 |---|---:|---|---|
 | `contracts.py` | 299 | Quelle est la forme d'un fait macro, et qu'est-ce qui est « sain » ? | Aucune E/S, aucune politique |
-| `policy.py` | 139 | Quelles bornes numériques, et quelles clés de config sont légales ? | Aucun seuil caché ailleurs |
+| `policy.py` | 144 | Quelles bornes numériques, et quelles clés de config sont légales ? | Aucun seuil caché ailleurs |
 | `cache.py` | 147 | Que croit savoir ce processus, et qu'est-il arrivé au dernier essai ? | N'attend jamais le réseau, ne lève jamais |
 | `sources.py` | 263 | Comment lit-on un fournisseur ? | Ne décide pas, ne met rien en cache |
 | `risk.py` | 205 | Faut-il du risque neuf, maintenant, pour ce symbole ? | Aucune E/S, aucune horloge implicite |
-| `feed.py` | 127 | Quand relit-on, et avec quel repli ? | Ne décide pas de la prudence, ne démarre rien |
-| `service.py` | 206 | **Qui** relit, dans ce processus, et quand cela s'arrête | Ne décide rien du risque |
+| `feed.py` | 128 | Quand relit-on, et avec quel repli ? | Ne décide pas de la prudence, ne démarre rien |
+| `service.py` | 255 | **Qui** relit, dans ce processus, et quand cela s'arrête | Ne décide rien du risque |
 | `gate.py` | 66 | Sous quelle forme le verdict entre-t-il dans une décision ? | Ne connaît ni la porte ni l'interface |
 | `telemetry.py` | 94 | Comment l'interface voit-elle le verdict ? | Ne lit pas de texte libre |
 | `__init__.py` | 164 | Le cache du processus, la politique courante, le point d'entrée | — |
@@ -209,8 +209,27 @@ sans que rien ne le signale. `MacroService` ferme ce trou et n'a qu'un métier :
 service = MacroService()          # politique + cache du processus
 if service.start():               # False si enabled=false : aucun fil cree
     ...                           # une premiere lecture est immediate
-service.stop()                    # reveille la boucle d'attente, borne a 5 s
+service.stop()                    # reveille la boucle, et la joint
 ```
+
+Deux points de ce contrat ont ete mesures, parce que le premier etait faux dans
+la premiere version :
+
+* **La demande arrive AVANT que le fil n'arme son evenement, et elle survit.**
+  Entre `Thread.start()` et l'instant ou le fil cree le sien, un `stop()`
+  immediat ne reveillait rien : il rendait `False` apres son delai en laissant
+  le fil vivant — 40 essais sur 40. La demande est desormais memorisee sous
+  verrou, et relue par le fil en armant. Une demande arrivee avant la premiere
+  lecture fait donc sortir la boucle **sans jamais lire**.
+* **Le delai d'arret couvre la lecture que la politique autorise.** Un fil
+  bloque dans un `fetch` ne peut pas etre tue : demander qu'il meure plus vite
+  que le `timeout_s` qu'on lui a accorde est un contrat impossible a tenir. Le
+  delai vaut donc `max(5 s, timeout_s + 1 s)`. Un `timeout_s` explicite a
+  `stop(timeout_s=...)` reste prioritaire.
+
+Le cycle de vie n'a qu'un proprietaire : `MacroService` cree, arme, reveille et
+joint le fil. `MacroFeed` execute la boucle qu'on lui donne et n'expose plus de
+`stop()`, qui dupliquait la responsabilite sans aucun appelant.
 
 C'est `tools/live_demo.py` qui l'instancie : `_demarrer_macro()` avant la boucle,
 `_arreter_macro()` dans le `finally`, et `battre()` publie le verdict normalisé
@@ -293,12 +312,12 @@ sa garantie.
 
 ## 9. Tests livrés
 
-**74 cas, dont 21 ajoutés avec la fonctionnalité complète** :
+**76 cas, dont 23 ajoutés avec la fonctionnalité complète** :
 
 | Fichier | Cas | Ce qu'il couvre |
 |---|---:|---|
 | `tests/test_macro_feed.py` | 58 | contrats, cache, risque, sources — **dont le chemin HTTP**, exerce pour la premiere fois |
-| `tests/test_macro_service.py` | 9 | cycle de vie du service, arret interruptible, publication et relecture |
+| `tests/test_macro_service.py` | 11 | cycle de vie du service, arret immediat et delai derive, publication et relecture |
 | `tests/test_web_macro_gauges.py` | 7 | route `/ui/macro`, rendu des jauges, severite, verdict de boucle perime |
 
 `tests/test_macro_feed.py` — la non-régression en tête de fichier parce que

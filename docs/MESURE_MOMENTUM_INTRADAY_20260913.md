@@ -174,7 +174,7 @@ C'est la **magnitude** de la première demi-heure qui annonce la **magnitude** d
 
 Le coût des indices est **deux à trois ordres de grandeur** sous celui de la crypto mesurée sur Binance (BTCUSD 1,56 bp, ETHUSD 5,03 bp — `MESURE_IMPACT_CARNET_20260913.md`). La conséquence est à double tranchant, et il faut la dire dans les deux sens.
 
-1. **Le coût n'est pas ce qui bloque ici.** 0,437 bp et 0,304 bp d'aller-retour sont dérisoires au regard des écarts mesurés : sur ces symboles, l'argument « le marché est trop cher pour ce plafond » — celui qui explique 84 % des refus sur la crypto — ne tient pas.
+1. **Le coût n'est pas ce qui bloque ici.** 0,437 bp et 0,304 bp d'aller-retour sont dérisoires au regard des écarts mesurés : sur ces symboles, l'argument « le marché est trop cher pour ce plafond » ne tient pas. C'est pourtant lui qui domine les refus du tunnel sur la crypto — un relevé du journal de la boucle, **que ce document ne re-mesure pas** et dont il ne cite donc aucun chiffre.
 2. **Mais un coût faible ne crée pas un avantage.** L'écart hors échantillon est positif (+4,110 bp et +1,284 bp), pourtant sa borne basse à 2σ reste négative (-3,389 bp et -3,825 bp) : la donnée ne permet pas d'affirmer que l'avantage est là, seulement de constater que le coût ne suffit pas à le réfuter.
 
 **Conséquence pour la porte de coût : aucune.** La porte facture le spread du CFD pour décider si un candidat est portable ; ici le spread des deux indices est si bas que le plafond de 12,5 % du stop n'est pas le facteur limitant sur ces symboles. Rien ne bouge : le seuil reste une décision humaine, et ce document ne le déplace pas.

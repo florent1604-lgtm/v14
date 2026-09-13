@@ -3,6 +3,7 @@ from threading import Event
 from types import SimpleNamespace
 
 import titanium.hermes_cortex as cortex
+from titanium import cortex_cli
 
 
 def test_ask_serializes_provider_calls(monkeypatch):
@@ -23,10 +24,10 @@ def test_ask_serializes_provider_calls(monkeypatch):
         second_started.set()
         return cortex._ask("second")
 
-    monkeypatch.setattr(cortex, "_hermes_executable", lambda: cortex.Path("hermes.exe"))
-    monkeypatch.setattr(cortex, "HERMES_PROVIDER", "anthropic")
+    monkeypatch.setattr(cortex_cli, "executable", lambda _bassin: cortex.Path("hermes.exe"))
+    monkeypatch.setattr(cortex, "HERMES_PROVIDER", "claude-cli")
     monkeypatch.setattr(cortex, "HERMES_INTERVALLE_MIN_S", 0)
-    monkeypatch.setattr(cortex.subprocess, "run", run)
+    monkeypatch.setattr(cortex_cli.subprocess, "run", run)
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(cortex._ask, "first")
         try:

@@ -167,8 +167,13 @@ def _brief(dossier: dict, question: str) -> str:
 
 
 def demander(symbole: str, question: str) -> dict:
-    """Pose la question a Hermes et rend sa reponse."""
-    from titanium.hermes_cortex import HermesCortexUnavailable, _ask
+    """Pose la question a Hermes et rend sa reponse.
+
+    Passe par `interroger_bassins`, comme les appelants de production. Ce n'est
+    pas un detail : en s'adressant a `_ask` directement, cet outil ignorait la
+    quarantaine et relancait un bassin a sec que la liste savait deja sec.
+    """
+    from titanium.hermes_cortex import HermesCortexUnavailable, interroger_bassins
 
     dossier = dossier_du_symbole(symbole)
     prompt = _brief(dossier, question)
@@ -179,7 +184,8 @@ def demander(symbole: str, question: str) -> dict:
         f"{json.dumps(SCHEMA_EXPLICATION, ensure_ascii=False)}"
     )
     try:
-        return {"ok": True, "dossier": dossier, "reponse": _ask(consigne)}
+        return {"ok": True, "dossier": dossier,
+                "reponse": interroger_bassins(consigne)}
     except HermesCortexUnavailable as exc:
         return {"ok": False, "dossier": dossier, "erreur": str(exc)}
 

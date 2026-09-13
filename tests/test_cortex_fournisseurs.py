@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pytest
 
-from titanium import hermes_cortex as hc
+from titanium import cortex_cli, hermes_cortex as hc
 
 #: Deliberement PAS de forme de cle : la garde de secrets du depot refuse,
 #: a juste titre, tout ce qui ressemble a un jeton. Ce test n'a besoin que d'une
@@ -107,12 +107,21 @@ sys.exit(3)
 
 @pytest.fixture
 def faux_cli(tmp_path, monkeypatch):
-    """Un faux CLI reellement lance par `subprocess.run`, sans abonnement."""
+    """Un faux CLI reellement lance par `subprocess.run`, sans abonnement.
+
+    L'injection passe par le PROPRIETAIRE du lancement : on remplace le binaire,
+    jamais le chemin. `repli-cli` se DECLARE dans le registre — il n'existe pas
+    de second chemin de lancement, meme pour un bassin de test.
+    """
     script = tmp_path / "faux_cli_hermes.py"
     script.write_text(FAUX_CLI, encoding="utf-8")
     journal = tmp_path / "journal.ndjson"
+    monkeypatch.setitem(cortex_cli.REGLES, "repli-cli", cortex_cli.Regle(
+        nom="repli-cli", variable="REPLI_CORTEX_EXECUTABLE",
+        binaires=("repli",), shim="module",
+    ))
     monkeypatch.setattr(
-        hc, "_hermes_command_prefix", lambda: [sys.executable, str(script)]
+        cortex_cli, "prefixe", lambda _bassin: [sys.executable, str(script)]
     )
     monkeypatch.setenv("FAUX_CLI_JOURNAL", str(journal))
     monkeypatch.setenv("FAUX_CLI_MODES", "{}")
@@ -216,7 +225,7 @@ def test_un_fournisseur_a_sec_est_saute_et_le_suivant_repond(faux_cli, monkeypat
     monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
-    assert hc._ask_avec_repli("diagnostic simple", scindable=True) == {"verdicts": []}
+    assert hc.interroger_bassins("diagnostic simple", scindable=True) == {"verdicts": []}
     # Le fournisseur a sec est mis en quarantaine, et lui seul. La duree est
     # EPINGLEE : c'est celle que `_ask_par_lots` applique deja au meme cas, donc
     # une seule duree pour une seule situation. La borne large d'avant
@@ -236,7 +245,7 @@ def test_le_quota_expire_et_le_fournisseur_principal_est_reessaye(faux_cli, monk
     monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
-    hc._ask_avec_repli("diagnostic simple", scindable=True)
+    hc.interroger_bassins("diagnostic simple", scindable=True)
     attente = hc.circuit_status("claude-cli")["retry_in_s"]
     assert attente == pytest.approx(hc.HERMES_BACKOFF_S, abs=1.0)
 
@@ -245,7 +254,7 @@ def test_le_quota_expire_et_le_fournisseur_principal_est_reessaye(faux_cli, monk
     assert hc.circuit_status("claude-cli")["available"] is True
     # Et il est bien reinterroge : son quota recharge reprend la main.
     _modes(monkeypatch, **{"claude-cli": "ok", "repli-cli": "ok"})
-    assert hc._ask_avec_repli("diagnostic simple", scindable=True) == {"verdicts": []}
+    assert hc.interroger_bassins("diagnostic simple", scindable=True) == {"verdicts": []}
     assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "repli-cli", "claude-cli"]
 
 
@@ -257,7 +266,7 @@ def test_tous_les_disjoncteurs_ouverts_echouent_et_le_disent(faux_cli, monkeypat
     for nom in ("claude-cli", "repli-cli"):
         hc._trip("HTTP 402: credit balance is too low", provider=nom)
     with pytest.raises(hc.HermesCortexUnavailable, match="tous les fournisseurs"):
-        hc._ask_avec_repli("diagnostic simple")
+        hc.interroger_bassins("diagnostic simple")
     assert faux_cli() == []  # aucun sous-processus lance pour rien
 
 
@@ -300,7 +309,7 @@ def test_un_fournisseur_a_sec_ne_bloque_pas_la_scission_du_lot(faux_cli, monkeyp
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     _modes(monkeypatch, **{"claude-cli": "refus", "repli-cli": "refus"})
     with pytest.raises(hc.HermesLotTropGrand):
-        hc._ask_avec_repli("diagnostic simple", scindable=True)
+        hc.interroger_bassins("diagnostic simple", scindable=True)
     assert hc.circuit_status("claude-cli")["available"] is True
     assert hc.circuit_status("repli-cli")["available"] is True
 
@@ -312,7 +321,7 @@ def test_un_fournisseur_qui_refuse_laisse_la_main_au_suivant(faux_cli, monkeypat
     monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     _modes(monkeypatch, **{"claude-cli": "refus", "repli-cli": "ok"})
-    assert hc._ask_avec_repli("diagnostic simple", scindable=True) == {"verdicts": []}
+    assert hc.interroger_bassins("diagnostic simple", scindable=True) == {"verdicts": []}
     assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "repli-cli"]
     # Le refus n'est pas une panne : le premier fournisseur reste disponible.
     assert hc.circuit_status("claude-cli")["available"] is True
@@ -370,7 +379,7 @@ def test_le_cli_tourne_dans_la_racine_du_depot(faux_cli, monkeypatch):
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. La quarantaine sur le chemin de PRODUCTION
 #
-# `_ask_avec_repli` n'est appelee qu'une fois dans tout le code de production —
+# `interroger_bassins` n'est appelee qu'une fois dans tout le code de production —
 # `_ask_par_lots`, toujours avec `scindable=True`. Les tests de la section 2
 # l'appelaient avec le drapeau par defaut, donc la quarantaine qu'ils
 # mesuraient n'etait PAS celle que la production obtient. Cette section

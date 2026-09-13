@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import titanium.hermes_cortex as cortex
+from titanium import cortex_cli
 from titanium.fundamental_intelligence import Evidence
 
 
@@ -347,9 +348,9 @@ def test_une_erreur_api_sur_stdout_est_nommee_et_non_masquee(monkeypatch):
             stderr="",
         )
 
-    monkeypatch.setattr(cortex, "_hermes_executable", lambda: cortex.Path("hermes.exe"))
-    monkeypatch.setattr(cortex, "HERMES_PROVIDER", "anthropic")
-    monkeypatch.setattr(cortex.subprocess, "run", fake_run)
+    monkeypatch.setattr(cortex_cli, "executable", lambda _bassin: cortex.Path("hermes.exe"))
+    monkeypatch.setattr(cortex, "HERMES_PROVIDER", "claude-cli")
+    monkeypatch.setattr(cortex_cli.subprocess, "run", fake_run)
 
     with pytest.raises(cortex.HermesCortexUnavailable) as leve:
         cortex._ask("peu importe")

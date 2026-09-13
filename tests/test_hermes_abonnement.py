@@ -15,17 +15,20 @@ from pathlib import Path
 
 import pytest
 
-from titanium import hermes_cortex as hc
+from titanium import cortex_cli, hermes_cortex as hc
 
 FACTICE = "sk-ant-valeur-factice-de-test"
-PURGEES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
+#: La liste vient du PROPRIETAIRE, pas d'une copie recopiee ici : un test qui
+#: enumere sa propre liste ne remarque pas qu'une variable a ete ajoutee au
+#: lanceur sans y etre purge.
+PURGEES = cortex_cli.IDENTIFIANTS_API
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("cle", PURGEES)
 def test_les_identifiants_api_sont_retires(monkeypatch, cle):
     monkeypatch.setenv(cle, FACTICE)
-    assert cle not in hc._env_abonnement()
+    assert cle not in cortex_cli.purger_environnement()
 
 
 @pytest.mark.unit
@@ -33,7 +36,7 @@ def test_le_reste_de_l_environnement_est_preserve(monkeypatch):
     """Purge chirurgicale : le CLI a besoin de PATH, HOME et consorts."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", FACTICE)
     monkeypatch.setenv("TITANIUM_MARQUEUR_TEST", "conserve")
-    env = hc._env_abonnement()
+    env = cortex_cli.purger_environnement()
     assert env["TITANIUM_MARQUEUR_TEST"] == "conserve"
     assert "PATH" in env or "Path" in env
 
@@ -42,15 +45,17 @@ def test_le_reste_de_l_environnement_est_preserve(monkeypatch):
 def test_environnement_deja_propre_reste_inchange(monkeypatch):
     for cle in PURGEES:
         monkeypatch.delenv(cle, raising=False)
-    assert not set(PURGEES) & set(hc._env_abonnement())
+    assert not set(PURGEES) & set(cortex_cli.purger_environnement())
 
 
 @pytest.mark.unit
 def test_ask_lance_le_cli_sans_cle_api(monkeypatch, tmp_path):
-    """Le contrat qui compte : ce que `_ask` passe REELLEMENT au processus."""
+    """Le contrat qui compte : ce que le LANCEUR passe reellement au processus."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", FACTICE)
-    monkeypatch.setattr(hc, "_hermes_executable", lambda: tmp_path / "hermes.exe")
-    monkeypatch.setattr(hc, "HERMES_PROVIDER", "anthropic")
+    monkeypatch.setattr(
+        cortex_cli, "prefixe", lambda _bassin: [str(tmp_path / "hermes.exe")]
+    )
+    monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     monkeypatch.setattr(hc, "HERMES_INTERVALLE_MIN_S", 0.0)
     monkeypatch.setitem(hc._DERNIER_APPEL, "at", 0.0)
     hc._reset_circuits()
@@ -60,7 +65,7 @@ def test_ask_lance_le_cli_sans_cle_api(monkeypatch, tmp_path):
         vus.update(kwargs)
         return subprocess.CompletedProcess(cmd, 0, '{"verdicts":[]}', "")
 
-    monkeypatch.setattr(hc.subprocess, "run", faux_run)
+    monkeypatch.setattr(cortex_cli.subprocess, "run", faux_run)
     assert hc._ask("peu importe") == {"verdicts": []}
     env = vus["env"]
     assert "ANTHROPIC_API_KEY" not in env
@@ -72,7 +77,7 @@ def test_ask_lance_le_cli_sans_cle_api(monkeypatch, tmp_path):
 @pytest.mark.skipif(
     sys.platform != "win32",
     reason="comportement Windows : le candidat LOCALAPPDATA et le prefixe "
-    "`-c` sont conditionnes a `os.name == 'nt'` dans `hermes_cortex`",
+    "`-c` sont conditionnes a `os.name == 'nt'` dans `cortex_cli`",
 )
 def test_windows_uses_python_entrypoint_instead_of_blocked_shim(monkeypatch, tmp_path):
     scripts = tmp_path / "hermes" / "hermes-agent" / "venv" / "Scripts"
@@ -81,8 +86,8 @@ def test_windows_uses_python_entrypoint_instead_of_blocked_shim(monkeypatch, tmp
     python.touch()
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.delenv("HERMES_CORTEX_EXECUTABLE", raising=False)
-    monkeypatch.setattr(hc.shutil, "which", lambda name: None)
-    command = hc._hermes_command_prefix()
+    monkeypatch.setattr(cortex_cli.shutil, "which", lambda name: None)
+    command = cortex_cli.prefixe("claude-cli")
     assert Path(command[0]) == python
     assert command[1:] == ["-c", "from hermes_cli.main import main; main()"]
 

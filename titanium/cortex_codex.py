@@ -6,60 +6,32 @@ qui supprime la premiere cause de `WAIT` involontaire — un JSON illisible. Le
 pool Claude continue de demander la meme enveloppe en prose ; le pool Codex la
 fait respecter par l'outil.
 
-**Ce que ce module possede, et ce qu'il ne possede pas.** Il possede le
-transport : la ligne de commande, le sous-processus, la lecture du fichier de
-reponse et sa validation contre le schema versionne. Il ne possede NI le
-disjoncteur, NI la classification d'une panne, NI la distinction entre refus
-prealable et panne : tout cela vit chez `hermes_cortex`, qui en est le
-proprietaire unique. Deux modules qui classifient la meme panne finiraient par
-diverger, et c'est precisement le defaut que l'etape C1 a corrige.
+**Ce que ce module possede, et ce qu'il ne possede pas.** Il possede la FORME
+du verdict : quel fichier lire, comment le lire, et contre quel schema le
+valider. Il ne possede NI le lancement du CLI, NI le disjoncteur, NI la
+classification d'une panne, NI la distinction entre refus prealable et panne :
+le lancement appartient a `titanium.cortex_cli`, et le reste a `hermes_cortex`,
+chacun proprietaire unique. Deux modules qui classifient la meme panne, ou qui
+lancent le meme genre de CLI, finiraient par diverger — c'est precisement le
+defaut que l'etape C1 a corrige.
 
-Corollaire : **l'environnement du sous-processus est fourni par l'appelant.**
-`hermes_cortex._env_abonnement` en est le proprietaire, parce que la regle est
-la meme pour les deux CLI et qu'une seconde purge ici deriverait de la premiere.
+Corollaire : **`executer` ne choisit pas son environnement.** Le lancement purge
+les identifiants d'API parce que c'est `cortex_cli.lancer` qui le fait, pour tous
+les bassins. Il n'y a donc pas de parametre a oublier ici.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
+from titanium import cortex_cli
+
 #: Les noms de fournisseur que ce module sert. Un nom, pas une convention :
 #: `hermes_cortex` decide par appartenance a ce tuple, jamais par sous-chaine.
 NOMS = ("codex-cli",)
-
-ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "config" / "schema_verdict_cortex.json"
-
-_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-
-#: Drapeaux que le CLI doit recevoir, et pourquoi chacun est la.
-#:
-#: `--json`      mode lisible par machine : les erreurs du fournisseur arrivent
-#:               sur stdout sous forme d'evenements, la ou `_safe_cli_error` les
-#:               classe. Personne ne lit encore `turn.completed.usage` ; l'etape
-#:               C6 (budget de jetons) lui donnera son lecteur, et ce drapeau est
-#:               deja celui que le dossier ordonne.
-#: `--ephemeral` aucune session persistee sur disque : un cortex qui tourne en
-#:               boucle n'a aucune raison de laisser des rollouts derriere lui.
-#: `--ignore-user-config` et `--ignore-rules` : la configuration utilisateur et
-#:               les regles execpolicy de la machine ne doivent pas pouvoir
-#:               changer le verdict d'un composant qui publie des politiques.
-#: `--sandbox read-only` : le cortex lit, il ne modifie rien. Le defaut est deja
-#:               read-only, mais l'ecrire evite qu'un `config.toml` utilisateur
-#:               l'elargisse en silence.
-DRAPEAUX = (
-    "--json",
-    "--ephemeral",
-    "--ignore-user-config",
-    "--ignore-rules",
-    "--sandbox", "read-only",
-)
 
 
 class CodexEchec(RuntimeError):
@@ -90,54 +62,9 @@ class CodexHorsSchema(CodexEchec):
     """
 
 
-def _executable() -> Path:
-    """Le binaire Codex. `CODEX_CORTEX_EXECUTABLE` d'abord, puis le PATH."""
-    explicite = os.getenv("CODEX_CORTEX_EXECUTABLE", "").strip()
-    candidats = [Path(explicite)] if explicite else []
-    for nom in ("codex", "codex.cmd", "codex.exe"):
-        trouve = shutil.which(nom)
-        if trouve:
-            candidats.append(Path(trouve))
-    for candidat in candidats:
-        if candidat.is_file():
-            return candidat
-    raise CodexEchec("executable Codex introuvable")
-
-
-def _prefixe() -> list[str]:
-    """Le debut de la ligne de commande, executable compris.
-
-    npm installe Codex sous forme de shim `.cmd` sur Windows, et `CreateProcess`
-    ne sait pas lancer un `.cmd` seul. C'est la meme classe de probleme que le
-    shim Hermes documente dans `hermes_cortex._hermes_command_prefix` : passer
-    par `cmd /c` est la seule facon de l'executer sans shell interactif.
-    """
-    executable = _executable()
-    if os.name == "nt" and executable.suffix.lower() in {".cmd", ".bat"}:
-        return ["cmd", "/c", str(executable)]
-    return [str(executable)]
-
-
-def _commande(prompt: str, sortie: Path, *, schema: Path | None = None) -> list[str]:
-    """La ligne de commande reellement construite, en un seul endroit.
-
-    Le prompt est un ARGUMENT et non une entree standard : `HERMES_LOT_MAX = 1`
-    borne deja sa taille, et le garder dans `argv` permet a un test de relire ce
-    qui a ete envoye au lieu de ce que le code croit envoyer.
-    """
-    return [
-        *_prefixe(),
-        "exec",
-        prompt,
-        *DRAPEAUX,
-        "--output-schema", str(schema or SCHEMA),
-        "-o", str(sortie),
-    ]
-
-
 def charger_schema() -> dict[str, Any]:
     """Le schema versionne. Un seul chargement, un seul proprietaire."""
-    charge = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    charge = json.loads(cortex_cli.SCHEMA_VERDICT.read_text(encoding="utf-8"))
     if not isinstance(charge, dict):
         raise CodexHorsSchema("schema de verdict illisible")
     return charge
@@ -230,10 +157,11 @@ def valider(charge: Any) -> list[str]:
 def _reponse_du_cli(sortie: Path, stdout: str) -> str:
     """Le texte de verdict : le fichier `-o`, sinon la sortie standard.
 
-    `-o` est la source fiable — avec `--json`, `stdout` est un flux
-    d'evenements JSONL et non la reponse finale. Le repli sur `stdout` couvre le
-    cas ou le fichier n'a pas ete ecrit : le texte sera alors juge non conforme,
-    ce qui est le bon verdict, mais le motif nommera la vraie cause.
+    `-o` est la source fiable : la documentation de `codex exec` est explicite —
+    le fichier recoit le message final, et `stdout` le repete. Le repli sur
+    `stdout` couvre le cas ou le fichier n'a pas ete ecrit : le texte sera alors
+    juge non conforme, ce qui est le bon verdict, mais le motif nommera la vraie
+    cause.
     """
     try:
         return sortie.read_text(encoding="utf-8")
@@ -241,39 +169,28 @@ def _reponse_du_cli(sortie: Path, stdout: str) -> str:
         return stdout
 
 
-def executer(prompt: str, *, timeout_s: float, env: dict[str, str]) -> dict[str, Any]:
+def executer(prompt: str, *, timeout_s: float) -> dict[str, Any]:
     """Lance le CLI Codex et rend la charge validee, ou leve.
 
-    `env` est FOURNI par l'appelant. C'est ce qui garde la purge des
-    identifiants API a un seul endroit : elle vaut pour les deux CLI, et la
-    dupliquer ici la ferait deriver.
+    Le lancement — binaire, ligne de commande, environnement purge — appartient
+    a `cortex_cli`. Ce module ne fait que demander, puis LIRE la reponse selon
+    son contrat.
     """
     with tempfile.TemporaryDirectory(prefix="codex-cortex-") as dossier:
         sortie = Path(dossier) / "verdict.json"
-        commande = _commande(prompt, sortie)
         try:
-            termine = subprocess.run(
-                commande,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=max(1.0, float(timeout_s)),
-                check=False,
-                creationflags=_FLAGS,
-                env=env,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise CodexEchec(type(exc).__name__) from exc
-        if termine.returncode != 0:
+            rendu = cortex_cli.lancer("codex-cli", prompt,
+                                      timeout_s=timeout_s, sortie=sortie)
+        except (cortex_cli.BassinIntrouvable, cortex_cli.EchecBassin) as exc:
+            raise CodexEchec(str(exc)) from exc
+        if rendu.returncode != 0:
             raise CodexEchec(
                 "codex exec a echoue",
-                returncode=termine.returncode,
-                stdout=termine.stdout,
-                stderr=termine.stderr,
+                returncode=rendu.returncode,
+                stdout=rendu.stdout,
+                stderr=rendu.stderr,
             )
-        brut = _reponse_du_cli(sortie, termine.stdout)
+        brut = _reponse_du_cli(sortie, rendu.stdout)
         try:
             charge = json.loads(brut)
         except (ValueError, TypeError) as exc:

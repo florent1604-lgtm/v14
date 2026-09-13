@@ -1,0 +1,114 @@
+{
+  "entrees": [
+    {
+      "action": "WAIT",
+      "confidence": 0.0,
+      "evidence_digest": "888dc55a361b0d60c3a0c3c3d668b20e5adffe8741fe513839473c3be17cb726",
+      "model_version": "hermes:qwen3.5:2b",
+      "prompt_version": "fundamental-gate-v4-qwen35",
+      "source": "hermes-cortex/qwen3.5:2b",
+      "sources": [
+        "CoinGecko",
+        "VenueMicrostructure"
+      ],
+      "summary": "Conflit directionnel Hermes: nouvel arbitrage requis"
+    },
+    {
+      "action": "WAIT",
+      "confidence": 0.0,
+      "evidence_digest": "81bbb34266bc7560a03036b8b01742d782c12e0ce5b90e57079815f664393d42",
+      "model_version": "hermes:qwen3.5:2b",
+      "prompt_version": "fundamental-gate-v4-qwen35",
+      "source": "hermes-cortex/qwen3.5:2b",
+      "sources": [
+        "CoinGecko",
+        "VenueMicrostructure"
+      ],
+      "summary": "Conflit directionnel Hermes: nouvel arbitrage requis"
+    },
+    {
+      "action": "ALLOW",
+      "confidence": 0.75,
+      "evidence_digest": "a5d44c1eb398f5e8a8d3c09fb1d08af9264837431d9c706e984d99bb12890db3",
+      "model_version": "hermes:qwen3.5:2b",
+      "prompt_version": "fundamental-gate-v4-qwen35",
+      "source": "hermes-cortex/qwen3.5:2b",
+      "sources": [
+        "VenueMicrostructure"
+      ],
+      "summary": "essai deterministe rang 0"
+    }
+  ],
+  "appels_entrees": [
+    {
+      "provider": "claude-cli",
+      "refs": [
+        "entree-BTCUSD-1"
+      ],
+      "sha256_prompt": "f876e624e5e7a14b9236ce6ff0dc91a05b161b4bde73cd71566ef5dc7faeb9df"
+    },
+    {
+      "provider": "claude-cli",
+      "refs": [
+        "entree-BTCUSD-2"
+      ],
+      "sha256_prompt": "ba70d1f76984e0b7f6c6fddaea316fd8b0a94df6ef3580b15fab4608ded089c3"
+    },
+    {
+      "provider": "claude-cli",
+      "refs": [
+        "entree-ETHUSD-1"
+      ],
+      "sha256_prompt": "5bd8aeb917bb22b5e5688aa7cc6c1a8539fd8cdc1bc7597280e24f50d4c5568d"
+    }
+  ],
+  "positions": [
+    {
+      "confidence": 0.8,
+      "evidence_digest": "eaca661011acb1152075f605cac7c7c63d844ccc9cf2424e3d6caeb9a1f66dd1",
+      "model_version": "hermes:qwen3.5:2b",
+      "prompt_version": "position-fear-v2-market-context",
+      "reason": "essai deterministe rang 0",
+      "request_ref": "revue-BTCUSD-1",
+      "source": "hermes-cortex/qwen3.5:2b",
+      "sources": [
+        "CoinGecko",
+        "VenueMicrostructure"
+      ],
+      "state": "CALM",
+      "symbol": "BTCUSD",
+      "ticket": "101"
+    },
+    {
+      "confidence": 0.8,
+      "evidence_digest": "7ca783bf4d9d5039a9d31ac3534580a9c72b65458f7a6d40adbaa91215b050fa",
+      "model_version": "hermes:qwen3.5:2b",
+      "prompt_version": "position-fear-v2-market-context",
+      "reason": "essai deterministe rang 0",
+      "request_ref": "revue-ETHUSD-1",
+      "source": "hermes-cortex/qwen3.5:2b",
+      "sources": [
+        "VenueMicrostructure"
+      ],
+      "state": "CALM",
+      "symbol": "ETHUSD",
+      "ticket": "102"
+    }
+  ],
+  "appels_positions": [
+    {
+      "provider": "claude-cli",
+      "refs": [
+        "revue-BTCUSD-1"
+      ],
+      "sha256_prompt": "50be11af7d94e48de1c6e597773e0b1df2d722f759ac697f26f5703da7b1e40d"
+    },
+    {
+      "provider": "claude-cli",
+      "refs": [
+        "revue-ETHUSD-1"
+      ],
+      "sha256_prompt": "bb2ab26792f57a463592495c499e546299c29c5c590310b1abca15f71428d0ed"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from titanium import hermes_cortex as cortex
+from titanium import cortex_cli, hermes_cortex as cortex
 
 
 @pytest.mark.parametrize("code,json_error", [(0, False), (1, False), (0, True)])
@@ -14,9 +14,9 @@ def test_refusal_behind_banner_preserves_reason_not_secrets(monkeypatch, code, j
         message = '{"type":"error","error":{"message":"' + message + '"}}'
     output = 'banner ' * 100 + message
     monkeypatch.setattr(cortex, "_CIRCUITS", {})
-    monkeypatch.setattr(cortex, "_hermes_executable", lambda: cortex.Path("hermes.exe"))
-    monkeypatch.setattr(cortex, "HERMES_PROVIDER", "anthropic")
-    monkeypatch.setattr(cortex.subprocess, "run", lambda *a, **k: SimpleNamespace(
+    monkeypatch.setattr(cortex_cli, "executable", lambda _bassin: cortex.Path("hermes.exe"))
+    monkeypatch.setattr(cortex, "HERMES_PROVIDER", "claude-cli")
+    monkeypatch.setattr(cortex_cli.subprocess, "run", lambda *a, **k: SimpleNamespace(
         returncode=code, stdout=output, stderr=""))
     with pytest.raises(cortex.HermesCortexUnavailable) as exc:
         cortex._ask("diagnostic")

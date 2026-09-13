@@ -263,6 +263,42 @@ def circuit_status(provider: str | None = None) -> dict[str, Any]:
     }
 
 
+def etat_bassins() -> dict[str, Any]:
+    """Quel bassin est a sec, et pour combien de temps — la question a deux.
+
+    Lecteur NOMME de l'etat des disjoncteurs. `circuit_status` n'en avait aucun
+    hors de ce module : la quarantaine etait ecrite et jamais lue. Avec un seul
+    bassin cela ne se voyait pas ; avec deux, « lequel est a sec ? » devient la
+    question d'exploitation, et rien ne l'exprimait.
+
+    Rend les bassins dans l'ORDRE d'essai de `_fournisseurs()` — l'ordre compte,
+    c'est celui dans lequel un a sec est saute. Aucun secret : `last_error` est
+    deja classifie par `_safe_cli_error`, jamais du texte fournisseur brut.
+
+    `mesure` dit si CE processus a deja decide quelque chose. L'etat des
+    disjoncteurs vit dans le processus qui trade : une sonde servie depuis un
+    autre processus doit pouvoir dire « je ne sais pas », au lieu d'afficher
+    « disponible » sur un bassin dont elle n'a jamais rien su.
+    """
+    noms = _fournisseurs()
+    mesure = any(nom in _CIRCUITS for nom in noms)
+    etats = [circuit_status(nom) for nom in noms]
+    return {
+        "mesure": mesure,
+        "bassins": [
+            {
+                "provider": etat["provider"],
+                "disponible": etat["available"],
+                "en_quarantaine": not etat["available"],
+                "retry_in_s": round(etat["retry_in_s"], 1),
+                "motif": etat["last_error"],
+            }
+            for etat in etats
+        ],
+        "a_sec": [etat["provider"] for etat in etats if not etat["available"]],
+    }
+
+
 def _fournisseurs() -> list[str]:
     """La liste ordonnee des fournisseurs a essayer.
 
@@ -333,6 +369,33 @@ def _refus_prealable(detail: str) -> bool:
     return texte.startswith("http 4") or "credit balance" in texte or (
         "usage/quota" in texte
     )
+
+
+def _refus_du_fournisseur(detail: str) -> bool:
+    """Le refus porte-t-il sur le COMPTE plutot que sur la REQUETE ?
+
+    Deux refus se ressemblent dans `detail` et ne se reparent pas pareil :
+
+      * « cette requete est trop grosse » — un lot plus petit passe. C'est ce
+        que `_ask_par_lots` sait faire, et la raison d'etre de `_refus_prealable` ;
+      * « ce compte est a sec » — un lot plus petit ne passe pas davantage.
+        Scinder coute des appels pour rien, et laisser le fournisseur ouvert
+        fait relancer un sous-processus a chaque lot, indefiniment.
+
+    La regle ne devine rien : elle lit le vocabulaire que `_safe_cli_error`
+    produit LUI-MEME. Un refus d'usage/quota, un throttling, ou un statut 402
+    ou 429 designent le compte.
+
+    **Un HTTP 400 avec un libelle de credit reste une requete.** C'est la
+    mesure du 07/09 : ce libelle recouvrait une fenetre d'usage qui se recharge
+    en quelques dizaines de secondes, et le lot plus petit passait. Deduire la
+    quarantaine du seul mot « credit » aurait ferme un compte disponible.
+    """
+    texte = detail.lower()
+    if "usage/quota" in texte or "rate limit" in texte:
+        return True
+    statut = re.search(r"\bhttp\s+(\d{3})\b", texte)
+    return statut is not None and statut.group(1) in {"402", "429"}
 
 
 #: Les variables qui font ABANDONNER l'abonnement a un CLI.
@@ -640,6 +703,19 @@ def _ask_avec_repli(prompt: str, *, timeout_s: float = HERMES_TIMEOUT_S,
         try:
             return _ask(prompt, timeout_s=timeout_s, scindable=scindable, provider=nom)
         except HermesLotTropGrand as exc:
+            # Une quarantaine se decide ICI, et pas seulement quand personne n'a
+            # repondu. Avant, un second bassin qui repondait masquait le premier
+            # pour toujours : le compte a sec etait relance a chaque lot, marque
+            # jamais, et `_ask_par_lots` ne le voyait pas puisqu'il recevait la
+            # reponse du bassin sain. Le premier a sec n'etait donc pas saute —
+            # il etait reessaye.
+            #
+            # La duree est celle que `_ask_par_lots` applique deja a la meme
+            # situation : une seule duree pour une seule chose. Le backoff par
+            # mots-cles (600 s) reste reserve au cas ou l'appelant l'impose.
+            if _refus_du_fournisseur(str(exc)):
+                _trip(str(exc), delai=HERMES_BACKOFF_S,
+                      provider=getattr(exc, "provider", None))
             refus = refus or exc
         except HermesCortexUnavailable as exc:
             panne = exc

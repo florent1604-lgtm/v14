@@ -49,6 +49,7 @@ FAUX_CLI = '''\
 
 import json
 import os
+import re
 import sys
 
 argv = sys.argv[1:]
@@ -78,7 +79,15 @@ if journal:
         flux.write(json.dumps(recu, ensure_ascii=False) + "\\n")
 
 if recu["mode"] == "ok":
-    print(json.dumps({"verdicts": []}))
+    # Un vrai modele rend un verdict par reference demandee. Le faux CLI fait
+    # pareil quand la requete en porte, et rend une enveloppe vide sinon : les
+    # tests qui n'envoient qu'une consigne en prose gardent leur attente.
+    prompt = argv[1] if len(argv) > 1 else ""
+    refs = re.findall(r'"(?:decision_ref|request_ref)":[ ]*"([^"]+)"', prompt)
+    cle = "decision_ref" if "decision_ref" in prompt else "request_ref"
+    print(json.dumps({"verdicts": [
+        {cle: ref, "confidence": 0.5} for ref in dict.fromkeys(refs)
+    ]}))
     sys.exit(0)
 
 if recu["mode"] == "refus":
@@ -197,16 +206,25 @@ def test_une_panne_ouvre_le_disjoncteur_du_fournisseur_qui_est_tombe(faux_cli, m
 
 @pytest.mark.unit
 def test_un_fournisseur_a_sec_est_saute_et_le_suivant_repond(faux_cli, monkeypatch):
-    """Sans liste, nommer les disjoncteurs ne changerait rien d'observable."""
+    """Sans liste, nommer les disjoncteurs ne changerait rien d'observable.
+
+    `scindable=True` : les drapeaux de la PRODUCTION. `_ask_par_lots` ne
+    l'appelle jamais autrement, et c'est precisement sous ce drapeau qu'un
+    quota devient un `HermesLotTropGrand` au lieu d'ouvrir le disjoncteur.
+    """
     hc._reset_circuits()
     monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
-    assert hc._ask_avec_repli("diagnostic simple") == {"verdicts": []}
-    # Le fournisseur a sec est mis en quarantaine, et lui seul.
+    assert hc._ask_avec_repli("diagnostic simple", scindable=True) == {"verdicts": []}
+    # Le fournisseur a sec est mis en quarantaine, et lui seul. La duree est
+    # EPINGLEE : c'est celle que `_ask_par_lots` applique deja au meme cas, donc
+    # une seule duree pour une seule situation. La borne large d'avant
+    # (`> HERMES_BACKOFF_S`) aurait laisse passer un retour au backoff de 600 s
+    # sans que le test le dise.
     sec = hc.circuit_status("claude-cli")
     assert sec["available"] is False
-    assert sec["retry_in_s"] > hc.HERMES_BACKOFF_S
+    assert sec["retry_in_s"] == pytest.approx(hc.HERMES_BACKOFF_S, abs=1.0)
     assert hc.circuit_status("repli-cli")["available"] is True
     assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "repli-cli"]
 
@@ -218,16 +236,16 @@ def test_le_quota_expire_et_le_fournisseur_principal_est_reessaye(faux_cli, monk
     monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
     monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
     _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
-    hc._ask_avec_repli("diagnostic simple")
+    hc._ask_avec_repli("diagnostic simple", scindable=True)
     attente = hc.circuit_status("claude-cli")["retry_in_s"]
-    assert attente > hc.HERMES_BACKOFF_S
+    assert attente == pytest.approx(hc.HERMES_BACKOFF_S, abs=1.0)
 
     maintenant = hc.time.time()
     monkeypatch.setattr(hc.time, "time", lambda: maintenant + attente + 1.0)
     assert hc.circuit_status("claude-cli")["available"] is True
     # Et il est bien reinterroge : son quota recharge reprend la main.
     _modes(monkeypatch, **{"claude-cli": "ok", "repli-cli": "ok"})
-    assert hc._ask_avec_repli("diagnostic simple") == {"verdicts": []}
+    assert hc._ask_avec_repli("diagnostic simple", scindable=True) == {"verdicts": []}
     assert [ligne["fournisseur"] for ligne in faux_cli()] == ["claude-cli", "repli-cli", "claude-cli"]
 
 
@@ -347,3 +365,138 @@ def test_le_cli_tourne_dans_la_racine_du_depot(faux_cli, monkeypatch):
     recu = faux_cli()[0]
     assert Path(recu["cwd"]).resolve() == Path(hc.ROOT).resolve()
     assert recu["modele"] == hc.HERMES_MODEL
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. La quarantaine sur le chemin de PRODUCTION
+#
+# `_ask_avec_repli` n'est appelee qu'une fois dans tout le code de production —
+# `_ask_par_lots`, toujours avec `scindable=True`. Les tests de la section 2
+# l'appelaient avec le drapeau par defaut, donc la quarantaine qu'ils
+# mesuraient n'etait PAS celle que la production obtient. Cette section
+# n'utilise que le chemin et les drapeaux reels.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _lot(*refs: str) -> list[dict]:
+    """Des candidats minimaux : la seule chose que `_ask_par_lots` exige."""
+    return [{"decision_ref": ref, "symbole": "US500"} for ref in refs]
+
+
+@pytest.mark.unit
+def test_le_refus_de_compte_n_est_pas_un_refus_de_requete():
+    """Le discriminant, sur le vocabulaire que le classificateur produit lui-meme.
+
+    Sans lui, soit on quarantaine toute refusal — et un lot trop gros ferme un
+    compte disponible —, soit on n'en quarantaine aucune, et un compte a sec
+    est relance a chaque lot.
+    """
+    compte = (
+        "HTTP 402: provider refused: credit balance is too low",
+        "HTTP 429: provider rate limit 429",
+        "provider usage/quota refusal",
+    )
+    requete = (
+        "HTTP 400: request too large for this model",
+        # Mesure du 07/09 : ce libelle recouvrait une fenetre d'usage qui se
+        # recharge, et le lot plus petit passait. La quarantaine aurait ferme
+        # un compte disponible.
+        "HTTP 400: provider refused: credit balance is too low",
+        "HTTP 413: HERMES_CLI_ERROR_OR_INVALID_RESPONSE",
+    )
+    for detail in compte:
+        assert hc._refus_du_fournisseur(detail) is True, detail
+    for detail in requete:
+        assert hc._refus_du_fournisseur(detail) is False, detail
+        # Et la scission de lot garde exactement sa semantique : ce sont
+        # toujours des refus prealables, donc `_ask_par_lots` scinde.
+        assert hc._refus_prealable(detail) is True, detail
+
+
+@pytest.mark.unit
+def test_un_quota_met_le_bassin_en_quarantaine_des_le_premier_lot(faux_cli, monkeypatch):
+    """Le chemin reel : `_ask_par_lots`, jamais `_ask` nu."""
+    hc._reset_circuits()
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
+    monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
+    _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
+
+    verdicts = hc._ask_par_lots(
+        _lot("c1", "c2"), ["ENTETE"], "candidates", "decision_ref"
+    )
+    assert sorted(verdicts) == ["c1", "c2"]
+
+    etat = hc.etat_bassins()
+    assert etat["mesure"] is True
+    assert etat["a_sec"] == ["claude-cli"]
+    sec = next(b for b in etat["bassins"] if b["provider"] == "claude-cli")
+    assert sec["en_quarantaine"] is True
+    assert sec["retry_in_s"] == pytest.approx(hc.HERMES_BACKOFF_S, abs=1.0)
+    # Le CLI rend 0 avec la prose sur stdout : le motif porte donc aussi la
+    # raison du parsing. Ce qui compte pour l'operateur est la queue classee.
+    assert sec["motif"].endswith(
+        "HTTP 402: provider refused: credit balance is too low"
+    )
+
+    # `HERMES_LOT_MAX = 1` : deux lots. Le premier interroge le bassin a sec et
+    # l'y laisse ; le second ne le relance plus du tout.
+    assert [ligne["fournisseur"] for ligne in faux_cli()] == [
+        "claude-cli", "repli-cli", "repli-cli"
+    ]
+
+
+@pytest.mark.unit
+def test_le_lot_suivant_ne_relance_pas_le_bassin_a_sec(faux_cli, monkeypatch):
+    """« Saute » veut dire : aucun sous-processus. Le journal le prouve."""
+    hc._reset_circuits()
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
+    monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
+    _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
+
+    hc._ask_par_lots(_lot("c1"), ["ENTETE"], "candidates", "decision_ref")
+    avant = len([l for l in faux_cli() if l["fournisseur"] == "claude-cli"])
+    assert avant == 1, "le bassin a sec a bien ete interroge une premiere fois"
+
+    verdicts = hc._ask_par_lots(_lot("c2"), ["ENTETE"], "candidates", "decision_ref")
+    assert sorted(verdicts) == ["c2"]
+    apres = len([l for l in faux_cli() if l["fournisseur"] == "claude-cli"])
+    assert apres == avant, "un bassin en quarantaine ne doit plus etre relance"
+
+
+@pytest.mark.unit
+def test_la_sonde_nommee_lit_l_etat_des_bassins(faux_cli, monkeypatch, tmp_path):
+    """L'etat doit etre LU, pas seulement ecrit — et par un lecteur nomme."""
+    from titanium.web import cortex_status
+
+    hc._reset_circuits()
+    monkeypatch.setenv("TITANIUM_HERMES_PROVIDERS", "claude-cli,repli-cli")
+    monkeypatch.setattr(hc, "HERMES_PROVIDER", "claude-cli")
+    _modes(monkeypatch, **{"claude-cli": "quota", "repli-cli": "ok"})
+    hc._ask_par_lots(_lot("c1"), ["ENTETE"], "candidates", "decision_ref")
+
+    bloc = cortex_status.snapshot(root=tmp_path)["bassins"]
+    assert bloc["source"] == "processus"
+    assert bloc["mesure"] is True
+    assert bloc["a_sec"] == ["claude-cli"]
+    sec = next(b for b in bloc["bassins"] if b["provider"] == "claude-cli")
+    assert sec["en_quarantaine"] is True
+    assert sec["motif"].endswith(
+        "HTTP 402: provider refused: credit balance is too low"
+    )
+
+
+@pytest.mark.unit
+def test_la_sonde_avoue_ne_pas_savoir_quand_rien_n_a_ete_decide(tmp_path):
+    """Un processus qui n'a rien decide n'affiche pas « disponible ».
+
+    L'etat des disjoncteurs vit dans le processus qui trade. La sonde servie
+    ailleurs ne le voit pas : elle doit le DIRE, sinon elle affiche un bassin
+    sain sur un processus qui n'en a jamais rien su.
+    """
+    from titanium.web import cortex_status
+
+    hc._reset_circuits()
+    bloc = cortex_status.snapshot(root=tmp_path)["bassins"]
+    assert bloc["mesure"] is False
+    assert bloc["source"] == "aucune_decision"
+    assert bloc["a_sec"] == []

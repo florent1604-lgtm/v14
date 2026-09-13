@@ -220,13 +220,23 @@ def positions() -> dict:
                 entree, courant = float(pos.price_open), float(pos.price_current)
                 side = 1 if int(pos.type) == 0 else -1
                 fav = ((courant - entree) / st.r * side) if (st and st.r) else None
+                brut = float(getattr(pos, "profit", 0.0) or 0.0)
+                # MT5 separe le profit du portage : ``profit`` ne contient PAS
+                # le swap, alors que l'equite du compte, elle, le compte.
+                # Mesure du 12/09/2026 sur DAX40.fs #108485347 : +6,38 EUR de
+                # brut contre -45,25 EUR de swap, soit equity - balance egal a
+                # profit + swap au centime. Afficher le brut seul rend le
+                # panneau optimiste du montant exact qui decide.
+                portage = float(getattr(pos, "swap", 0.0) or 0.0)
                 lignes.append({
                     "ticket": str(pos.ticket), "symbol": pos.symbol,
                     "side": side, "volume": float(pos.volume),
                     "entry": entree, "current": courant,
                     "sl": float(pos.sl) if pos.sl else None,
                     "tp": float(pos.tp) if pos.tp else None,
-                    "profit": float(getattr(pos, "profit", 0.0)),
+                    "profit": brut,
+                    "swap": portage,
+                    "net": brut + portage,
                     "phase": st.phase if st else "non suivi",
                     "fav_r": round(fav, 3) if fav is not None else None,
                     "peak_r": round(st.peak_fav_r, 3) if st else None,
@@ -251,10 +261,15 @@ def positions() -> dict:
                     "kind": "BUY_LIMIT" if side > 0 else "SELL_LIMIT",
                 })
     except Exception as exc:  # noqa: BLE001
+        # Un flottant ILLISIBLE n'est pas un flottant nul : ``None`` se
+        # distingue de ``0.0``, et la carte n'affiche alors aucun total.
         return {"error": f"{type(exc).__name__}: {exc}", "positions": [],
-                "pending": [], "params": params.__dict__}
+                "pending": [], "params": params.__dict__,
+                "net_total": None, "portage_total": None}
 
     return {"positions": lignes, "pending": attentes, "params": params.__dict__,
+            "net_total": round(sum(ligne["net"] for ligne in lignes), 2),
+            "portage_total": round(sum(ligne["swap"] for ligne in lignes), 2),
             "state_path": str(chemin)}
 
 

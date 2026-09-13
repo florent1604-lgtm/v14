@@ -10,10 +10,15 @@
     <thead><tr>
       <th>Ticket</th><th>Actif</th><th>Sens</th><th>Vol</th>
       <th>Entrée</th><th>Courant</th><th>SL</th><th>TP</th>
-      <th>P&amp;L</th><th>Phase</th><th>R</th><th></th>
+      <th>P&amp;L net</th><th>Phase</th><th>R</th><th></th>
     </tr></thead>
     <tbody>
     {% for p in lignes %}
+      {# Un processus en cours peut servir une charge anterieure a l'ajout du
+         portage : on lit les cles par ``get`` plutot que de supposer leur
+         presence, sinon le fragment casse au lieu d'afficher le brut. #}
+      {% set net = p.get('net', p.get('profit', 0.0)) %}
+      {% set portage = p.get('swap', 0.0) %}
       <tr>
         <td class="gris">{{ p.ticket }}</td>
         <td>{{ p.symbol }}</td>
@@ -24,8 +29,9 @@
         <td>{{ '%.2f'|format(p.current) }}</td>
         <td class="gris">{{ '%.2f'|format(p.sl) if p.sl else '—' }}</td>
         <td class="gris">{{ '%.2f'|format(p.tp) if p.tp else '—' }}</td>
-        <td class="{{ 'vert' if p.profit >= 0 else 'rouge' }}">
-          {{ '%+.2f'|format(p.profit) }}</td>
+        <td class="{{ 'vert' if net >= 0 else 'rouge' }}">
+          {{ '%+.2f'|format(net) }}
+          {%- if portage %} <small class="gris">portage {{ '%+.2f'|format(portage) }}</small>{% endif %}</td>
         <td class="gris">{{ p.phase }}</td>
         <td class="gris">{{ p.fav_r if p.fav_r is not none else '—' }}</td>
         <td>
@@ -46,6 +52,18 @@
     </tbody>
   </table>
 
+  {% set flottant = d.get('net_total') %}
+  {% if lignes and flottant is not none %}
+    <p class="gris" style="margin:8px 0 0;font-size:11px">
+      Flottant net des positions V14 :
+      <b class="{{ 'vert' if flottant >= 0 else 'rouge' }}">{{ '%+.2f'|format(flottant) }}</b>
+      {%- set portage_total = d.get('portage_total') or 0.0 %}
+      {%- if portage_total %} (dont {{ '%+.2f'|format(portage_total) }} de portage){% endif %}.
+      C'est ce que l'équité du compte reflète ; un profit brut affiché sans le
+      portage est optimiste du montant exact qui décide.
+    </p>
+  {% endif %}
+
   {% set attentes = d.pending or [] %}
   {% if attentes %}
     <h2 style="margin-top:12px">Ordres en attente</h2>
@@ -57,7 +75,9 @@
     </tbody></table>
   {% endif %}
 
-  {% set en_attente = intentions.en_attente or [] %}
+  {# La route du tableau de bord ne passe pas ``intentions`` : ne pas les
+     supposer présentes, sinon le fragment lève au lieu de se rendre. #}
+  {% set en_attente = (intentions.en_attente if intentions is defined else []) or [] %}
   {% if en_attente %}
     <div class="intentions">
       <b>{{ en_attente|length }} intention(s) en attente d’arbitrage moteur</b>

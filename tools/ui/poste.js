@@ -21,6 +21,16 @@ const signe = (v, d = 2) =>
   (v == null) ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(d);
 const classeSigne = (v) => (v == null ? 'eteint' : v > 0 ? 'pos' : v < 0 ? 'neg' : '');
 
+/* Le flottant RÉEL d'un poste : MT5 sépare ``profit`` et ``swap``, l'équité du
+   compte les additionne. Mesure du 13/09/2026 sur le compte démo : +6,38 de
+   brut contre −45,25 de swap sur un seul poste, et equity − balance égal à
+   profit + swap au centime. Le repli sur ``profit`` couvre une page rechargée
+   devant un serveur qui tourne encore l'ancien module. */
+const montantNet = (position) => {
+  const valeur = position.net ?? position.profit;
+  return Number(valeur ?? 0);
+};
+
 let ETAT = {};
 let TF = 'M15';
 let CHART = null;
@@ -92,8 +102,13 @@ function vitaux(d) {
         r = d.risque || {}, p = d.positions || {};
   const positions = p.positions || [];
   const limites = p.pending || [];
+  // Le total est le flottant RÉEL — profit moins le portage — et non la somme
+  // des profits bruts, qui annonçait +4,08 EUR quand le compte flottait à
+  // −40,12 EUR (mesure du 13/09/2026).
   const pnlOuvert = positions.reduce(
-    (total, position) => total + Number(position.profit || 0), 0);
+    (total, position) => total + montantNet(position), 0);
+  const portageOuvert = positions.reduce(
+    (total, position) => total + Number(position.swap || 0), 0);
 
   const mode = $('#v-mode');
   mode.textContent = a.is_demo === true ? 'PAPER / DÉMO' : 'ATTENTION : NON DÉMO';
@@ -110,6 +125,9 @@ function vitaux(d) {
 
   $('#v-pnl').textContent = `${signe(pnlOuvert)} ${a.currency || ''}`.trim();
   $('#v-pnl').className = 'v n ' + classeSigne(pnlOuvert);
+  // Le portage est invisible dans une colonne de profit brut : on le nomme.
+  $('#v-pnl').title = portageOuvert
+    ? `dont ${signe(portageOuvert)} de portage` : '';
 
   const occ = r.occupation || 0;
   $('#v-risque').textContent = r.disponible
@@ -339,12 +357,17 @@ function positions(d) {
     t.innerHTML = `<thead><tr>
       <th>Ticket</th><th>Actif</th><th>Sens</th><th class="n">Lot</th>
       <th class="n">Entrée</th><th class="n">Stop</th>
-      <th class="n">R courant</th><th class="n">P&amp;L</th><th>Phase</th>
+      <th class="n">R courant</th><th class="n">P&amp;L net</th><th>Phase</th>
     </tr></thead>`;
     const tb = el('tbody');
     for (const x of lignes) {
       const tr = el('tr');
       const sens = x.side > 0 ? 'LONG' : 'SHORT';
+      const net = montantNet(x);
+      const portage = Number(x.swap || 0);
+      const cellulePnl = portage
+        ? `${signe(net, 2)} <small class="eteint">portage ${signe(portage)}</small>`
+        : signe(net, 2);
       tr.innerHTML = `
         <td class="n eteint">${x.ticket ?? ''}</td>
         <td>${x.symbol ?? ''}</td>
@@ -353,12 +376,20 @@ function positions(d) {
         <td class="n">${nb(x.entry, 5)}</td>
         <td class="n">${x.sl ? nb(x.sl, 5) : '—'}</td>
         <td class="n ${classeSigne(x.fav_r)}">${signe(x.fav_r, 2)}</td>
-        <td class="n ${classeSigne(x.profit)}">${signe(x.profit, 2)}</td>
+        <td class="n ${classeSigne(net)}">${cellulePnl}</td>
         <td class="eteint">${x.phase ?? ''}</td>`;
       tb.append(tr);
     }
     t.append(tb);
     c.append(t);
+    const portage = Number(p.portage_total || 0);
+    if (portage) {
+      const note = el('div', 'eteint',
+        `dont ${signe(portage)} de portage — la somme des profits bruts est `
+        + `optimiste de ce montant`);
+      note.style.cssText = 'font-size:10.5px;margin-top:5px';
+      c.append(note);
+    }
   }
   if (limites.length) {
     const titre = el('div', 'eteint', 'ORDRES LIMITES EN ATTENTE');

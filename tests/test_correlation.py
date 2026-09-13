@@ -143,6 +143,8 @@ class TestPlaceDisponible:
         """Un plafond de grappe égal au budget global ne borderait rien."""
         from tools.live_demo import MAX_RISQUE_CUMULE_PCT
         assert MAX_RISQUE_GRAPPE_PCT == 5.7
+        assert MAX_RISQUE_CUMULE_PCT == 17.1
+        assert pytest.approx(3 * MAX_RISQUE_GRAPPE_PCT) == MAX_RISQUE_CUMULE_PCT
         assert MAX_RISQUE_GRAPPE_PCT < MAX_RISQUE_CUMULE_PCT
 
 

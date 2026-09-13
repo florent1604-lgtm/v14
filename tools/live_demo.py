@@ -196,13 +196,10 @@ MODE_ENTREE = "MARCHE"
 #: Risque cumulé maximal sur l'ensemble des positions ouvertes, en % de
 #: l'équité.
 #:
-#: ⚠️ Ce plafond est indissociable de la hausse de MAX_POSITIONS. Compter les
-#: positions ne borne PAS le risque : à 1.75 % chacune, huit positions font
-#: 14 % d'exposition. Pire, l'univers est saturé de paires corrélées —
-#: EURUSD, GBPUSD, AUDUSD et NZDUSD longs, c'est quatre fois le même pari
-#: contre le dollar. Sans budget global, augmenter le nombre de trades
-#: multiplie une exposition unique au lieu de la diversifier.
-MAX_RISQUE_CUMULE_PCT = 6.0
+#: Plafond DEMO promu à trois fois le plafond par grappe le 13/09/2026 :
+#: trois grappes indépendantes de 5,7 % peuvent saturer le budget global.
+#: Le plafond par grappe continue de borner chaque exposition corrélée.
+MAX_RISQUE_CUMULE_PCT = 17.1
 
 #: Dérive maximale tolérée entre le prix qui a produit la décision et le prix
 #: au moment de l'envoi, en fraction de la distance de stop.

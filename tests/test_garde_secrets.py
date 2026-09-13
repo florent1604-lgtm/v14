@@ -44,6 +44,38 @@ def test_le_code_honnete_passe(chemin):
     assert chemin_interdit(chemin) is False
 
 
+# ── Le gabarit versionné n'est pas un fichier d'accès ─────────────────────
+
+@pytest.mark.parametrize("chemin", [
+    ".env.example",
+    ".ENV.Example",                       # la casse ne doit pas le bannir
+    "config/.env.example",
+    r"deploy\config\.env.example",        # séparateur Windows
+    ".env.sample",
+    ".env.template",
+])
+def test_le_gabarit_versionne_passe(chemin):
+    """`.env.example` est SUIVI et ne porte aucune valeur.
+
+    Le prefixe `.env.` le refusait, donc le modele ne pouvait plus jamais etre
+    complete — la garde bloquait le flux de travail que `AGENTS.md` prescrit
+    (« mettre a jour `.env.example` »). Un modele committable est la seule
+    facon de documenter une variable sans jamais versionner sa valeur.
+    """
+    assert chemin_interdit(chemin) is False
+
+
+@pytest.mark.parametrize("chemin", [
+    ".env.local",
+    ".env.production",
+    ".env.example.local",                 # un VRAI fichier derriere un nom de modele
+    ".env.example.backup",
+])
+def test_un_vrai_fichier_d_acces_reste_refuse(chemin):
+    """L'exception ne doit pas devenir une porte : elle nomme des modeles."""
+    assert chemin_interdit(chemin) is True
+
+
 # ── Valeurs de secrets ────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("echantillon", [

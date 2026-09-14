@@ -349,6 +349,31 @@ pas qu'elle est meilleure. Enfin, aucun appelant de production ne construit
 encore `PolicyContext(macro=…)` (§10) : la posture est exercée par le harnais et
 par tout appelant qui la demande.
 
+**La ligne exacte qu'un appelant de production devrait écrire.** Le bloc se
+construit chez son propriétaire, puis se **nomme** au seul fabricant de
+contexte — il n'y a rien d'autre à ajouter :
+
+```python
+from titanium.macro.gate import macro_features            # proprietaire du bloc
+from titanium.execution_sim.policies import contexte_execution
+
+bloc = macro_features(symbole)              # None quand le flux est ETEINT
+context = contexte_execution(snapshot, tick_size=tick, macro=bloc)
+```
+
+Flux éteint, `macro_features` rend `None` : le vecteur est **celui d'avant, au
+bit** — c'est la non-régression démontrable, pas promise. **Flux allumé, il ne
+l'est plus** : en `CLEAR` la posture vaut `echelle / (echelle + ecart)` et n'est
+donc **pas nulle par construction**. Avec l'échelle livrée
+(`elevated_within_s = 3600`), une publication à 3 h donne 0,25 — le palier mort
+mesuré ci-dessus — et à ~1 h 51 elle donne 0,35, le premier échelon qui déplace
+une cellule. Autrement dit : brancher cette ligne avec le flux allumé **change
+les décisions dans les trois heures qui précèdent une publication**, et laisse
+le comportement intact au-delà. **La boucle armée n'appelle pas la famille
+adaptative** : l'y brancher est une décision d'opérateur, et elle demande sa
+propre mesure — ce qui est prouvé ici est qu'une décision change, pas qu'elle est
+meilleure.
+
 Défaut `None` ⇒ **comportement d'avant, au bit près** : c'est ce qui rend la
 non-régression de la matrice adaptative démontrable plutôt que promise, et c'est
 vérifié sur le vecteur ENTIER (`test_le_contexte_d_arrivee_reste_neutre_sans_macro`
@@ -459,11 +484,15 @@ ne change rien, et la fonctionnalité change quelque chose.
 
 L'empreinte de paquet (`engine_version`) change, par construction : des fichiers
 de plus dans `titanium/execution_sim/` suffisent — et **modifier** une source du
-moteur la déplace tout autant, sans ajouter un seul fichier. C'est le cas du
-nettoyage décrit en §3.1, dont l'empreinte passe de `0a43328a…` à `70b26be0…`
-alors que toutes les lignes de mesure, tous les classements et les deux rapports
-restent identiques. C'est le seul écart attendu, et il est exclu de la
-comparaison cellule par cellule.
+moteur la déplace tout autant, sans ajouter un seul fichier. Elle a donc bougé
+plusieurs fois sur cette branche, et **chaque valeur est reproductible depuis les
+commits** : `0a43328a…` avant le passage « aucun état sans lecteur » (`e13adcb`),
+`70b26be0…` juste après (`c934055`), et **`0ba4d719…` à la tête livrée**
+(`d389dee`, puis `c4abfd9` et `35a72fe`, qui ne touchent pas le paquet). Toutes
+les lignes de mesure, tous les classements et les deux rapports restent
+identiques : c'est le seul écart attendu, et il est exclu de la comparaison
+cellule par cellule. Citer une empreinte périmée comme si elle était courante
+serait exactement le défaut que ce paragraphe justifie d'exclure.
 
 **Ce que cette mesure ne dit pas.** Elle porte sur les deux arènes
 `execution_sim`, pas sur la boucle armée : rien ici ne prouve qu'un ordre réel se
@@ -496,6 +525,7 @@ la couvre.
 | Fichier | Cas | Ce qu'il couvre |
 |---|---:|---|
 | `tests/test_arene_cellules.py` | 4 | propriétaire de la comparaison : clé d'appariement, empreinte insensible à l'ordre des clés, écart de coût vu à résultat constant, cellules présentes d'un seul côté |
+| `tests/test_execution_adaptative_sortie.py` | 2 | garde d'écriture du harnais : la passe implicite n'écrit pas sur l'artefact de référence et atterrit dans un dossier daté, la passe explicite écrit où on le demande et rien d'autre |
 
 `tests/test_macro_feed.py` — la non-régression en tête de fichier parce que
 c'est elle qu'on casse en premier :
@@ -547,7 +577,8 @@ Assumé, et pas seulement reporté :
   **aucun appelant de production ne le construit encore** : dans la boucle, le
   macro agit aujourd'hui par la porte — le refus et le `WAIT` — pas par
   l'agressivité. C'est le lot suivant, et il touche le chemin armé : il demande
-  donc sa propre mesure, pas un ajout discret.
+  donc sa propre mesure, pas un ajout discret. **La ligne exacte à écrire est au
+  §6.3**, avec ce qu'elle change dès que le flux est allumé.
 * **L'échelle de la posture n'est pas calibrée.** La durée du veto
   (`elevated_within_s`) sert d'échelle de temps ; rien ne prouve que ce soit la
   bonne pour doser une exécution. Le profil du §6.3 montre même un palier mort
@@ -568,10 +599,33 @@ Assumé, et pas seulement reporté :
 * **Le filtrage par devise est une heuristique.** Elle lit des codes de trois
   lettres dans le symbole. Un symbole non analysable conserve **toutes** les
   publications : c'est prudent, mais bruyant sur un indice.
-* **La fenêtre de gel est déclarative, pas mesurée.** `blackout_before_s = 900`
-  est une valeur de départ raisonnable, pas un résultat empirique. La caler
-  demande de corréler le slippage observé à la proximité d'une publication —
-  c'est un travail de mesure, et il n'est pas fait.
+* **La fenêtre de gel est mesurée, et la mesure ne la tranche pas.** Le travail
+  demandé a été fait : `tools/calibrer_fenetre_blackout.py` (commit `b82ea84`,
+  11 cas de tests sans MT5) mesure le profil du coût autour d'une ancre et
+  dérive la fenêtre où l'écart à la ligne de base est réel — **avant et après
+  séparément**, puisque le chiffre en place les distingue :
+
+  ```powershell
+  .\.venv\Scripts\python.exe -X utf8 tools\calibrer_fenetre_blackout.py
+  ```
+
+  **Verdict, sur l'archive de barres M5** (28 symboles négociés, ~2,8 M barres,
+  03/2025 → 08/2026) : **l'archive ne permet pas de trancher le 900 / 300.**
+  L'ancrage A (le calendrier, lu par le lecteur de production) n'est pas
+  exécutable dans un checkout sans `data/calendrier_macro.json` ; l'ancrage B
+  (chocs synchronisés, sans calendrier) sature — 33,2 % des minutes
+  synchronisées à 1,25 × la ligne de base — et, à 2,0 × et 3,0 ×, ses ancres
+  s'effondrent sur le rollover quotidien de 22:00 UTC (89 ancres sur 93) :
+  aucune publication n'apparaît dans la composition horaire. Ce qui en sort est
+  un **régime**, pas un événement.
+
+  **Ce que la mesure ne conclut pas** : spread de barre et non intra-barre
+  (donc borne basse), ancrage B endogène (il minore), pas la boucle vive, et une
+  année de régime ne fait pas une décennie. **`blackout_before_s = 900` et
+  `blackout_after_s = 300` ne bougent pas** : l'outil imprime la fenêtre
+  dérivée, la **ligne exacte** à écrire dans `config/macro.json` et l'empreinte
+  de la politique (`policy.fingerprint()`). Le différentiel est là ; le déplacer
+  reste une décision d'opérateur. Mesurer et changer sont deux actes.
 * **La posture n'est pas affichée.** `telemetry.macro_telemetry` projette l'état,
   le score, la fraîcheur et l'imminence ; `tension` vit dans le bloc de features
   (`gate.macro_block`) et n'a PAS été ajoutée à la charge du panneau, qui est gelé

@@ -28,11 +28,47 @@ from titanium.macro.policy import MacroPolicy
 MACRO_BLOCK_KEYS = frozenset({"allows_new_risk", "conservative"})
 
 
-def macro_block(risk: MacroRisk) -> dict[str, Any]:
+#: Cle de la POSTURE D'EXECUTION graduee. Distincte des cles de veto, et c'est
+#: le point : elle n'interdit rien et ne remplace aucun seuil. Son consommateur
+#: est le contexte d'arrivee des techniques d'execution (``build_features``),
+#: qui s'en sert pour doser l'agressivite. Un producteur qui ne la publie pas
+#: laisse le comportement d'avant : elle est ABSENTE, pas fausse.
+MACRO_POSTURE_KEY = "tension"
+
+
+def macro_posture(risk: MacroRisk, *, scale_s: float) -> float:
+    """Posture graduee dans [0, 1] : plus la publication approche, plus elle
+    demande de la patience. Aucune publication connue rend une posture nulle.
+
+    **Pourquoi une decroissance et pas un seuil.** Un seuil pose sur l'horizon
+    du veto (``elevated_within_s``) vaudrait zero partout ou l'execution a lieu :
+    ``CLEAR`` signifie precisement que la publication est PLUS LOIN que cet
+    horizon. Mesure du 14/09 : tout etat qui execute rend ``score = 0`` et
+    ``conservative = False`` par construction, donc une posture batie sur ces
+    deux-la, ou sur une coupure au meme horizon, ne module jamais rien. La duree
+    du veto sert ici d'ECHELLE DE TEMPS, pas de coupure : la tension decroit
+    continument et reste non nulle sur le chemin qui execute.
+
+    Aucune borne nouvelle : la fonction ne lit que des champs deja figes par
+    ``risk.py``, et l'echelle est un parametre de politique existant.
+    """
+    if scale_s <= 0.0:
+        return 0.0
+    ecart = risk.seconds_to_next
+    if ecart is None:
+        return 0.0
+    ecart = max(0.0, float(ecart))
+    return scale_s / (scale_s + ecart)
+
+
+def macro_block(risk: MacroRisk, *, posture_scale_s: float) -> dict[str, Any]:
     """Forme normale du verdict macro telle qu'elle entre dans les features."""
     return {
         "allows_new_risk": bool(risk.allows_new_risk),
         "conservative": bool(risk.conservative),
+        # Posture d'execution graduee. Elle accompagne le verdict, elle ne le
+        # remplace pas : le veto reste porte par les deux booleens ci-dessus.
+        MACRO_POSTURE_KEY: round(macro_posture(risk, scale_s=posture_scale_s), 6),
         # Champs de trace. La porte ne les lit pas pour DECIDER, mais elle les
         # cite dans son motif : un WAIT qui ne nomme pas la publication qui l'a
         # cause oblige a relire le calendrier a la main, donc a ne pas le faire.
@@ -62,5 +98,6 @@ def macro_features(
     if not politique.enabled:
         return None
     return macro_block(
-        macro_risk(now=now, symbols=symbol or None, policy=politique, cache=cache)
+        macro_risk(now=now, symbols=symbol or None, policy=politique, cache=cache),
+        posture_scale_s=politique.elevated_within_s,
     )

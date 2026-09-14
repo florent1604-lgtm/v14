@@ -121,6 +121,12 @@ Ce que la règle a fait tomber, et pourquoi :
   plutôt que `None`. Les recopier ne les rendait pas vrais, seulement
   invérifiables. Le **refus** (bloc incomplet ou `allows_new_risk` faux ⇒ `None`)
   reste, intact — c'est lui qui satisfait le besoin.
+
+  **Puis la règle a trouvé son autre issue : l'application.** La posture du §6.3
+  n'est pas recopiée sur le vecteur — elle est *appliquée* à `urgency`, l'axe que
+  les techniques lisent déjà, et `urgency_source` en nomme la provenance. Il n'y
+  a toujours **aucun champ macro** sur `AdaptiveFeatures` : la même règle,
+  satisfaite par un lecteur réel au lieu d'un champ décoratif.
 * **`tools/macro_status.py`**, dont le seul lecteur était ce document. La
   vérification « la source répond-elle » est faite par la boucle elle-même au
   démarrage, dans le processus qui trade — le contrôle préalable en ligne de
@@ -225,10 +231,83 @@ mauvaise raison.
 ### 6.3 Le contexte d'arrivée de l'exécution — `titanium/execution_sim/`
 
 `PolicyContext` gagne un champ `macro`, **en dernier et avec un défaut `None`** :
-toute construction positionnelle existante reste valide. `build_features` refuse
-de planifier (`None`) quand le calendrier interdit le risque neuf, et ne fait que
-cela : c'est la seule information que le macro apporte à ce vecteur, et elle est
-portée par le fait qu'un vecteur est rendu.
+toute construction positionnelle existante reste valide.
+
+**Le veto, inchangé.** `build_features` refuse de planifier (`None`) quand le
+calendrier interdit le risque neuf, sur le **même critère que la porte** : les
+clés de `MACRO_BLOCK_KEYS`, puis `allows_new_risk`. Un bloc incomplet est un
+refus, jamais un laissez-passer.
+
+**Puis la posture, graduée — la seconde information, et un lecteur nommé.**
+Le macro ne dit pas seulement « a-t-on le droit » : il dit aussi « faut-il y
+aller doucement ». Cette information est portée par `tension`, publiée par
+`gate.py` — même propriétaire unique que le veto. `build_features` l'**applique**
+à `urgency`, l'axe que les techniques lisent déjà (`adapt_urgency_ladder` choisit
+son échelon dessus, `adapt_selector` choisit sa technique dessus) :
+
+```
+urgence_effective = urgence x (1 - tension)
+```
+
+La posture ne peut donc que **réduire** l'agressivité demandée, jamais
+l'augmenter, `urgency_source` la nomme, et **aucun champ macro n'est recopié dans
+le vecteur** : la règle du §3.1 est satisfaite par un lecteur réel, pas par un
+champ décoratif. `tension` absente vaut neutre (un producteur qui ne la publie
+pas laisse le comportement d'avant) ; `tension` illisible la fait **refuser de
+planifier**, jamais retomber en silence sur « neutre ».
+
+**Pourquoi une décroissance, et pas `conservative`.** Le §10 proposait
+`conservative` comme champ à consommer. La mesure du 14/09 le réfute : sur le
+contrat livré, **tout état qui exécute rend `score = 0` et `conservative = False`
+par construction**. `ELEVATED` — le seul où `conservative` vaut `True` — fait
+`WAIT` ; `BLACKOUT`, `STALE` et `UNKNOWN` font `BLOCK` ; et `CLEAR` est défini
+comme « la publication est plus loin que `elevated_within_s` ». Un consommateur
+bâti sur ces deux valeurs, ou sur une **coupure** posée au même horizon, serait
+donc identiquement nul partout où l'exécution a lieu : un lecteur mort.
+`tension` décroît au contraire continûment, en prenant la durée du veto comme
+**échelle de temps** et non comme coupure, et reste non nulle sur le chemin qui
+exécute. Aucun seuil du veto ne bouge : l'échelle est un paramètre existant.
+
+**Mesure, seed `14082026`** — deux commandes, reproductibles telles quelles :
+
+```powershell
+.\.venv\Scripts\python.exe tools\execution_adaptative.py --seed 14082026 `
+    --output results\arene_neutre
+.\.venv\Scripts\python.exe tools\execution_adaptative.py --seed 14082026 `
+    --macro-tension 1.0 --output results\arene_tension `
+    --comparer results\arene_neutre\execution_adaptative.ndjson
+```
+
+| posture | cellules qui bougent / 15 552 | techniques touchées | `adapt_selector` | `adapt_urgency_ladder` | comportements distincts |
+|---|---:|---|---|---|---:|
+| **0,00 (neutre)** | **0** — `sha256 18b2740f…` identique au publié | — | rang 5, +0,1667 | rang 11, −0,1449 | 17 |
+| 0,25 | 0 | — | rang 5, +0,1667 | rang 11, −0,1449 | 17 |
+| 0,35 | 676 | selector + ladder | rang 3, +0,2289 | rang 11, −0,1120 | 17 |
+| 0,50 | 676 — **mêmes artefacts que 0,35** | idem | rang 3, +0,2289 | rang 11, −0,1120 | 17 |
+| 1,00 | 789 | selector + ladder | rang 3, +0,2289 | rang 8, **+0,1556** | **16** |
+
+Le témoin `market` et **15 des 17 techniques ne bougent jamais** : seules bougent
+les deux qui lisent `urgency`, ce qui est aussi la preuve que le harnais ne
+dérive pas. Le différentiel est réel et il déplace un classement publié —
+`adapt_selector` passe de la 5ᵉ à la 3ᵉ place, `adapt_urgency_ladder` cesse
+d'être perdant.
+
+**Trois limites que la table porte elle-même.** (1) La modulation est un
+**escalier**, pas une pente : sous le premier échelon (0,25) elle ne fait rien du
+tout, et entre 0,35 et 0,50 elle produit des artefacts identiques au bit.
+(2) À 1,00 l'échelle d'urgence s'effondre sur un seul palier et
+`adapt_urgency_ladder` devient identique à `adapt_join_touch` : **17 → 16
+comportements distincts**. Une posture extrême fait perdre son identité à une
+technique — c'est une observation, pas une recommandation de réglage.
+(3) La forme de la fonction est un choix : la durée du veto sert d'échelle, et
+rien ne prouve que ce soit la bonne échelle pour doser l'agressivité.
+
+**Ce que cette mesure ne dit pas.** L'arène n'est pas la boucle vive : carnets
+synthétiques, aucun ordre envoyé, échantillon et fenêtres du harnais. Et elle ne
+dit **rien de la rentabilité** : elle prouve qu'une décision d'exécution change,
+pas qu'elle est meilleure. Enfin, aucun appelant de production ne construit
+encore `PolicyContext(macro=…)` (§10) : la posture est exercée par le harnais et
+par tout appelant qui la demande.
 
 Défaut `None` ⇒ **comportement d'avant, au bit près** : c'est ce qui rend la
 non-régression de la matrice adaptative démontrable plutôt que promise, et c'est
@@ -332,6 +411,12 @@ couple de techniques identique sur l'ensemble des colonnes, `axes_inertes`
 vide. Les chiffres publiés dans `docs/PLAN_EXECUTION_ADAPTATIVE_V14.md` restent
 exacts — l'écart avec la base est nul sur les deux arènes.
 
+Et pour la posture elle-même : la passe **neutre** rejoue
+`execution_adaptative.ndjson` **au bit près** (`sha256 18b2740f…`, `cmp` sans
+écart), alors que le même code, au même seed, la posture 1,0 déplace 789 cellules
+sur 15 552 (§6.3). C'est la forme la plus forte de la non-régression : le défaut
+ne change rien, et la fonctionnalité change quelque chose.
+
 L'empreinte de paquet (`engine_version`) change, par construction : des fichiers
 de plus dans `titanium/execution_sim/` suffisent — et **modifier** une source du
 moteur la déplace tout autant, sans ajouter un seul fichier. C'est le cas du
@@ -347,13 +432,22 @@ sa garantie.
 
 ## 9. Tests livrés
 
-**75 cas, dont 22 ajoutés avec la fonctionnalité complète** :
+**77 cas, dont 24 ajoutés avec la fonctionnalité complète** :
 
 | Fichier | Cas | Ce qu'il couvre |
 |---|---:|---|
-| `tests/test_macro_feed.py` | 57 | contrats, cache, risque, sources — **dont le chemin HTTP**, exerce pour la premiere fois |
+| `tests/test_macro_feed.py` | 59 | contrats, cache, risque, sources — **dont le chemin HTTP**, exerce pour la premiere fois |
 | `tests/test_macro_service.py` | 11 | cycle de vie du service, arret immediat et delai derive, publication et relecture |
 | `tests/test_web_macro_gauges.py` | 7 | route `/ui/macro`, rendu des jauges, severite, verdict de boucle perime |
+
+Le côté exécution est couvert dans son propre fichier,
+`tests/test_execution_sim_adaptive.py` (**62 cas, dont 6 ajoutés ici**) : la
+posture déplace une décision d'exécution, elle est graduée plutôt que binaire,
+elle ne rend jamais plus agressif que l'intention, la posture neutre rend le
+vecteur d'avant **au bit**, et une posture illisible refuse de planifier. Deux
+mutations le prouvent : neutraliser le consommateur tue 4 de ces cas, et rendre
+le producteur dégénéré (une coupure à l'horizon du veto) tue le cas de
+non-dégénérescence.
 
 `tests/test_macro_feed.py` — la non-régression en tête de fichier parce que
 c'est elle qu'on casse en premier :
@@ -400,15 +494,24 @@ Assumé, et pas seulement reporté :
 * **Historique du calendrier.** Le cache ne garde que la dernière lecture :
   impossible de rejouer « ce que le système savait à 14 h 25 ». Le `digest`
   stable existe pour ça, mais rien ne l'archive encore.
-* **Une technique adaptative sensible au macro.** Aucune des 17 ne lit le
-  macro, et le vecteur n'en porte plus rien (voir §3.1) : seuls le refus de
-  planifier et le `WAIT`/`BLOCK` de la porte en dépendent aujourd'hui. En faire
-  lire une changerait les nombres publiés, donc exige un nouveau lot de mesure
-  complet, pas un ajout discret — et le champ à lui donner est `conservative`,
-  qui est déjà publié par la porte.
+* **La posture n'atteint pas encore la boucle armée.** Le chemin d'exécution
+  sait lire un bloc macro (`PolicyContext.macro`), le harnais le lui fournit, et
+  **aucun appelant de production ne le construit encore** : dans la boucle, le
+  macro agit aujourd'hui par la porte — le refus et le `WAIT` — pas par
+  l'agressivité. C'est le lot suivant, et il touche le chemin armé : il demande
+  donc sa propre mesure, pas un ajout discret.
+* **L'échelle de la posture n'est pas calibrée.** La durée du veto
+  (`elevated_within_s`) sert d'échelle de temps ; rien ne prouve que ce soit la
+  bonne pour doser une exécution. Le profil du §6.3 montre même un palier mort
+  sous 0,35 : c'est un choix assumé, pas un résultat.
 
 ## 11. Limites connues et honnêteté
 
+* **La posture macro n'a aucune mesure de rentabilité.** Le §6.3 mesure
+  qu'elle **déplace** des décisions d'exécution, pas qu'elles sont meilleures :
+  le classement bouge et `adapt_urgency_ladder` change de signe, mais rien ici ne
+  prouve qu'une posture positive est rentable hors échantillon. La déplacer en
+  production est une décision d'opérateur, pas une conséquence de cette mesure.
 * **La fraîcheur mesure l'âge de la LECTURE, pas la distance à l'événement.** Un
   `ttl_s` de 900 s signifie « je crois ce que j'ai lu il y a moins de 15 min ».
   Un calendrier lu à 8 h et valable toute la journée doit donc avoir un `ttl_s`

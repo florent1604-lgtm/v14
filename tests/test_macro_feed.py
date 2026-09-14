@@ -44,7 +44,7 @@ from titanium.macro import (
     parse_events,
 )
 from titanium.macro.contracts import MacroEvent
-from titanium.macro.gate import macro_block
+from titanium.macro.gate import MACRO_POSTURE_KEY, macro_block
 from titanium.macro.telemetry import macro_telemetry
 
 MAINTENANT = datetime(2026, 9, 17, 17, 30, tzinfo=timezone.utc)
@@ -440,7 +440,7 @@ def test_http_cle_absente_echoue_sans_toucher_le_reseau(monkeypatch):
     verdict = risque(cache)
     assert verdict.state is MacroState.UNKNOWN
     assert verdict.allows_new_risk is False
-    porte = evaluate(features_parfaites(macro=macro_block(verdict)))
+    porte = evaluate(features_parfaites(macro=macro_block(verdict, posture_scale_s=3600.0)))
     assert porte.verdict == "BLOCK"
     assert porte.code == "BLOCK_MACRO_BLACKOUT"
 
@@ -466,7 +466,7 @@ def test_http_delai_depasse_devient_une_panne_de_source(monkeypatch):
                      policy=politique(ttl_s=900.0))
     assert verdict.state is MacroState.STALE
     assert verdict.allows_new_risk is False
-    assert evaluate(features_parfaites(macro=macro_block(verdict))).verdict == "BLOCK"
+    assert evaluate(features_parfaites(macro=macro_block(verdict, posture_scale_s=3600.0))).verdict == "BLOCK"
 
 
 def test_http_charge_utile_illisible_n_enregistre_rien(monkeypatch):
@@ -487,7 +487,7 @@ def test_http_charge_utile_illisible_n_enregistre_rien(monkeypatch):
     assert "CASSE" in cache.view().last_error
     verdict = risque(cache)
     assert verdict.allows_new_risk is False
-    assert evaluate(features_parfaites(macro=macro_block(verdict))).verdict == "BLOCK"
+    assert evaluate(features_parfaites(macro=macro_block(verdict, posture_scale_s=3600.0))).verdict == "BLOCK"
 
 
 def test_http_calendrier_valide_traverse_toute_la_chaine(monkeypatch):
@@ -508,7 +508,7 @@ def test_http_calendrier_valide_traverse_toute_la_chaine(monkeypatch):
     assert verdict.state is MacroState.BLACKOUT
     assert verdict.allows_new_risk is False
     assert "FOMC" in verdict.reasons[0]
-    porte = evaluate(features_parfaites(macro=macro_block(verdict)))
+    porte = evaluate(features_parfaites(macro=macro_block(verdict, posture_scale_s=3600.0)))
     assert porte.verdict == "BLOCK"
     assert porte.code == "BLOCK_MACRO_BLACKOUT"
 
@@ -520,7 +520,7 @@ def test_http_calendrier_valide_traverse_toute_la_chaine(monkeypatch):
     assert asyncio.run(flux.refresh_once()) is True
     verdict = risque(cache, quand=datetime.now(timezone.utc), symbole="EURUSD")
     assert verdict.state is MacroState.CLEAR
-    assert evaluate(features_parfaites(macro=macro_block(verdict))).verdict == "ENTER"
+    assert evaluate(features_parfaites(macro=macro_block(verdict, posture_scale_s=3600.0))).verdict == "ENTER"
 
 
 def test_http_erreur_serveur_devient_une_panne(monkeypatch):
@@ -651,7 +651,7 @@ def test_macro_ne_compense_jamais_un_pilier_absent():
 
 def test_le_verdict_macro_porte_ses_motifs():
     verdict = risque(cache_avec((evenement(),)), symbole="EURUSD")
-    d = evaluate(features_parfaites(macro=macro_block(verdict)))
+    d = evaluate(features_parfaites(macro=macro_block(verdict, posture_scale_s=3600.0)))
     assert d.verdict == "WAIT"
     assert any("FOMC" in motif for motif in d.reasons)
 
@@ -711,7 +711,7 @@ def test_l_attitude_conservatrice_laisse_planifier_et_c_est_la_porte_qui_attend(
 
 def test_le_bloc_de_la_porte_est_le_meme_objet_que_celui_du_contexte():
     """Une seule regle de completude, `MACRO_BLOCK_KEYS`, pour les deux lecteurs."""
-    conforme = macro_block(risque(cache_avec(()), symbole="EURUSD"))
+    conforme = macro_block(risque(cache_avec(()), symbole="EURUSD"), posture_scale_s=3600.0)
     assert MACRO_BLOCK_KEYS.issubset(conforme)
     assert build_features(intention(), contexte_macro(conforme)) is not None
 
@@ -780,3 +780,43 @@ def test_la_sonde_du_tableau_de_bord_ne_leve_jamais():
     assert "severity" in bloc
     assert bloc["enabled"] is False  # flux eteint par defaut
     assert "macro" in state.state()
+
+
+# ───────────── Posture d'execution : non degeneree la ou l'execution a lieu ─
+
+
+def test_la_posture_publiee_est_non_degeneree_sur_le_chemin_qui_execute():
+    """Le seul etat qui execute est CLEAR : la posture doit y vivre.
+
+    Mesure du 14/09 : en CLEAR, ``score = 0`` et ``conservative = False`` par
+    construction, et ELEVATED fait WAIT. Une posture tiree du score, ou coupee a
+    l'horizon du veto, serait identiquement nulle partout ou l'execution a lieu.
+    """
+    regle = politique()
+    lointain = risque(cache_avec((evenement(quand=MAINTENANT + timedelta(hours=4)),)))
+    assert lointain.state is MacroState.CLEAR
+    assert lointain.allows_new_risk is True
+    assert lointain.conservative is False
+    bloc_lointain = macro_block(lointain, posture_scale_s=regle.elevated_within_s)
+    assert bloc_lointain[MACRO_POSTURE_KEY] > 0.0
+
+    proche = risque(cache_avec((evenement(quand=MAINTENANT + timedelta(hours=1, minutes=30)),)))
+    assert proche.state is MacroState.CLEAR
+    bloc_proche = macro_block(proche, posture_scale_s=regle.elevated_within_s)
+    assert bloc_proche[MACRO_POSTURE_KEY] > bloc_lointain[MACRO_POSTURE_KEY]
+    assert bloc_proche[MACRO_POSTURE_KEY] < 1.0
+
+    vide = risque(cache_avec(()))
+    assert macro_block(vide, posture_scale_s=regle.elevated_within_s)[MACRO_POSTURE_KEY] == 0.0
+
+
+def test_la_posture_ne_deplace_ni_le_veto_ni_ses_cles():
+    """L'echelle de posture ne touche aucun des deux booleens du veto."""
+    gele = risque(cache_avec((evenement(quand=MAINTENANT + timedelta(minutes=5)),)))
+    reference = macro_block(gele, posture_scale_s=3600.0)
+    autre = macro_block(gele, posture_scale_s=1.0)
+    assert MACRO_BLOCK_KEYS.issubset(reference)
+    for cle in ("allows_new_risk", "conservative", "state", "score"):
+        assert reference[cle] == autre[cle]
+    assert reference["allows_new_risk"] is False
+    assert reference["conservative"] is True

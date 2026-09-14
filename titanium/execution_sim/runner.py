@@ -418,6 +418,7 @@ def executer_sur_snapshots(
     fee_multiplier: float = 1.0,
     initial_cash: float = 100_000.0,
     seconds_per_snapshot: float = 1.0,
+    macro: dict[str, Any] | None = None,
 ) -> list[Order]:
     """Sequence une politique sur une suite de snapshots, quelle qu'en soit la source.
 
@@ -442,6 +443,7 @@ def executer_sur_snapshots(
         tick_size=tick_size,
         historical_volumes=historical_volumes,
         inventory=inventory,
+        macro=macro,
     )
     policy = get_policy(policy_name, _policy_config(policy_name, config))
     if policy_name == "multi_leg_simultaneous":
@@ -596,6 +598,7 @@ def _run_case(
     config: dict[str, Any],
     initial_cash: float,
     axes_override: dict[str, float] | None = None,
+    macro: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute un cas. ``axes_override`` sert a SONDER une technique isolement.
 
@@ -636,6 +639,7 @@ def _run_case(
         inventory=inventory,
         fee_multiplier=2.0 if scenario.fees == "adverse" else 1.0,
         initial_cash=initial_cash,
+        macro=macro,
     )
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     metrics = execution_metrics(
@@ -661,7 +665,19 @@ def _run_case(
     }
 
 
-def run_matrix(spec: MatrixSpec, config: dict[str, Any]) -> list[dict[str, Any]]:
+def run_matrix(
+    spec: MatrixSpec,
+    config: dict[str, Any],
+    *,
+    macro: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Execute la matrice. ``macro`` est un BLOC macro applique a tous les cas.
+
+    Defaut ``None`` : aucune cle macro n'entre dans un ``PolicyContext``, donc
+    les artefacts sont ceux d'avant, au bit pres. Une posture d'execution ne se
+    transmet ainsi que si un appelant la demande — la grille des scenarios et la
+    spec de la matrice ne bougent pas.
+    """
     if config["execution"].get("live_enabled") is not False:
         raise ValueError("execution matrix is dry-run only")
     unknown = set(spec.policies) - set(ALL_POLICIES) - set(ADAPTIVE_POLICIES)
@@ -669,7 +685,7 @@ def run_matrix(spec: MatrixSpec, config: dict[str, Any]) -> list[dict[str, Any]]
         raise ValueError(f"unknown policies: {sorted(unknown)}")
     scenarios = generate_scenarios(seed=spec.seed, quick=spec.quick)
     tasks = [
-        (policy, scenario, config, spec.initial_cash)
+        (policy, scenario, config, spec.initial_cash, None, macro)
         for policy in spec.policies
         for scenario in scenarios
     ]

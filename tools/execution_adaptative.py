@@ -40,6 +40,7 @@ from titanium.execution_sim.runner import (  # noqa: E402
     generate_scenarios,
     run_matrix,
 )
+from titanium.macro.gate import MACRO_POSTURE_KEY  # noqa: E402
 
 TEMOIN = "market"
 
@@ -432,6 +433,83 @@ def ecrire(resultat: dict[str, Any], rows: list[dict[str, Any]], output: Path) -
     return {"json": json_path, "ndjson": ndjson_path, "markdown": md_path}
 
 
+def bloc_posture(tension: float) -> dict[str, Any] | None:
+    """Bloc macro d'une posture d'execution, ou ``None`` quand elle est neutre.
+
+    Le veto est porte par les deux booleens : ici ils disent CLEAR, donc « aucun
+    veto ». Seule la posture graduee change, ce qui isole exactement ce que ce
+    harnais mesure. La cle vient de ``titanium.macro.gate`` : elle n'est pas
+    recopiee, sinon deux orthographes finiraient par coexister.
+    """
+    if tension <= 0.0:
+        return None
+    return {
+        "allows_new_risk": True,
+        "conservative": False,
+        "state": "CLEAR",
+        MACRO_POSTURE_KEY: float(tension),
+    }
+
+
+def empreinte(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def comparer(reference: Path, courant: Path) -> dict[str, Any]:
+    """Compare deux tables cellule par cellule, sur TOUTES les colonnes.
+
+    Comparer le seul ``net_pnl`` laisserait passer une cellule dont le cout a
+    bouge a resultat constant. La cle d'appariement est (policy, scenario_id,
+    split) : la grille des scenarios ne bouge pas, donc toute cellule absente
+    d'un cote est en soi un ecart.
+    """
+    def charger(path: Path) -> dict[tuple, dict[str, Any]]:
+        index: dict[tuple, dict[str, Any]] = {}
+        with path.open("r", encoding="utf-8") as handle:
+            for ligne in handle:
+                if not ligne.strip():
+                    continue
+                row = json.loads(ligne)
+                index[(row["policy"], row["scenario_id"], row["split"])] = row
+        return index
+
+    gauche, droite = charger(reference), charger(courant)
+    cellules = sorted(set(gauche) | set(droite))
+    colonnes: dict[str, int] = {}
+    bougees: list[dict[str, Any]] = []
+    par_technique: dict[str, int] = {}
+    for cle in cellules:
+        a, b = gauche.get(cle), droite.get(cle)
+        if a is None or b is None:
+            bougees.append({"cle": list(cle), "colonnes": ["cellule_absente"]})
+            par_technique[cle[0]] = par_technique.get(cle[0], 0) + 1
+            colonnes["cellule_absente"] = colonnes.get("cellule_absente", 0) + 1
+            continue
+        differentes = sorted(
+            champ
+            for champ in set(a) | set(b)
+            if a.get(champ) != b.get(champ)
+        )
+        if not differentes:
+            continue
+        bougees.append({"cle": list(cle), "colonnes": differentes})
+        par_technique[cle[0]] = par_technique.get(cle[0], 0) + 1
+        for champ in differentes:
+            colonnes[champ] = colonnes.get(champ, 0) + 1
+    return {
+        "reference": str(reference),
+        "courant": str(courant),
+        "sha256_reference": empreinte(reference),
+        "sha256_courant": empreinte(courant),
+        "cellules_comparees": len(cellules),
+        "cellules_identiques": len(cellules) - len(bougees),
+        "cellules_bougees": len(bougees),
+        "colonnes_bougees": dict(sorted(colonnes.items())),
+        "cellules_bougees_par_technique": dict(sorted(par_technique.items())),
+        "exemples": bougees[:20],
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="execution-adaptative",
@@ -444,6 +522,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=14_082_026)
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--quick", action="store_true")
+    parser.add_argument(
+        "--macro-tension",
+        type=float,
+        default=0.0,
+        help="posture d'execution [0,1] appliquee a tous les cas ; 0 = neutre (defaut)",
+    )
+    parser.add_argument(
+        "--comparer",
+        type=Path,
+        default=None,
+        help="table ndjson de reference a comparer cellule par cellule",
+    )
     return parser
 
 
@@ -458,10 +548,30 @@ def main(argv: list[str] | None = None) -> int:
         quick=args.quick,
         jobs=max(1, args.jobs),
     )
-    rows = run_matrix(spec, config)
+    macro = bloc_posture(args.macro_tension)
+    rows = run_matrix(spec, config, macro=macro)
     resultat = build_report(rows, seed=args.seed, quick=args.quick)
     resultat["config_fingerprint"] = _empreinte_config(config)
+    resultat["posture_macro"] = float(args.macro_tension)
     sorties = ecrire(resultat, rows, Path(args.output))
+    if args.comparer is not None:
+        comparaison = comparer(Path(args.comparer), sorties["ndjson"])
+        chemin = Path(args.output) / "comparaison_posture.json"
+        chemin.write_text(
+            json.dumps(comparaison, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        resultat["comparaison_posture"] = comparaison
+        print(
+            f"comparaison: cellules={comparaison['cellules_comparees']} "
+            f"identiques={comparaison['cellules_identiques']} "
+            f"bougees={comparaison['cellules_bougees']} "
+            f"sha_reference={comparaison['sha256_reference'][:16]} "
+            f"sha_courant={comparaison['sha256_courant'][:16]}"
+        )
+        print(f"colonnes_bougees={comparaison['colonnes_bougees']}")
+        print(f"par_technique={comparaison['cellules_bougees_par_technique']}")
+        print(f"comparaison: {chemin}")
     print(
         f"mode=backtest/dry-run live_enabled=false seed={args.seed} "
         f"techniques={len(ADAPTIVE_POLICIES)} scenarios_par_technique="
@@ -475,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     if resultat["independance"]["collisions"]:
         print("COLLISIONS: " + ", ".join(resultat["independance"]["collisions"]))
+    print(f"posture_macro={resultat['posture_macro']}")
     print(
         f"independance={'OUI' if resultat['independance']['independantes'] else 'NON'} "
         f"comportements_distincts={len(resultat['classes_equivalence'])} "

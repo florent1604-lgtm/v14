@@ -38,6 +38,7 @@ from titanium.execution_sim.runner import (
     executer_sur_snapshots,
     generate_scenarios,
 )
+from titanium.macro.gate import MACRO_POSTURE_KEY
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -500,6 +501,101 @@ def test_aucune_paire_de_techniques_n_est_identique_sur_tous_les_scenarios():
             if signatures[gauche] == signatures[droite]:
                 collisions.append(f"{gauche} == {droite}")
     assert collisions == []
+
+
+# ───────────────────── Posture macro consommee par l'execution ───────────────
+# Mesure du 14/09 sur le contrat livre : tout etat qui EXECUTE rend
+# ``score = 0`` et ``conservative = False`` par construction, et ELEVATED fait
+# WAIT. Une posture tiree de ces deux valeurs, ou coupee a l'horizon du veto,
+# serait donc identiquement nulle partout ou l'execution a lieu : un lecteur
+# mort. La posture passe donc par l'axe que les techniques LISENT : `urgency`.
+
+POSTURE_CLEAR = {"allows_new_risk": True, "conservative": False, "state": "CLEAR"}
+
+
+def bloc_posture(tension):
+    return {**POSTURE_CLEAR, MACRO_POSTURE_KEY: tension}
+
+
+def decision(orders):
+    return orders[0].metadata["decision"] if orders else "aucun_ordre"
+
+
+def test_la_posture_macro_deplace_la_decision_d_execution():
+    """Meme intention, meme carnet : SEULE la posture change, et elle decide."""
+    config = {"high_urgency": 0.66, "medium_urgency": 0.33}
+    immediat = plan(
+        "adapt_urgency_ladder", intr=intent(metadata={"urgency": 0.9}), config=config
+    )
+    patient = plan(
+        "adapt_urgency_ladder",
+        intr=intent(metadata={"urgency": 0.9}),
+        ctx=context(macro=bloc_posture(1.0)),
+        config=config,
+    )
+    assert decision(immediat) == "urgence_haute"
+    assert decision(patient) == "urgence_basse"
+    assert immediat[0].order_type != patient[0].order_type
+    assert patient[0].metadata["urgency_source"] == f"metadata+{MACRO_POSTURE_KEY}"
+
+
+def test_la_posture_est_graduee_et_pas_binaire():
+    """Trois tensions, trois paliers : la posture dose, elle ne bascule pas."""
+    config = {"high_urgency": 0.66, "medium_urgency": 0.33}
+    urgence = 0.9
+    paliers = []
+    for tension in (0.0, 1.0 - 0.5 / urgence, 1.0):
+        orders = plan(
+            "adapt_urgency_ladder",
+            intr=intent(metadata={"urgency": urgence}),
+            ctx=context(macro=bloc_posture(tension)),
+            config=config,
+        )
+        paliers.append(decision(orders))
+    assert paliers == ["urgence_haute", "urgence_moyenne", "urgence_basse"]
+
+
+def test_la_posture_ne_rend_jamais_plus_agressif_que_l_intention():
+    """La posture ne peut que reduire l'agressivite demandee, jamais l'augmenter."""
+    base = build_features(intent(), context())
+    assert base is not None
+    precedente = base.urgency
+    for tension in (0.0, 0.25, 0.5, 0.75, 1.0):
+        courante = build_features(intent(), context(macro=bloc_posture(tension)))
+        assert courante is not None
+        assert courante.urgency <= precedente + 1e-12
+        precedente = courante.urgency
+    assert precedente < base.urgency
+
+
+def test_la_posture_neutre_rend_exactement_le_vecteur_d_avant():
+    """Sans bloc, avec un bloc neutre, ou sans la cle : le meme vecteur, au bit."""
+    sans_bloc = build_features(intent(), context())
+    sans_cle = build_features(intent(), context(macro=dict(POSTURE_CLEAR)))
+    nulle = build_features(intent(), context(macro=bloc_posture(0.0)))
+    assert sans_bloc is not None
+    assert sans_bloc == sans_cle == nulle
+    assert nulle.urgency_source == sans_bloc.urgency_source
+
+
+def test_une_posture_illisible_refuse_de_planifier():
+    """Une posture qu'on ne sait pas lire n'est PAS une posture neutre."""
+    for valeur in ("0.5", 1.5, -0.1, float("nan")):
+        assert build_features(intent(), context(macro=bloc_posture(valeur))) is None
+
+
+def test_le_selecteur_change_de_technique_sous_posture():
+    """La SELECTION d'entree est une decision d'execution : elle doit reagir."""
+    config = {"high_urgency": 0.6}
+    calme = plan("adapt_selector", intr=intent(metadata={"urgency": 0.9}), config=config)
+    tendu = plan(
+        "adapt_selector",
+        intr=intent(metadata={"urgency": 0.9}),
+        ctx=context(macro=bloc_posture(1.0)),
+        config=config,
+    )
+    assert calme[0].metadata["selected_technique"] == "adapt_urgency_ladder"
+    assert tendu[0].metadata["selected_technique"] == "adapt_midpoint_aggressive"
 
 
 def test_les_axes_declares_ne_sont_pas_inertes():

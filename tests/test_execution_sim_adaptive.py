@@ -381,7 +381,9 @@ def test_les_deux_entrees_appliquent_la_meme_posture():
     tendu_moteur = BacktestExecutionEngine(policy="adapt_urgency_ladder", seed=1).execute(
         intent(qty=6.0), jeux, tick_size=0.01, macro=bloc
     )
-    decisions = lambda ordres: [order.metadata["decision"] for order in ordres]  # noqa: E731
+    def decisions(ordres):
+        return [order.metadata["decision"] for order in ordres]
+
     assert decisions(tendu_runner) != decisions(neutre), "la posture doit decider"
     assert decisions(tendu_moteur) == decisions(tendu_runner)
     assert [order.order_type for order in tendu_moteur] == [

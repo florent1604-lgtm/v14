@@ -116,9 +116,9 @@ def lire_plafonds_effectifs() -> dict[str, float]:
 def _cellules(rows: list[dict]) -> dict[str, list]:
     """Une signature par cellule : (politique, split, scenario).
 
-    La cle d'appariement et la projection appartiennent a
-    ``tools.arene_cellules`` ; ici on ne fait que nommer les colonnes de
-    decision de ce harnais.
+    La cle d'appariement, la projection ET les colonnes de decision
+    appartiennent a ``tools.arene_cellules`` ; ce harnais ne les redeclare
+    plus, il les pointe.
     """
     return arene.projeter(arene.indexer(rows), arene.COLONNES_DECISION)
 

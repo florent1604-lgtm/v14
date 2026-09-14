@@ -25,8 +25,9 @@ from typing import Any
 
 #: Cles d'appariement d'une cellule. Un scenario appartient a un split, qui
 #: appartient a une politique : la cle doit porter les trois, sinon deux
-#: techniques se compareraient a elles-memes sur le meme scenario.
-CLE: tuple[str, ...] = ("policy", "split", "scenario_id")
+#: techniques se compareraient a elles-memes sur le meme scenario. Privee :
+#: 0 appelant externe, comme `_cle_cellule` et `_COLONNE_ECART`.
+_CLE: tuple[str, ...] = ("policy", "split", "scenario_id")
 
 #: Colonnes de DECISION du harnais de budget : resultat, remplissage, cout,
 #: quantite, motif de refus. Comparer le seul net laisserait passer une cellule
@@ -49,7 +50,7 @@ COLONNE_ABSENTE = "cellule_absente"
 
 def _cle_cellule(row: dict[str, Any]) -> str:
     """Cle d'appariement : ``politique|split|scenario`` (privee, 0 appelant externe)."""
-    return "|".join(str(row[champ]) for champ in CLE)
+    return "|".join(str(row[champ]) for champ in _CLE)
 
 
 def indexer(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:

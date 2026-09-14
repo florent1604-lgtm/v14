@@ -469,6 +469,24 @@ def _table_lisible(valeur: str) -> Path:
     return chemin
 
 
+def _dossier_defaut() -> Path:
+    """Ou ecrit une passe qui ne nomme PAS ``--output`` : un dossier date.
+
+    Le defaut precedent etait ``results/execution_adaptative/``, soit
+    l'emplacement de l'artefact de reference : 30 Mo non versionnes, et le
+    sha256 sur lequel tout le dossier repose. Une passe distraite le
+    remplacait, et toute comparaison ulterieure comparait alors l'artefact
+    a lui-meme -- le piege que cette campagne a deja paye une fois.
+
+    Le comportement EXPLICITE ne bouge pas : ``--output`` ecrit exactement
+    ou on le demande, reference comprise. C'est l'ecriture IMPLICITE qui
+    change de cible, et qui ne peut donc plus rien detruire -- pas meme la
+    mesure d'une passe implicite precedente.
+    """
+    horodatage = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return ROOT / "results" / f"arene_{horodatage}"
+
+
 def bloc_posture(tension: float, *, echelle_s: float) -> dict[str, Any] | None:
     """Bloc macro d'une posture d'execution, construit par son PROPRIETAIRE.
 
@@ -536,7 +554,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", default=str(ROOT / "config" / "execution_backtest.json"))
     parser.add_argument(
-        "--output", default=str(ROOT / "results" / "execution_adaptative")
+        "--output",
+        default=None,
+        help="dossier de sortie ; omis, la passe ecrit dans "
+             "results/arene_<date> et JAMAIS sur l'artefact de reference",
     )
     parser.add_argument("--seed", type=int, default=14_082_026)
     parser.add_argument("--jobs", type=int, default=1)
@@ -561,6 +582,15 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args.config)
     if config["execution"].get("live_enabled") is not False:
         raise SystemExit("refus : execution.live_enabled doit rester false")
+    # La cible est decidee AVANT le calcul : l'operateur voit ou la passe
+    # ecrit, et une ecriture implicite ne peut pas viser la reference.
+    sortie = Path(args.output) if args.output is not None else _dossier_defaut()
+    if args.output is None:
+        print(
+            f"output implicite: {sortie} - l'artefact de reference "
+            "(results/execution_adaptative/execution_adaptative.ndjson) "
+            "n'est PAS touche ; nommer --output <dossier> pour choisir la cible"
+        )
     spec = MatrixSpec(
         policies=(TEMOIN, *ADAPTIVE_POLICIES),
         seed=args.seed,
@@ -581,10 +611,10 @@ def main(argv: list[str] | None = None) -> int:
         float(macro[MACRO_POSTURE_KEY]) if macro is not None else 0.0
     )
     resultat["posture_echelle_s"] = echelle_s
-    sorties = ecrire(resultat, rows, Path(args.output))
+    sorties = ecrire(resultat, rows, sortie)
     if args.comparer is not None:
         comparaison = comparer(Path(args.comparer), sorties["ndjson"])
-        chemin = Path(args.output) / "comparaison_posture.json"
+        chemin = sortie / "comparaison_posture.json"
         chemin.write_text(
             json.dumps(comparaison, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",

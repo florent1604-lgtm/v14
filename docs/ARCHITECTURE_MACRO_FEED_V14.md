@@ -579,12 +579,16 @@ Assumé, et pas seulement reporté :
   remplissages reste invisible à l'écran. Si le panneau doit la montrer, elle doit
   être **importée** de `gate.macro_posture`, jamais recalculée — une seule formule
   doit exister.
-* **La sortie par défaut du harnais d'arène est l'emplacement de l'artefact
-  scellé.** Sans `--output`, il écrit dans `results/execution_adaptative/`, où
-  vit la mesure publiée — 30 Mo, non versionnés (`results/` est ignoré par git).
-  Le mode d'emploi passe toujours un `--output` explicite, mais une passe de
-  tension lancée sans lui **remplacerait la référence**. Ce n'est pas corrigé ici :
-  déplacer la sortie par défaut est une décision d'exploitation, pas un correctif.
+* **L'écriture implicite ne peut plus viser la référence.** Sans `--output`, le
+  harnais écrit dans `results/arene_<horodatage>/` et imprime la cible retenue
+  ainsi que le fait que la référence n'est pas touchée : une passe distraite ne
+  peut donc plus remplacer l'artefact scellé — 30 Mo, non versionnés (`results/`
+  est ignoré par git) — ni faire comparer ensuite l'artefact à lui-même. Le
+  comportement **explicite** est inchangé : `--output <dossier>` écrit exactement
+  où on le demande, référence comprise, et la recette publiée ci-dessus continue
+  de fonctionner telle quelle. Deux tests sans MT5 le figent
+  (`tests/test_execution_adaptative_sortie.py`), et les deux tombent quand on
+  redonne une valeur par défaut à `--output` ou qu'on neutralise la garde.
 * **L'encodage console sous Windows.** La ligne d'etat de `tools/live_demo.py`
   et ses motifs macro sont accentues ; un terminal en page de code 1252 les rend
   mal. Ce qui decide et s'affiche — le battement et la jauge — est de l'UTF-8

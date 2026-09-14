@@ -129,7 +129,12 @@ class MacroEvent:
 
 @dataclass(frozen=True)
 class MacroCalendar:
-    """Le calendrier tel qu'il a ete lu a un instant donne, par un fournisseur."""
+    """Ce que le PRODUCTEUR a publie, et quand il l'a publie.
+
+    ``fetched_at`` porte l'horodatage du producteur, jamais l'instant de notre
+    lecture : c'est le seul qui puisse vieillir. L'instant de lecture vit dans
+    ``MacroCache.last_success_at``, ou il ne se confond avec rien.
+    """
 
     provider: str
     fetched_at: datetime
@@ -149,10 +154,11 @@ class MacroCalendar:
     def digest(self) -> str:
         """Empreinte du contenu SEUL : deux lectures identiques partagent tout.
 
-        ``fetched_at`` est volontairement exclu. Il mesure quand on a lu, pas ce
-        qu'on a lu ; l'inclure ferait diverger le digest a chaque rafraichissement
-        et interdirait toute deduplication des decisions aval — le meme defaut
-        que ``jepa_latency_ms`` dans l'identite de decision Hermes.
+        ``fetched_at`` est volontairement exclu. Il mesure la fraicheur annoncee
+        par le producteur, pas ce qu'on a lu ; l'inclure ferait diverger le digest
+        a chaque rafraichissement et interdirait toute deduplication des decisions
+        aval — le meme defaut que ``jepa_latency_ms`` dans l'identite de decision
+        Hermes.
         """
         payload = {
             "provider": self.provider,

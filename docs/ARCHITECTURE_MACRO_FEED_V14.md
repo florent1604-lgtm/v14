@@ -199,6 +199,15 @@ Invariants qui ont coûté quelque chose, donc qui sont écrits :
 * **Un échec de lecture ne remplace pas la dernière lecture connue.** L'ancienne
   reste visible, et c'est la *fraîcheur* qui la juge : « périmé » et « jamais eu
   de données » sont deux conclusions différentes, donc deux états différents.
+* **La fraîcheur vient du PRODUCTEUR, jamais de l'instant de lecture.** Estamper
+  `now()` à la lecture déclare la fraîcheur au nom du lecteur : un producteur mort
+  qui laisse son fichier lisible serait relu « frais » à chaque poll, et `STALE`
+  deviendrait inatteignable. Une charge utile dont on ne sait pas lire
+  l'horodatage est donc un **échec de source**, pas une donnée fraîche.
+* **Un calendrier sans aucun événement est `UNKNOWN`, pas `CLEAR`.** Zéro
+  événement ne dit pas « rien à signaler », il dit « je n'ai rien lu » : la clé
+  renommée, le schéma muet et le producteur cassé y ressemblent tous, à s'y
+  méprendre, à une journée sereine. C'est la phrase de fin du §5, appliquée.
 * **Un horodatage naïf n'est jamais supposé UTC.** Il est localisé par
   `naive_tz`. Lire « 14:30 » comme 14:30 UTC quand la source publie en heure de
   New York décale la fenêtre de gel de quatre heures, dans le sens qui laisse
@@ -218,14 +227,17 @@ C'est le tableau à relire avant de toucher à la politique.
 | Calendrier frais, rien dans l'horizon | `CLEAR` | oui | aucun |
 | Publication majeure dans `elevated_within_s` | `ELEVATED` | oui | `WAIT` |
 | Dans `[-blackout_after, +blackout_before]` | `BLACKOUT` | **non** | `BLOCK` |
-| Lecture plus vieille que `ttl_s` | `STALE` | **non** | `BLOCK` |
-| Horodatage de lecture dans le futur (> 60 s) | `STALE` | **non** | `BLOCK` |
+| Horodatage producteur plus vieux que `ttl_s` | `STALE` | **non** | `BLOCK` |
+| Horodatage producteur dans le futur (> 60 s) | `STALE` | **non** | `BLOCK` |
 | Aucune lecture, jamais | `UNKNOWN` | **non** | `BLOCK` |
+| Calendrier lisible mais **sans aucun événement** | `UNKNOWN` | **non** | `BLOCK` |
+| Charge utile **sans horodatage producteur** | aucune publication — échec de source | **non** | `BLOCK` dès péremption |
 | Bloc de features présent mais incomplet | — | — | `BLOCK_MACRO_UNAVAILABLE` |
 | Source qui plante, endpoint mort | état précédent, vieilli | selon fraîcheur | `BLOCK` dès péremption |
 
 `UNKNOWN` et `CLEAR` ne sont **pas** équivalents, et c'est le cœur du contrat.
-Un calendrier qu'on ne peut pas lire n'est pas un calendrier vide.
+Un calendrier qu'on ne peut pas lire n'est pas un calendrier vide — et un
+calendrier vide n'est pas un calendrier serein.
 
 ## 6. Les trois points d'injection
 
@@ -510,11 +522,11 @@ sa garantie.
 
 ## 9. Tests livrés
 
-**77 cas, dont 24 ajoutés avec la fonctionnalité complète** :
+**81 cas, dont 28 ajoutés avec la fonctionnalité complète** :
 
 | Fichier | Cas | Ce qu'il couvre |
 |---|---:|---|
-| `tests/test_macro_feed.py` | 59 | contrats, cache, risque, sources — **dont le chemin HTTP**, exerce pour la premiere fois |
+| `tests/test_macro_feed.py` | 63 | contrats, cache, risque, sources — **dont le chemin HTTP**, exerce pour la premiere fois |
 | `tests/test_macro_service.py` | 11 | cycle de vie du service, arret immediat et delai derive, publication et relecture |
 | `tests/test_web_macro_gauges.py` | 7 | route `/ui/macro`, rendu des jauges, severite, verdict de boucle perime |
 
@@ -542,7 +554,12 @@ c'est elle qu'on casse en premier :
   ignorée ;
 * cache concurrent (8 fils × 50 itérations) ;
 * lecture **dans un autre fil** que la boucle d'événements (preuve de non-blocage) ;
-* les onze cas d'échec fermé du §5 ;
+* les cas d'échec fermé du §5, tableau de référence ;
+* la **fraîcheur** vient du producteur : un fichier gelé depuis 2 h rend `STALE` et
+  non `CLEAR`, l'horodatage `calendarRisk.evaluated_at` du producteur livré est lu,
+  et une charge utile sans horodatage producteur est un **échec** de source ;
+* un **calendrier vide** rend `UNKNOWN`, et reste distinct du `STALE` d'un
+  calendrier périmé — les deux refusent, mais pas pour la même raison ;
 * la sonde du tableau de bord ne lève jamais, même configuration illisible.
 
 Le chemin **HTTP** était livré mais jamais parcouru : aucun test ne construisait
@@ -555,7 +572,8 @@ c'est la **fraîcheur** qui la juge ⇒ `STALE` ⇒ refus), charge utile illisib
 marche.
 
 Le fichier échoue si l'on retire le veto macro, si l'on rend `CLEAR` à un
-calendrier périmé, ou si l'on remet la lecture réseau sur le fil appelant.
+calendrier périmé **ou à un calendrier vide**, si l'on restampe la fraîcheur à la
+lecture, ou si l'on remet la lecture réseau sur le fil appelant.
 
 ## 10. Ce qui n'est **pas** fait
 
@@ -571,7 +589,9 @@ Assumé, et pas seulement reporté :
   inactif tant que `build_feats` n'y reçoit pas de symbole.
 * **Historique du calendrier.** Le cache ne garde que la dernière lecture :
   impossible de rejouer « ce que le système savait à 14 h 25 ». Le `digest`
-  stable existe pour ça, mais rien ne l'archive encore.
+  stable existe pour ça, mais rien ne l'archive encore — et c'est **la** raison
+  pour laquelle le coût des deux replis fermés le 14/09 n'est pas comptable : le
+  dépôt ne contient aucun historique macro (0 snapshot, 0 calendrier, 0 ndjson).
 * **La posture n'atteint pas encore la boucle armée.** Le chemin d'exécution
   sait lire un bloc macro (`PolicyContext.macro`), le harnais le lui fournit, et
   **aucun appelant de production ne le construit encore** : dans la boucle, le
@@ -591,11 +611,26 @@ Assumé, et pas seulement reporté :
   le classement bouge et `adapt_urgency_ladder` change de signe, mais rien ici ne
   prouve qu'une posture positive est rentable hors échantillon. La déplacer en
   production est une décision d'opérateur, pas une conséquence de cette mesure.
-* **La fraîcheur mesure l'âge de la LECTURE, pas la distance à l'événement.** Un
-  `ttl_s` de 900 s signifie « je crois ce que j'ai lu il y a moins de 15 min ».
-  Un calendrier lu à 8 h et valable toute la journée doit donc avoir un `ttl_s`
-  large, sinon le système refuse — ce qui est le sens correct, mais qu'il faut
-  régler consciemment dans `config/macro.json`.
+* **La fraîcheur mesure l'âge de la PUBLICATION du producteur, pas la distance à
+  l'événement.** Un `ttl_s` de 900 s signifie « je crois un calendrier publié il y
+  a moins de 15 min ». Le producteur livré publie toutes les 60 s
+  (`macro_feed.py:339`) : la marge est de **15 cycles**, donc la règle est inerte
+  en marche nominale. Son coût apparaît quand le producteur cesse de publier :
+  `STALE` permanent là où l'ancien code rendait `CLEAR` permanent, soit **25 % du
+  temps bloqué à une cadence de 20 min, 50 % à 30 min, 75 % à 60 min**. Un
+  calendrier publié à 8 h et valable toute la journée demande donc un `ttl_s`
+  large, réglé consciemment dans `config/macro.json`.
+* **Un calendrier vide bloque désormais.** Le producteur livré écrit, sur toute
+  panne amont, un snapshot **frais** portant `events: []` et
+  `reason: COLLECTOR_ERROR` (`macro_feed.py:347-357`) : ce cas rend `UNKNOWN` et
+  arrête le risque neuf au lieu de fabriquer un calme. C'est le coût assumé du
+  repli fermé, et il est borné par la boucle producteur — la reprise suit le
+  retour de la source d'un cycle au plus.
+* **Le rayon d'action n'est pas comptable sur données réelles.** Le dépôt ne
+  contient aucun historique macro (0 snapshot, 0 calendrier, 0 ndjson) : le nombre
+  de périodes qui auraient rendu `STALE` ou `UNKNOWN` depuis le 16/08 ne peut pas
+  être compté. Le producteur livré le rendrait mesurable — chaque snapshot porte
+  déjà `retrieved_at` et `evaluated_at`.
 * **Le filtrage par devise est une heuristique.** Elle lit des codes de trois
   lettres dans le symbole. Un symbole non analysable conserve **toutes** les
   publications : c'est prudent, mais bruyant sur un indice.

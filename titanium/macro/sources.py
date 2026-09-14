@@ -19,6 +19,11 @@ Trois fournisseurs livres :
 l'evenement mal forme serait un repli silencieux vers un calendrier plus vide —
 donc vers moins d'alertes, et la publication perdue serait justement celle qu'un
 changement de format vient de casser.
+
+**Fraicheur.** Elle vient du PRODUCTEUR, jamais de l'instant de lecture : une
+charge utile dont on ne sait pas lire l'horodatage est un echec, pas une donnee
+fraiche. Sinon un producteur mort qui laisse son fichier lisible serait relu
+« frais » a chaque poll, et l'etat STALE deviendrait inatteignable.
 """
 
 from __future__ import annotations
@@ -108,14 +113,49 @@ def _identifiant(row: Mapping[str, Any], *, title: str, currency: str, moment: d
     return hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
 
 
+def _lignes(payload: Any) -> Any:
+    """Lignes d'evenements d'une charge utile, quelles que soient ses variantes de nom."""
+    if isinstance(payload, Mapping):
+        return payload.get("events") or payload.get("calendar") or payload.get("data") or []
+    return payload
+
+
+def _instant_producteur(payload: Any, *, naive_tz: str) -> datetime:
+    """Quand le PRODUCTEUR a produit cette charge utile — jamais l'instant de lecture.
+
+    Estamper `datetime.now()` a la lecture declare la fraicheur au nom du
+    LECTEUR : un producteur mort qui laisse son fichier lisible serait relu
+    « frais » a chaque poll, et STALE deviendrait inatteignable. On lit donc
+    l'horodatage du producteur, dans l'ordre ou le contrat le porte. Absent ou
+    illisible, on LEVE : une donnee dont on ignore l'age n'est pas une donnee
+    fraiche, et un repli silencieux serait un laissez-passer.
+    """
+    declare: Any = None
+    if isinstance(payload, Mapping):
+        declare = payload.get("retrieved_at") or payload.get("generated_at")
+        if declare is None:
+            bloc = payload.get("calendarRisk")
+            if isinstance(bloc, Mapping):
+                declare = bloc.get("evaluated_at")
+    if declare is None:
+        instants = [
+            parse_instant(row["retrieved_at"], naive_tz=naive_tz)
+            for row in _lignes(payload)
+            if isinstance(row, Mapping) and row.get("retrieved_at")
+        ]
+        if instants:
+            return max(instants)
+    if declare is None:
+        raise ValueError(
+            "charge utile macro sans horodatage producteur "
+            "(retrieved_at, generated_at, calendarRisk.evaluated_at)"
+        )
+    return parse_instant(declare, naive_tz=naive_tz)
+
+
 def parse_events(payload: Any, *, provider: str, naive_tz: str = "UTC") -> tuple[MacroEvent, ...]:
     """Convertit une charge utile JSON en evenements ; leve si une ligne est douteuse."""
-    if isinstance(payload, Mapping):
-        lignes = (
-            payload.get("events") or payload.get("calendar") or payload.get("data") or []
-        )
-    else:
-        lignes = payload
+    lignes = _lignes(payload)
     if not isinstance(lignes, Sequence) or isinstance(lignes, (str, bytes)):
         raise ValueError("charge utile macro: liste d'evenements attendue")
     events: list[MacroEvent] = []
@@ -172,7 +212,7 @@ class FileMacroSource:
             raise ValueError(f"calendrier macro illisible (JSON): {exc}") from exc
         return MacroCalendar(
             provider=self.name,
-            fetched_at=datetime.now(timezone.utc),
+            fetched_at=_instant_producteur(payload, naive_tz=self.naive_tz),
             events=parse_events(payload, provider=self.name, naive_tz=self.naive_tz),
         )
 
@@ -227,7 +267,7 @@ class HttpMacroSource:
             raise ValueError(f"{type(exc).__name__}: {exc}") from exc
         return MacroCalendar(
             provider=self.provider,
-            fetched_at=datetime.now(timezone.utc),
+            fetched_at=_instant_producteur(payload, naive_tz=self.naive_tz),
             events=parse_events(payload, provider=self.provider, naive_tz=self.naive_tz),
         )
 

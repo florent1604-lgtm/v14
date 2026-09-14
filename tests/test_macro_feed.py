@@ -68,6 +68,8 @@ def evenement(titre: str = "FOMC", devise: str = "USD", quand: datetime = FOMC,
 
 
 def cache_avec(events: tuple[MacroEvent, ...], *, lu_a: datetime = MAINTENANT) -> MacroCache:
+    # `lu_a` porte l'horodatage du PRODUCTEUR (`MacroCalendar.fetched_at`) : c'est
+    # lui qui vieillit. L'instant de notre propre lecture vit dans le cache.
     cache = MacroCache()
     cache.publish(MacroCalendar(provider="test", fetched_at=lu_a, events=events))
     return cache
@@ -231,11 +233,24 @@ def test_aucune_donnee_refuse_le_risque_neuf():
     assert verdict.score == 1.0
 
 
-def test_calendrier_vide_et_frais_autorise():
+def test_un_calendrier_sans_aucun_evenement_est_inconnu_pas_serein():
+    """CHANGEMENT VOLONTAIRE du 14/09 — ce test figeait l'inverse.
+
+    Il s'appelait `test_calendrier_vide_et_frais_autorise` et affirmait qu'un
+    calendrier frais mais VIDE rend CLEAR, donc `allows_new_risk=True`. C'etait
+    un repli fail-OPEN : un flux qui publie zero evenement ne dit pas « rien a
+    signaler », il dit « je n'ai rien lu ». La cle renommee, le schema muet et le
+    producteur casse y ressemblent tous, a s'y meprendre, a une journee sereine.
+
+    Zero evenement est donc UNKNOWN, exactement ce que `risk.py` et la matrice
+    d'echec ferme du document promettaient deja (« un calendrier qu'on ne peut pas
+    lire n'est pas un calendrier vide »).
+    """
     verdict = risque(cache_avec(()), symbole="EURUSD")
-    assert verdict.state is MacroState.CLEAR
-    assert verdict.allows_new_risk is True
-    assert verdict.conservative is False
+    assert verdict.state is MacroState.UNKNOWN
+    assert verdict.allows_new_risk is False
+    assert verdict.score == 1.0
+    assert "aucun evenement" in verdict.reasons[0]
 
 
 def test_publication_imminente_autorise_mais_conservateur():
@@ -308,14 +323,77 @@ def test_la_fenetre_retient_l_evenement_le_plus_proche():
 
 def test_lecture_de_fichier_deterministe(tmp_path):
     fichier = tmp_path / "calendrier.json"
-    fichier.write_text(json.dumps({"events": [
-        {"title": "FOMC", "currency": "USD", "scheduled_at": "2026-09-17T18:00:00+00:00",
-         "impact": "High"},
-    ]}), encoding="utf-8")
+    fichier.write_text(json.dumps({
+        "retrieved_at": "2026-09-17T17:30:00+00:00",
+        "events": [
+            {"title": "FOMC", "currency": "USD",
+             "scheduled_at": "2026-09-17T18:00:00+00:00", "impact": "High"},
+        ],
+    }), encoding="utf-8")
     source = FileMacroSource(fichier)
     premier, deuxieme = source.fetch(), source.fetch()
     assert len(premier.events) == 1
     assert premier.digest() == deuxieme.digest()
+
+
+def test_la_fraicheur_vient_du_producteur_pas_de_l_instant_de_lecture(tmp_path):
+    """A. Un producteur mort qui laisse son fichier lisible doit rendre STALE.
+
+    Le fichier est ecrit une fois puis plus jamais touche : si la source
+    estampait `fetched_at` avec `now()`, ce calendrier serait relu « frais » a
+    chaque poll et l'etat STALE ne se declencherait jamais.
+    """
+    fige = datetime.now(timezone.utc) - timedelta(hours=2)
+    fichier = tmp_path / "fige.json"
+    fichier.write_text(json.dumps({
+        "retrieved_at": fige.isoformat(),
+        "events": [{"title": "FOMC", "currency": "USD", "impact": "High",
+                    "scheduled_at": (fige + timedelta(days=1)).isoformat()}],
+    }), encoding="utf-8")
+
+    calendrier = FileMacroSource(fichier).fetch()
+    assert calendrier.fetched_at == fige, "horodatage du producteur, pas de la lecture"
+
+    cache = MacroCache()
+    cache.publish(calendrier)
+    verdict = risque(cache, quand=datetime.now(timezone.utc))
+    assert verdict.state is MacroState.STALE
+    assert verdict.allows_new_risk is False
+    assert verdict.data_age_s is not None and verdict.data_age_s > 3600.0
+
+
+def test_l_horodatage_du_producteur_livre_est_lu(tmp_path):
+    """A. Le producteur livre publie `calendarRisk.evaluated_at` (v14.macro.snapshot/1)."""
+    quand = datetime.now(timezone.utc) - timedelta(minutes=30)
+    fichier = tmp_path / "snapshot.json"
+    fichier.write_text(json.dumps({
+        "schema": "v14.macro.snapshot/1",
+        "calendarRisk": {"state": "CLEAR", "reason": "NO_NEARBY_EVENT", "score": 12,
+                         "next_event_id": None, "next_event_at": None,
+                         "evaluated_at": quand.isoformat()},
+        "events": [],
+    }), encoding="utf-8")
+    assert FileMacroSource(fichier).fetch().fetched_at == quand
+
+
+def test_une_charge_utile_sans_horodatage_producteur_est_un_echec(tmp_path):
+    """A. Un age inconnu n'est pas une fraicheur : on leve au lieu de supposer."""
+    fichier = tmp_path / "muet.json"
+    fichier.write_text(json.dumps({"events": [
+        {"title": "FOMC", "currency": "USD", "impact": "High",
+         "scheduled_at": "2026-09-17T18:00:00+00:00"}]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="horodatage producteur"):
+        FileMacroSource(fichier).fetch()
+    # Le cache n'a rien recu : le risque neuf reste refuse, aucun laissez-passer.
+    assert risque(MacroCache()).allows_new_risk is False
+
+
+def test_le_calendrier_vide_ne_se_confond_pas_avec_le_perime():
+    """B + l'ancien contrat. « Je n'ai rien lu » et « c'est vieux » restent distincts."""
+    frais = risque(cache_avec(())).state
+    perime = risque(cache_avec((), lu_a=MAINTENANT - timedelta(hours=1))).state
+    assert frais is MacroState.UNKNOWN
+    assert perime is MacroState.STALE
 
 
 def test_une_ligne_illisible_invalide_tout_le_calendrier():
@@ -418,7 +496,8 @@ def source_http(monkeypatch, faux: FauxRequests, *,
 
 def payload_valide(*, dans_minutes: int = 10) -> dict:
     quand = datetime.now(timezone.utc) + timedelta(minutes=dans_minutes)
-    return {"events": [{"title": "FOMC", "currency": "USD",
+    return {"retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "events": [{"title": "FOMC", "currency": "USD",
                         "scheduled_at": quand.isoformat(), "impact": "High"}]}
 
 
@@ -472,7 +551,8 @@ def test_http_delai_depasse_devient_une_panne_de_source(monkeypatch):
 def test_http_charge_utile_illisible_n_enregistre_rien(monkeypatch):
     """Une ligne cassee invalide tout le calendrier : rien n'est publie, tout est refuse."""
     monkeypatch.setenv("V14_MACRO_API_KEY", "cle-de-test")
-    casse = {"events": [
+    casse = {"retrieved_at": datetime.now(timezone.utc).isoformat(),
+             "events": [
         {"title": "OK", "currency": "USD",
          "scheduled_at": "2026-09-17T18:00:00+00:00", "impact": "High"},
         {"title": "CASSE", "currency": "", "impact": "High"},
@@ -513,7 +593,8 @@ def test_http_calendrier_valide_traverse_toute_la_chaine(monkeypatch):
     assert porte.code == "BLOCK_MACRO_BLACKOUT"
 
     # Le meme fournisseur, une publication lointaine : le risque neuf repasse.
-    faux.reponse = Reponse({"events": [{
+    faux.reponse = Reponse({"retrieved_at": datetime.now(timezone.utc).isoformat(),
+                            "events": [{
         "title": "FOMC", "currency": "USD", "impact": "High",
         "scheduled_at": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(),
     }]})
@@ -711,7 +792,13 @@ def test_l_attitude_conservatrice_laisse_planifier_et_c_est_la_porte_qui_attend(
 
 def test_le_bloc_de_la_porte_est_le_meme_objet_que_celui_du_contexte():
     """Une seule regle de completude, `MACRO_BLOCK_KEYS`, pour les deux lecteurs."""
-    conforme = macro_block(risque(cache_avec(()), symbole="EURUSD"), posture_scale_s=3600.0)
+    # Une publication lointaine : CLEAR, le seul etat qui execute. Le cas vide
+    # n'en est plus un (voir `test_un_calendrier_sans_aucun_evenement_...`).
+    conforme = macro_block(
+        risque(cache_avec((evenement(quand=MAINTENANT + timedelta(hours=4)),)),
+               symbole="EURUSD"),
+        posture_scale_s=3600.0,
+    )
     assert MACRO_BLOCK_KEYS.issubset(conforme)
     assert build_features(intention(), contexte_macro(conforme)) is not None
 
@@ -761,7 +848,11 @@ def test_les_jauges_sont_bornees_et_serialisables():
 
 def test_la_severite_distingue_autorise_de_refuse():
     policy = politique()
-    clair = macro_telemetry(risque(cache_avec(()), symbole="EURUSD"), policy=policy)
+    clair = macro_telemetry(
+        risque(cache_avec((evenement(quand=MAINTENANT + timedelta(hours=4)),)),
+               symbole="EURUSD"),
+        policy=policy,
+    )
     gel = macro_telemetry(risque(cache_avec((evenement(),), lu_a=MAINTENANT - timedelta(days=1)),
                                  symbole="EURUSD"), policy=policy)
     assert clair["severity"] == "ok" and clair["allows_new_risk"] is True
@@ -806,7 +897,12 @@ def test_la_posture_publiee_est_non_degeneree_sur_le_chemin_qui_execute():
     assert bloc_proche[MACRO_POSTURE_KEY] > bloc_lointain[MACRO_POSTURE_KEY]
     assert bloc_proche[MACRO_POSTURE_KEY] < 1.0
 
+    # CHANGEMENT VOLONTAIRE du 14/09 : `vide` n'est plus un CLEAR serein mais un
+    # UNKNOWN. La posture reste nulle, mais parce que le risque est REFUSE, pas
+    # parce que le calendrier est calme — la nuance est desormais portee par
+    # l'etat, verifie ici, au lieu d'etre invisible.
     vide = risque(cache_avec(()))
+    assert vide.state is MacroState.UNKNOWN
     assert macro_block(vide, posture_scale_s=regle.elevated_within_s)[MACRO_POSTURE_KEY] == 0.0
 
 

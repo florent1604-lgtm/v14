@@ -58,10 +58,13 @@ def politique(*, file: str = "peu-importe.json", **surcharges) -> MacroPolicy:
 def ecrire_calendrier(chemin: Path, *, dans_minutes: int = 10) -> Path:
     """Un calendrier reel sur disque : le fournisseur `file` le lit tel quel."""
     quand = datetime.now(timezone.utc) + timedelta(minutes=dans_minutes)
-    chemin.write_text(json.dumps({"events": [
-        {"title": "FOMC", "currency": "USD", "impact": "High",
-         "scheduled_at": quand.isoformat()},
-    ]}), encoding="utf-8")
+    chemin.write_text(json.dumps({
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+        "events": [
+            {"title": "FOMC", "currency": "USD", "impact": "High",
+             "scheduled_at": quand.isoformat()},
+        ],
+    }), encoding="utf-8")
     return chemin
 
 

@@ -9,14 +9,18 @@ Ordre d'evaluation, et pourquoi il n'est pas interchangeable :
 
 1. flux desactive par configuration      -> CLEAR (choix humain explicite)
 2. aucune lecture / horodatage manquant  -> UNKNOWN
-3. lecture trop vieille ou datee du futur-> STALE
-4. publication de fort impact en cours   -> BLACKOUT
-5. publication imminente dans l'horizon  -> ELEVATED
-6. sinon                                 -> CLEAR
+3. producteur trop vieux ou date futur   -> STALE
+4. calendrier sans aucun evenement       -> UNKNOWN
+5. publication de fort impact en cours   -> BLACKOUT
+6. publication imminente dans l'horizon  -> ELEVATED
+7. sinon                                 -> CLEAR
 
-Les cas 2 et 3 precedent les cas 4 et 5 : sans donnee fraiche, on ne peut pas
-affirmer qu'aucune publication n'arrive, et conclure CLEAR depuis un calendrier
-perime est precisement le faux negatif que ce module existe pour empecher.
+Les cas 2 a 4 precedent les cas 5 et 6 : sans donnee fraiche ET exploitable, on
+ne peut pas affirmer qu'aucune publication n'arrive, et conclure CLEAR depuis un
+calendrier perime ou vide est precisement le faux negatif que ce module existe
+pour empecher. STALE precede le calendrier vide : « perime » et « je n'ai rien
+lu » sont deux conclusions differentes, et la plus precise doit gagner pour que
+l'interface puisse dire POURQUOI le risque est refuse.
 """
 
 from __future__ import annotations
@@ -116,7 +120,7 @@ def evaluate_macro_risk(
     if age_s < -SKEW_TOLERANCE_S:
         return MacroRisk.stale(
             instant,
-            f"horodatage de lecture dans le futur ({age_s:.0f} s)",
+            f"horodatage producteur dans le futur ({age_s:.0f} s)",
             score=policy.score_unavailable,
             **base,
         )
@@ -126,6 +130,18 @@ def evaluate_macro_risk(
             f"calendrier perime ({age_s:.0f} s > ttl {policy.ttl_s:.0f} s)",
             score=policy.score_unavailable,
             **{**base, "data_age_s": age_s},
+        )
+
+    # ── 4. Un calendrier exploitable ? Zero evenement ne dit pas « rien a
+    # signaler », il dit « je n'ai rien lu » : la cle renommee, le schema muet et
+    # le producteur casse y ressemblent tous a une journee sereine. Conclure
+    # CLEAR ferait exactement le faux calme que `_devises_suivies` nomme.
+    if not calendar.events:
+        return MacroRisk.unavailable(
+            instant,
+            f"calendrier macro sans aucun evenement (fournisseur {calendar.provider})",
+            score=policy.score_unavailable,
+            **base,
         )
 
     devises = _devises_suivies(symbols)

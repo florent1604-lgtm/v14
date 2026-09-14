@@ -31,6 +31,10 @@ CHOC_AVANT_S = 600
 CHOC_APRES_S = 1800
 #: La publication de reference, un mardi a 13:30 UTC (heure des publications US).
 PUBLICATION = "2026-06-02T13:30:00+00:00"
+#: L'instant que le PRODUCTEUR declare avoir lu ce calendrier. Le lecteur de
+#: production exige desormais un horodatage producteur : une charge utile qui
+#: n'en porte pas est un echec de source, pas un calendrier frais.
+LECTURE = "2026-06-01T00:00:00+00:00"
 SYMBOLES = ("EURUSD", "US500", "BTCUSD", "ETHUSD", "XAUUSD", "GER40")
 
 
@@ -93,7 +97,8 @@ def _calendrier(tmp_path, impacts=None, instants=(PUBLICATION,)):
     chemin = tmp_path / "calendrier_macro.json"
     chemin.write_text(
         json.dumps(
-            {"events": [
+            {"retrieved_at": LECTURE,
+             "events": [
                 {
                     "title": f"publication {rang}",
                     "currency": "USD",

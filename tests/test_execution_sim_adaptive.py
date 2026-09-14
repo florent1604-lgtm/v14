@@ -12,9 +12,11 @@ Ces tests verrouillent les proprietes qui rendent la famille MESURABLE :
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
+import titanium.execution_sim
 from titanium.execution_sim.adaptive import (
     ADAPTIVE_POLICIES,
     SEQUENTIAL_ADAPTIVE_POLICIES,
@@ -29,7 +31,12 @@ from titanium.execution_sim.models import (
     OrderType,
     Side,
 )
-from titanium.execution_sim.policies import POLICY_REGISTRY, PolicyContext, get_policy
+from titanium.execution_sim.policies import (
+    POLICY_REGISTRY,
+    PolicyContext,
+    contexte_execution,
+    get_policy,
+)
 from titanium.execution_sim.runner import (
     ALL_POLICIES,
     _policy_config,
@@ -607,3 +614,32 @@ def test_les_axes_declares_ne_sont_pas_inertes():
     sonde = _sonde_axes(config, scenarios)
     for name, axe in AXE_DECLARE.items():
         assert sonde[name][axe], f"axe inerte : {name} / {axe}"
+
+def test_un_contexte_d_execution_exige_que_la_posture_soit_nommee():
+    """La garde : `macro` est obligatoire, donc la posture ne peut pas disparaitre.
+
+    Ce test TOMBE si quelqu'un redonne une valeur par defaut a `macro` — c'est le
+    seul moyen de rendre le silence impossible plutot que de compter sur la
+    relecture. Le defaut qu'il ferme est mesure : deux points d'entree sur quatre
+    (le moteur, le remplacement reactif) construisaient leur contexte sans le
+    bloc, donc la posture y etait absente sans que rien ne le dise.
+    """
+    with pytest.raises(TypeError):
+        contexte_execution(snapshot(), tick_size=0.0001)
+    assert contexte_execution(snapshot(), tick_size=0.0001, macro=None).macro is None
+
+
+def test_un_seul_module_construit_un_contexte_d_execution():
+    """Aucun module du simulateur ne construit de contexte hors du proprietaire.
+
+    Un nouveau point d'entree doit passer par `contexte_execution`, donc NOMMER
+    la posture ; s'il construit le dataclass directement, ce test tombe.
+    """
+    paquet = Path(titanium.execution_sim.__file__).parent
+    fautifs = [
+        fichier.name
+        for fichier in sorted(paquet.glob("*.py"))
+        if fichier.name != "policies.py"
+        and "PolicyContext(" in fichier.read_text(encoding="utf-8")
+    ]
+    assert fautifs == []

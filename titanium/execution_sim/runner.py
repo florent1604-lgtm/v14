@@ -27,7 +27,7 @@ from titanium.execution_sim.models import (
     Side,
 )
 from titanium.execution_sim.oms import OrderManager
-from titanium.execution_sim.policies import PolicyContext, get_policy
+from titanium.execution_sim.policies import contexte_execution, get_policy
 from titanium.execution_sim.portfolio import Portfolio
 from titanium.execution_sim.risk import RiskEngine, RiskRejected
 from titanium.execution_sim.sequencing import (
@@ -262,6 +262,7 @@ def _executer_politique_evenementielle(
     portfolio: Portfolio,
     risk: RiskEngine,
     matcher: MatchingSimulator,
+    macro: dict[str, Any] | None,
 ) -> list[Order]:
     """Execute les politiques reactives dans l'ordre causal des evenements.
 
@@ -271,6 +272,11 @@ def _executer_politique_evenementielle(
     Cette separation interdit d'utiliser le volume ou le deplacement d'un
     evenement pour decider puis se remplir retroactivement sur ce meme
     evenement.
+
+    Le contexte d'une observation est construit par le proprietaire unique
+    (`contexte_execution`) avec le meme bloc macro que l'entree : la
+    posture ne peut donc pas disparaitre sur ce chemin sans que
+    l'appelant ait eu a la nommer.
     """
     base_time = snapshots[0].timestamp
     posted: set[str] = set()
@@ -337,7 +343,7 @@ def _executer_politique_evenementielle(
             matcher.match(order, snapshot, oms)
             post_new_fills(portfolio, order, posted)
 
-        context = PolicyContext(snapshot=snapshot, tick_size=tick_size)
+        context = contexte_execution(snapshot, tick_size=tick_size, macro=macro)
         if (
             policy_name == "cancel_replace"
             and current_dynamic is not None
@@ -438,8 +444,8 @@ def executer_sur_snapshots(
     quantity = float(intent.quantity)
     side = intent.side
     symbol = intent.symbol
-    context = PolicyContext(
-        snapshot=snapshots[0],
+    context = contexte_execution(
+        snapshots[0],
         tick_size=tick_size,
         historical_volumes=historical_volumes,
         inventory=inventory,
@@ -501,6 +507,7 @@ def executer_sur_snapshots(
             portfolio=portfolio,
             risk=risk,
             matcher=matcher,
+            macro=macro,
         )
     if policy_name == "adaptive":
         return executer_sequentiel(
@@ -580,7 +587,7 @@ def executer_sur_snapshots(
         emergency = policy.emergency_order(
             residual_signed=residual_signed,
             symbol=symbol,
-            context=PolicyContext(snapshots[-1], tick_size),
+            context=contexte_execution(snapshots[-1], tick_size=tick_size, macro=macro),
         )
         if emergency is not None:
             emergency.metadata["residual_exposure"] = residual

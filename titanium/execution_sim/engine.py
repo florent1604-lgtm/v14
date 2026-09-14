@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from titanium.execution_sim.adaptive import SEQUENTIAL_ADAPTIVE_POLICIES
 from titanium.execution_sim.matching import MatchingSimulator
 from titanium.execution_sim.models import ExecutionIntent, MarketSnapshot
 from titanium.execution_sim.oms import OrderManager
-from titanium.execution_sim.policies import PolicyContext, get_policy
+from titanium.execution_sim.policies import contexte_execution, get_policy
 from titanium.execution_sim.portfolio import Portfolio
 from titanium.execution_sim.risk import RiskEngine
 from titanium.execution_sim.sequencing import (
@@ -30,7 +32,11 @@ class BacktestExecutionEngine:
     * ``latency_ms=0`` et ``seconds_per_snapshot=1.0`` : cette entree n'expose
       ni latence ni granularite de barre, la ou le runner les recoit du
       scenario. Sans cet eclaircissement, un appelant croirait que le moteur
-      simule une latence qu'il ignore.
+      simule une latence qu'il ignore ;
+    * le contexte d'entree : il est construit par ``contexte_execution``, le
+      proprietaire unique, et ``macro`` y est nomme par l'appelant. Une
+      posture ne peut donc pas disparaitre ici en silence — la meme entree
+      que le runner rend le meme plan, macro comprise.
     """
 
     def __init__(self, *, policy: str, policy_config=None, seed: int = 0, initial_cash=100_000.0):
@@ -42,14 +48,20 @@ class BacktestExecutionEngine:
         self.matcher = MatchingSimulator(seed=seed)
 
     def execute(
-        self, intent: ExecutionIntent, snapshots: list[MarketSnapshot], *, tick_size: float
+        self,
+        intent: ExecutionIntent,
+        snapshots: list[MarketSnapshot],
+        *,
+        tick_size: float,
+        macro: dict[str, Any] | None = None,
     ):
         if not snapshots:
             return []
-        context = PolicyContext(
-            snapshot=snapshots[0],
+        context = contexte_execution(
+            snapshots[0],
             tick_size=tick_size,
             historical_volumes=tuple(s.volume for s in snapshots[:-1]),
+            macro=macro,
         )
         orders = self.policy.plan(intent, context)
         profil = (

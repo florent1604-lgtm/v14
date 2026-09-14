@@ -89,7 +89,7 @@ battement — boucle arrêtée — elle calcule en local et le DIT (`source`).
 | `risk.py` | 205 | Faut-il du risque neuf, maintenant, pour ce symbole ? | Aucune E/S, aucune horloge implicite |
 | `feed.py` | 117 | Quand relit-on, et avec quel repli ? | Ne décide pas de la prudence, ne démarre rien |
 | `service.py` | 274 | **Qui** relit, dans ce processus, et quand cela s'arrête | Ne décide rien du risque |
-| `gate.py` | 66 | Sous quelle forme le verdict entre-t-il dans une décision ? | Ne connaît ni la porte ni l'interface |
+| `gate.py` | 103 | Sous quelle forme le verdict entre-t-il dans une décision ? | Ne connaît ni la porte ni l'interface |
 | `telemetry.py` | 94 | Comment l'interface voit-elle le verdict ? | Ne lit pas de texte libre |
 | `__init__.py` | 151 | Le cache du processus, la politique courante, le point d'entrée | — |
 
@@ -140,6 +140,21 @@ Ce que la règle a fait tomber, et pourquoi :
   macro_bloc_indisponible(...)`. Il ne subsiste qu'un exemplaire,
   `macro_bloc_pour_publication()`, et les deux appelants s'y adressent : les deux
   ne peuvent plus raconter deux histoires du même calendrier.
+* **La forme du bloc macro, recopiée dans le harnais de mesure.**
+  `tools/execution_adaptative.py` refabriquait `{allows_new_risk, conservative,
+  state, tension}` à la main. Il appelle désormais `gate.macro_block` sur un vrai
+  `MacroRisk` : la forme du bloc et la formule de la posture (`macro_posture`)
+  n'ont plus qu'un exemplaire. Une tension hors de `[0, 1]` est refusée par la
+  ligne de commande — sans quoi le mécanisme refusait de planifier (correct) mais
+  le rapport affichait la valeur **déclarée** comme si elle avait été appliquée.
+* **La comparaison de deux tables d'arène, écrite deux fois.**
+  `_cellules` / `_empreinte` / `_comparer` (`tools/comparer_budget_arene.py`) et
+  `comparer` / `empreinte` (`tools/execution_adaptative.py`) portaient la même
+  règle — même clé `(politique, split, scénario)`, même lecture du ndjson, même
+  justification. Elle vit dans `tools/arene_cellules.py`. Ce qui distingue
+  maintenant les deux harnais est une **politique explicite** portée par
+  l'appelant : toutes les colonnes contre les cinq de décision, cellules présentes
+  d'un seul côté comptées comme des écarts ou non.
 
 Ce qui *n'est pas* tombé, et pourquoi : les champs de trace (`state`, `score`,
 `next_event`, `source_digest`) restent dans le bloc parce que **la porte les
@@ -233,6 +248,17 @@ mauvaise raison.
 `PolicyContext` gagne un champ `macro`, **en dernier et avec un défaut `None`** :
 toute construction positionnelle existante reste valide.
 
+**Le contexte d'exécution n'a qu'un fabricant.** Les quatre endroits où un
+contexte naissait (`executer_sur_snapshots`, le remplacement réactif, le
+rattrapage de jambes multiples, `BacktestExecutionEngine.execute`) passent par
+`titanium.execution_sim.policies.contexte_execution`, où `macro` est un
+**mot-clé obligatoire**. Deux d'entre eux l'ignoraient : la posture y était donc
+silencieusement absente, sans test ni journal pour le dire — exactement le motif
+qui avait déjà coûté cher ailleurs dans ce dépôt. Un appelant qui n'a pas de bloc
+doit désormais l'écrire (`macro=None`) ; un oubli lève `TypeError` au lieu de
+produire une décision mal informée. Deux tests le verrouillent, et chacun tombe
+quand on retire la garde.
+
 **Le veto, inchangé.** `build_features` refuse de planifier (`None`) quand le
 calendrier interdit le risque neuf, sur le **même critère que la porte** : les
 clés de `MACRO_BLOCK_KEYS`, puis `allows_new_risk`. Un bloc incomplet est un
@@ -277,6 +303,15 @@ exécute. Aucun seuil du veto ne bouge : l'échelle est un paramètre existant.
     --macro-tension 1.0 --output results\arene_tension `
     --comparer results\arene_neutre\execution_adaptative.ndjson
 ```
+
+**Ce que la commande pose, et par qui.** La posture n'est pas recopiée dans le
+harnais : il construit un `MacroRisk` d'état `CLEAR` et appelle `gate.macro_block`.
+La tension demandée y est traduite en **délai avant publication** sur l'échelle de
+temps du veto (`elevated_within_s`, lu dans la politique livrée), ce qui la fait
+lire par la **même fonction que la production**. Le `posture_macro` imprimé est
+celui **relu dans le bloc**, pas celui demandé, et l'échelle est enregistrée à côté
+(`posture_echelle_s`) : une valeur déclarée et refusée ne peut plus s'afficher
+comme une mesure.
 
 | posture | cellules qui bougent / 15 552 | techniques touchées | `adapt_selector` | `adapt_urgency_ladder` | comportements distincts |
 |---|---:|---|---|---|---:|
@@ -441,13 +476,21 @@ sa garantie.
 | `tests/test_web_macro_gauges.py` | 7 | route `/ui/macro`, rendu des jauges, severite, verdict de boucle perime |
 
 Le côté exécution est couvert dans son propre fichier,
-`tests/test_execution_sim_adaptive.py` (**62 cas, dont 6 ajoutés ici**) : la
+`tests/test_execution_sim_adaptive.py` (**64 cas, dont 8 ajoutés ici**) : la
 posture déplace une décision d'exécution, elle est graduée plutôt que binaire,
 elle ne rend jamais plus agressif que l'intention, la posture neutre rend le
-vecteur d'avant **au bit**, et une posture illisible refuse de planifier. Deux
-mutations le prouvent : neutraliser le consommateur tue 4 de ces cas, et rendre
-le producteur dégénéré (une coupure à l'horizon du veto) tue le cas de
-non-dégénérescence.
+vecteur d'avant **au bit**, une posture illisible refuse de planifier, un contexte
+d'exécution ne peut pas naître sans que la posture soit nommée, et aucun module du
+simulateur ne construit de contexte hors du propriétaire. Deux mutations le
+prouvent : neutraliser le consommateur tue 4 de ces cas, et rendre le producteur
+dégénéré (une coupure à l'horizon du veto) tue le cas de non-dégénérescence. Les
+deux gardes du propriétaire ont été falsifiées de la même façon : redonner un
+défaut à `macro`, ou réintroduire une construction directe, fait tomber celle qui
+la couvre.
+
+| Fichier | Cas | Ce qu'il couvre |
+|---|---:|---|
+| `tests/test_arene_cellules.py` | 4 | propriétaire de la comparaison : clé d'appariement, empreinte insensible à l'ordre des clés, écart de coût vu à résultat constant, cellules présentes d'un seul côté |
 
 `tests/test_macro_feed.py` — la non-régression en tête de fichier parce que
 c'est elle qu'on casse en premier :
@@ -524,6 +567,13 @@ Assumé, et pas seulement reporté :
   est une valeur de départ raisonnable, pas un résultat empirique. La caler
   demande de corréler le slippage observé à la proximité d'une publication —
   c'est un travail de mesure, et il n'est pas fait.
+* **La posture n'est pas affichée.** `telemetry.macro_telemetry` projette l'état,
+  le score, la fraîcheur et l'imminence ; `tension` vit dans le bloc de features
+  (`gate.macro_block`) et n'a PAS été ajoutée à la charge du panneau, qui est gelé
+  par décision utilisateur. Conséquence assumée : la modulation qui change des
+  remplissages reste invisible à l'écran. Si le panneau doit la montrer, elle doit
+  être **importée** de `gate.macro_posture`, jamais recalculée — une seule formule
+  doit exister.
 * **L'encodage console sous Windows.** La ligne d'etat de `tools/live_demo.py`
   et ses motifs macro sont accentues ; un terminal en page de code 1252 les rend
   mal. Ce qui decide et s'affiche — le battement et la jauge — est de l'UTF-8

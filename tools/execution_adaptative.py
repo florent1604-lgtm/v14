@@ -24,6 +24,7 @@ import json
 import math
 import statistics
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,10 @@ from titanium.execution_sim.runner import (  # noqa: E402
     generate_scenarios,
     run_matrix,
 )
-from titanium.macro.gate import MACRO_POSTURE_KEY  # noqa: E402
+from titanium.macro import load_policy  # noqa: E402
+from titanium.macro.contracts import MacroRisk, MacroState  # noqa: E402
+from titanium.macro.gate import MACRO_POSTURE_KEY, macro_block  # noqa: E402
+from tools import arene_cellules as arene  # noqa: E402
 
 TEMOIN = "market"
 
@@ -433,80 +437,81 @@ def ecrire(resultat: dict[str, Any], rows: list[dict[str, Any]], output: Path) -
     return {"json": json_path, "ndjson": ndjson_path, "markdown": md_path}
 
 
-def bloc_posture(tension: float) -> dict[str, Any] | None:
-    """Bloc macro d'une posture d'execution, ou ``None`` quand elle est neutre.
+def _tension(valeur: str) -> float:
+    """Tension d'execution : [0, 1], refusee hors bornes.
 
-    Le veto est porte par les deux booleens : ici ils disent CLEAR, donc « aucun
-    veto ». Seule la posture graduee change, ce qui isole exactement ce que ce
-    harnais mesure. La cle vient de ``titanium.macro.gate`` : elle n'est pas
-    recopiee, sinon deux orthographes finiraient par coexister.
+    Hors bornes, le mecanisme refuse deja de planifier -- une posture
+    illisible n'est pas une posture neutre -- mais l'arene rendait alors un
+    rapport a un seul comportement et 136 collisions, en imprimant la valeur
+    declaree comme si elle avait ete appliquee. Un refus explicite vaut mieux
+    qu'un rapport qui a l'air d'une mesure.
+    """
+    try:
+        tension = float(valeur)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"tension illisible : {valeur!r}") from None
+    if not 0.0 <= tension <= 1.0:
+        raise argparse.ArgumentTypeError(f"tension hors de [0, 1] : {valeur!r}")
+    return tension
+
+
+def bloc_posture(tension: float, *, echelle_s: float) -> dict[str, Any] | None:
+    """Bloc macro d'une posture d'execution, construit par son PROPRIETAIRE.
+
+    La forme du bloc n'est pas recopiee ici : ``titanium.macro.gate`` la
+    possede (``macro_block``), et la posture sort de ``macro_posture``, seule
+    formule du depot. Le harnais ne choisit que l'INSTANT d'une publication :
+    la tension demandee est traduite en delai avant publication, sur
+    l'echelle de temps du veto, ce qui la rend lisible par la fonction que la
+    production emploie. Une tension nulle vaut neutre : aucun bloc, donc
+    exactement le comportement d'avant.
     """
     if tension <= 0.0:
         return None
-    return {
-        "allows_new_risk": True,
-        "conservative": False,
-        "state": "CLEAR",
-        MACRO_POSTURE_KEY: float(tension),
-    }
-
-
-def empreinte(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    delai_s = echelle_s * (1.0 - tension) / tension
+    risque = MacroRisk(
+        state=MacroState.CLEAR,
+        score=0.0,
+        now=datetime.now(timezone.utc),
+        next_event_title="posture de mesure (aucune publication lue)",
+        seconds_to_next=delai_s,
+    )
+    return macro_block(risque, posture_scale_s=echelle_s)
 
 
 def comparer(reference: Path, courant: Path) -> dict[str, Any]:
     """Compare deux tables cellule par cellule, sur TOUTES les colonnes.
 
-    Comparer le seul ``net_pnl`` laisserait passer une cellule dont le cout a
-    bouge a resultat constant. La cle d'appariement est (policy, scenario_id,
-    split) : la grille des scenarios ne bouge pas, donc toute cellule absente
-    d'un cote est en soi un ecart.
+    La REGLE vit dans ``tools.arene_cellules`` (cle d'appariement, lecture du
+    ndjson, denombrement, empreintes) ; ce harnais ne choisit que sa
+    POLITIQUE -- toutes les colonnes, cellules presentes d'un seul cote
+    comptees comme des ecarts -- et met le resultat en forme.
     """
-    def charger(path: Path) -> dict[tuple, dict[str, Any]]:
-        index: dict[tuple, dict[str, Any]] = {}
-        with path.open("r", encoding="utf-8") as handle:
-            for ligne in handle:
-                if not ligne.strip():
-                    continue
-                row = json.loads(ligne)
-                index[(row["policy"], row["scenario_id"], row["split"])] = row
-        return index
-
-    gauche, droite = charger(reference), charger(courant)
-    cellules = sorted(set(gauche) | set(droite))
-    colonnes: dict[str, int] = {}
-    bougees: list[dict[str, Any]] = []
-    par_technique: dict[str, int] = {}
-    for cle in cellules:
-        a, b = gauche.get(cle), droite.get(cle)
-        if a is None or b is None:
-            bougees.append({"cle": list(cle), "colonnes": ["cellule_absente"]})
-            par_technique[cle[0]] = par_technique.get(cle[0], 0) + 1
-            colonnes["cellule_absente"] = colonnes.get("cellule_absente", 0) + 1
-            continue
-        differentes = sorted(
-            champ
-            for champ in set(a) | set(b)
-            if a.get(champ) != b.get(champ)
-        )
-        if not differentes:
-            continue
-        bougees.append({"cle": list(cle), "colonnes": differentes})
-        par_technique[cle[0]] = par_technique.get(cle[0], 0) + 1
-        for champ in differentes:
-            colonnes[champ] = colonnes.get(champ, 0) + 1
+    gauche, droite = arene.lire_ndjson(reference), arene.lire_ndjson(courant)
+    noms: set[str] = set()
+    for row in gauche + droite:
+        noms |= set(row)
+    colonnes = tuple(sorted(noms))
+    politique = arene.comparer(
+        arene.projeter(arene.indexer(gauche), colonnes),
+        arene.projeter(arene.indexer(droite), colonnes),
+        colonnes=colonnes,
+        cellules_absentes_comptent=True,
+    )
     return {
         "reference": str(reference),
         "courant": str(courant),
-        "sha256_reference": empreinte(reference),
-        "sha256_courant": empreinte(courant),
-        "cellules_comparees": len(cellules),
-        "cellules_identiques": len(cellules) - len(bougees),
-        "cellules_bougees": len(bougees),
-        "colonnes_bougees": dict(sorted(colonnes.items())),
-        "cellules_bougees_par_technique": dict(sorted(par_technique.items())),
-        "exemples": bougees[:20],
+        "sha256_reference": arene.sha256_fichier(reference),
+        "sha256_courant": arene.sha256_fichier(courant),
+        "cellules_comparees": politique["cellules_comparees"],
+        "cellules_identiques": politique["cellules_identiques"],
+        "cellules_bougees": politique["cellules_bougees"],
+        "colonnes_bougees": politique["colonnes_bougees"],
+        "cellules_bougees_par_technique": politique["bougees_par_politique"],
+        "exemples": [
+            {"cle": cle.split("|"), "colonnes": list(champs)}
+            for cle, champs, _, _ in politique["ecarts"][:20]
+        ],
     }
 
 
@@ -524,7 +529,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quick", action="store_true")
     parser.add_argument(
         "--macro-tension",
-        type=float,
+        type=_tension,
         default=0.0,
         help="posture d'execution [0,1] appliquee a tous les cas ; 0 = neutre (defaut)",
     )
@@ -548,11 +553,20 @@ def main(argv: list[str] | None = None) -> int:
         quick=args.quick,
         jobs=max(1, args.jobs),
     )
-    macro = bloc_posture(args.macro_tension)
+    politique_macro = load_policy()
+    echelle_s = float(politique_macro.elevated_within_s)
+    macro = bloc_posture(args.macro_tension, echelle_s=echelle_s)
     rows = run_matrix(spec, config, macro=macro)
     resultat = build_report(rows, seed=args.seed, quick=args.quick)
     resultat["config_fingerprint"] = _empreinte_config(config)
-    resultat["posture_macro"] = float(args.macro_tension)
+    # Posture REELLEMENT posee, relue sur le bloc du proprietaire : une
+    # valeur declaree que le mecanisme refuse ne doit pas s'afficher comme
+    # une mesure. L'echelle est ecrite a cote, parce que c'est elle qui
+    # relie la tension demandee a un delai avant publication.
+    resultat["posture_macro"] = (
+        float(macro[MACRO_POSTURE_KEY]) if macro is not None else 0.0
+    )
+    resultat["posture_echelle_s"] = echelle_s
     sorties = ecrire(resultat, rows, Path(args.output))
     if args.comparer is not None:
         comparaison = comparer(Path(args.comparer), sorties["ndjson"])

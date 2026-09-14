@@ -56,13 +56,14 @@ elle dit seulement qu'il n'y entre pas.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
+
+from tools import arene_cellules as arene  # noqa: E402
 
 #: Le seed enregistre dans les artefacts d'arene.
 SEED_ARTEFACT = 14_082_026
@@ -119,40 +120,29 @@ def lire_plafonds_effectifs() -> dict[str, float]:
 
 
 def _cellules(rows: list[dict]) -> dict[str, list]:
-    """Une signature par cellule : (politique, split, scenario)."""
-    cellules: dict[str, list] = {}
-    for row in rows:
-        cle = f"{row['policy']}|{row['split']}|{row['scenario_id']}"
-        cellules[cle] = [row.get(colonne) for colonne in COLONNES]
-    return cellules
+    """Une signature par cellule : (politique, split, scenario).
 
-
-def _empreinte(cellules: dict[str, list]) -> str:
-    charge = json.dumps(cellules, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(charge.encode("utf-8")).hexdigest()
+    La cle d'appariement et la projection appartiennent a
+    ``tools.arene_cellules`` ; ici on ne fait que nommer les colonnes de
+    decision de ce harnais.
+    """
+    return arene.projeter(arene.indexer(rows), COLONNES)
 
 
 def _comparer(gauche: dict[str, list], droite: dict[str, list]) -> dict:
-    """Cellule par cellule : combien bougent, de combien."""
-    communes = sorted(set(gauche) & set(droite))
-    differentes: list[tuple[str, list, list]] = []
-    for cle in communes:
-        if gauche[cle] != droite[cle]:
-            differentes.append((cle, gauche[cle], droite[cle]))
-    ecarts_net = []
-    for _, gauche, droite in differentes:
-        try:
-            ecarts_net.append(abs(float(gauche[0]) - float(droite[0])))
-        except (TypeError, ValueError):
-            # Une colonne non numerique a change (motif de refus) : l'ecart de
-            # net n'est pas defini, la cellule compte deja comme differente.
-            continue
+    """Cellule par cellule : combien bougent, de combien.
+
+    La REGLE (cle, colonnes, comptage, ecart net) vit dans
+    ``tools.arene_cellules`` ; ce harnais ne fait que mettre le resultat en
+    forme pour son rapport.
+    """
+    brut = arene.comparer(gauche, droite, colonnes=COLONNES)
     return {
-        "cellules_comparees": len(communes),
-        "cellules_differentes": len(differentes),
-        "ecart_net_max": max(ecarts_net) if ecarts_net else 0.0,
-        "exemples": differentes[:5],
-        "politiques_touchees": sorted({cle.split("|")[0] for cle, _, _ in differentes}),
+        "cellules_comparees": brut["cellules_communes"],
+        "cellules_differentes": brut["cellules_bougees"],
+        "ecart_net_max": brut["ecart_net_max"],
+        "exemples": [(cle, list(a), list(b)) for cle, _, a, b in brut["ecarts"][:5]],
+        "politiques_touchees": sorted(brut["bougees_par_politique"]),
     }
 
 
@@ -172,7 +162,7 @@ def _passer(seed: int, jobs: int, *, plafonds=None, config=None,
     )
     rows = run_matrix(spec, charge)
     cellules = _cellules(rows)
-    return {"cellules": cellules, "empreinte": _empreinte(cellules),
+    return {"cellules": cellules, "empreinte": arene.empreinte(cellules),
             "lignes": len(rows)}
 
 
@@ -259,20 +249,9 @@ ARTEFACT = RACINE / "results" / "execution_adaptative" / "execution_adaptative.n
 ARTEFACT_MD = RACINE / "results" / "execution_adaptative" / "execution_adaptative.md"
 
 
-def _sha256(chemin: Path) -> str:
-    return hashlib.sha256(chemin.read_bytes()).hexdigest()
-
-
 def charger_artefact(chemin: Path) -> dict[str, list]:
     """Les cellules de l'artefact `ndjson`, dans la meme signature que la passe."""
-    cellules: dict[str, list] = {}
-    for ligne in chemin.read_text(encoding="utf-8").splitlines():
-        if not ligne.strip():
-            continue
-        row = json.loads(ligne)
-        cle = f"{row['policy']}|{row['split']}|{row['scenario_id']}"
-        cellules[cle] = [row.get(colonne) for colonne in COLONNES]
-    return cellules
+    return _cellules(arene.lire_ndjson(chemin))
 
 
 def verifier_reproduction(seed: int, jobs: int = 4, *, quick: bool = False,
@@ -293,16 +272,16 @@ def verifier_reproduction(seed: int, jobs: int = 4, *, quick: bool = False,
     resultat = {
         "artefact": str(chemin.relative_to(RACINE)),
         "present": True,
-        "sha256_ndjson": _sha256(chemin),
+        "sha256_ndjson": arene.sha256_fichier(chemin),
         "cellules_publiees": len(publie),
         "cellules_rejouees": len(mesure["cellules"]),
         "cellules_differentes": comparaison["cellules_differentes"],
         "cellules_comparees": comparaison["cellules_comparees"],
-        "empreinte_publiee": _empreinte(publie),
+        "empreinte_publiee": arene.empreinte(publie),
         "empreinte_rejouee": mesure["empreinte"],
     }
     if ARTEFACT_MD.exists():
-        resultat["sha256_markdown"] = _sha256(ARTEFACT_MD)
+        resultat["sha256_markdown"] = arene.sha256_fichier(ARTEFACT_MD)
         resultat["markdown"] = str(ARTEFACT_MD.relative_to(RACINE))
     return resultat
 

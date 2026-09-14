@@ -20,6 +20,11 @@ from titanium.edge import PNL_R_MAX
 
 DAILY_LOSS_LIMIT_R = 2.0
 ROLLING_7D_LOSS_LIMIT_R = 6.0
+# Un horodatage peut se lire differemment selon le fuseau qu'on lui suppose.
+# Le constat d'horloge serveur (Axi, UTC+3, 35 clotures datees trois heures
+# dans le futur) montre que l'ecart est reel. L'amplitude entre les deux
+# lectures extremes d'un meme horodatage est celle des fuseaux existants.
+AMBIGUITE_HORAIRE_MAX = timedelta(hours=26)
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,11 @@ class LiveLossVerdict:
     daily_net_r: float = 0.0
     rolling_trades: int = 0
     rolling_net_r: float = 0.0
+    # Motif et date du declencheur, portes par le verrou. Sans eux un verdict
+    # bloque affiche des chiffres revenus dans les limites et ne dit pas
+    # pourquoi il bloque.
+    quarantine_reason: str = ""
+    quarantine_since: str = ""
 
     def to_dict(self) -> dict[str, str | int | float]:
         return asdict(self)
@@ -53,11 +63,34 @@ def _parse_closed_at(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _bornes_horodatage(value: object) -> tuple[datetime, datetime] | None:
+    """Lecture la plus ancienne et la plus recente d'un horodatage.
+
+    Un horodatage sans fuseau n'est pas situe : il est lu aux deux extremes
+    plutot que de condamner le verdict a lui seul. `None` quand il n'est pas
+    lisible du tout -- ce qui ne prouve rien et reste donc invalide.
+    """
+
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed - AMBIGUITE_HORAIRE_MAX, parsed + AMBIGUITE_HORAIRE_MAX
+
+
 def _quarantine_verdict(
     verdict: LiveLossVerdict,
     *,
     action: str = "BLOCK",
     reason: str = "PERSISTENT_LOSS_QUARANTINE",
+    quarantine_reason: str = "",
+    quarantine_since: str = "",
 ) -> LiveLossVerdict:
     return LiveLossVerdict(
         action=action,
@@ -66,6 +99,59 @@ def _quarantine_verdict(
         daily_net_r=verdict.daily_net_r,
         rolling_trades=verdict.rolling_trades,
         rolling_net_r=verdict.rolling_net_r,
+        quarantine_reason=quarantine_reason,
+        quarantine_since=quarantine_since,
+    )
+
+
+def _verrou_en_place(
+    verdict: LiveLossVerdict,
+    *,
+    path: Path,
+    account: str,
+) -> LiveLossVerdict | None:
+    """Verdict impose par un verrou existant et valide, sinon `None`.
+
+    La lecture du verrou est ici et nulle part ailleurs : un consommateur qui
+    doit rendre le meme verdict que le moteur la partage au lieu de la
+    recopier. Le motif du declencheur est porte par le verdict, pour que
+    « bloque » se lise avec sa cause et non avec un chiffre revenu dans les
+    limites. Un compte non nomme ne peut rien revendiquer : le verdict
+    attend, et aucun verrou n'est pose.
+    """
+
+    if not account:
+        return _quarantine_verdict(
+            verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
+        )
+    if not path.exists():
+        return None
+    if not path.is_file():
+        return _quarantine_verdict(
+            verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        trigger = payload.get("trigger") if isinstance(payload, dict) else None
+        valid = (
+            payload.get("schema") == 1
+            and str(payload.get("account", "")) == account
+            and _parse_closed_at(payload.get("latched_at_utc")) is not None
+            and isinstance(trigger, dict)
+            and trigger.get("action") == "BLOCK"
+            and isinstance(trigger.get("reason"), str)
+            and bool(trigger["reason"])
+        )
+    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError):
+        valid = False
+    if not valid:
+        return _quarantine_verdict(
+            verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
+        )
+    return _quarantine_verdict(
+        verdict,
+        quarantine_reason=str(trigger["reason"]),
+        quarantine_since=str(payload.get("latched_at_utc", "")),
     )
 
 
@@ -85,35 +171,11 @@ def persist_live_loss_quarantine(
 
     quarantine_path = Path(path)
     expected_account = str(account).strip()
-    if not expected_account:
-        return _quarantine_verdict(
-            verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
-        )
-
-    if quarantine_path.exists():
-        if not quarantine_path.is_file():
-            return _quarantine_verdict(
-                verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
-            )
-        try:
-            payload = json.loads(quarantine_path.read_text(encoding="utf-8"))
-            trigger = payload.get("trigger") if isinstance(payload, dict) else None
-            valid = (
-                payload.get("schema") == 1
-                and str(payload.get("account", "")) == expected_account
-                and _parse_closed_at(payload.get("latched_at_utc")) is not None
-                and isinstance(trigger, dict)
-                and trigger.get("action") == "BLOCK"
-                and isinstance(trigger.get("reason"), str)
-                and bool(trigger["reason"])
-            )
-        except (OSError, json.JSONDecodeError, UnicodeError, AttributeError):
-            valid = False
-        if not valid:
-            return _quarantine_verdict(
-                verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_INVALID",
-            )
-        return _quarantine_verdict(verdict)
+    en_place = _verrou_en_place(
+        verdict, path=quarantine_path, account=expected_account,
+    )
+    if en_place is not None:
+        return en_place
 
     if verdict.action != "BLOCK":
         return verdict
@@ -151,7 +213,43 @@ def persist_live_loss_quarantine(
         return _quarantine_verdict(
             verdict, action="WAIT", reason="LIVE_LOSS_QUARANTINE_WRITE_FAILED",
         )
-    return _quarantine_verdict(verdict)
+    return _quarantine_verdict(
+        verdict,
+        quarantine_reason=str(verdict.reason),
+        quarantine_since=current.astimezone(timezone.utc).isoformat(),
+    )
+
+
+def live_loss_guard_path(root: str | Path, account: str) -> Path:
+    """Emplacement unique du verrou de quarantaine pour un compte."""
+
+    return (Path(root) / "data" / "runtime" / "live_loss_quarantine"
+            / f"{str(account).strip()}.json")
+
+
+def read_live_loss_guard(
+    journal_path: str | Path,
+    *,
+    account: str,
+    quarantine_path: str | Path,
+    now: datetime | None = None,
+    not_before: datetime | None = None,
+) -> LiveLossVerdict:
+    """Verdict unique du coupe-circuit, verrou inclus, sans jamais ecrire.
+
+    Le coupe-circuit a un seul proprietaire : un lecteur qui doit rendre le
+    meme verdict que le moteur ne recalcule pas la regle, et ne pose ni ne
+    leve le verrou de l'operateur.
+    """
+
+    verdict = evaluate_live_loss_guard(
+        journal_path, account=account, now=now, not_before=not_before,
+    )
+    expected_account = str(account).strip()
+    en_place = _verrou_en_place(
+        verdict, path=Path(quarantine_path), account=expected_account,
+    )
+    return verdict if en_place is None else en_place
 
 
 def evaluate_live_loss_guard(
@@ -164,8 +262,10 @@ def evaluate_live_loss_guard(
     """Autorise ou bloque les nouvelles entrées selon le PnL live en R.
 
     Les limites sont de -2 R sur le jour UTC et -6 R sur sept jours glissants.
-    Les doublons sont résolus par l'état le plus récent du journal. Toute
-    donnée live pertinente qui n'est pas une preuve UTC nette fait attendre.
+    Les doublons sont résolus par la date de clôture la plus récente. Une
+    ligne dont l'horodatage tombe hors fenêtre sous toutes ses lectures est
+    ignorée, comme les autres contrôles hors fenêtre ; une ligne pertinente
+    qui n'est pas une preuve UTC nette fait attendre.
     """
 
     path = Path(journal_path)
@@ -209,6 +309,13 @@ def evaluate_live_loss_guard(
 
         relevant_account_seen = True
         closed_at = _parse_closed_at(row.get("closed_at"))
+        bornes = _bornes_horodatage(row.get("closed_at"))
+        # Une ligne hors fenetre sous toutes les lectures de son horodatage ne
+        # doit pas condamner le verdict a elle seule : c'est le regime des
+        # quatre controles ci-dessous. Un horodatage illisible ne prouve rien
+        # et reste, lui, invalide plutot que d'etre ignore en silence.
+        if bornes is not None and (bornes[1] < cutoff or bornes[0] > current):
+            continue
         if closed_at is None or closed_at > current:
             return _invalid()
         if closed_at < cutoff:
@@ -228,7 +335,13 @@ def evaluate_live_loss_guard(
             or abs(pnl_r) > PNL_R_MAX
         ):
             return _invalid()
-        by_ticket[ticket.strip()] = (closed_at, pnl_r)
+        cle_ticket = ticket.strip()
+        # « L'etat le plus recent du journal » se lit sur la date de cloture :
+        # un journal reordonne (reparation, rejeu) ne doit pas changer le
+        # verdict. A date egale, la derniere ligne du fichier gagne.
+        precedent = by_ticket.get(cle_ticket)
+        if precedent is None or closed_at >= precedent[0]:
+            by_ticket[cle_ticket] = (closed_at, pnl_r)
 
     if not relevant_account_seen:
         return LiveLossVerdict(action="WAIT", reason="LIVE_LOSS_ACCOUNT_HISTORY_MISSING")

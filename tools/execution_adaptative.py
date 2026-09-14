@@ -455,6 +455,20 @@ def _tension(valeur: str) -> float:
     return tension
 
 
+def _table_lisible(valeur: str) -> Path:
+    """Table ndjson de reference : elle doit exister DES LE LANCEMENT.
+
+    Sans ce refus, une faute de frappe rendait une `FileNotFoundError`
+    brute apres douze secondes de calcul. Le cas n'est pas theorique :
+    l'artefact de reference n'est pas versionne, donc un checkout neuf
+    n'en a aucun et c'est le chemin que le mode d'emploi decrit.
+    """
+    chemin = Path(valeur)
+    if not chemin.is_file():
+        raise argparse.ArgumentTypeError(f"table de reference introuvable : {chemin}")
+    return chemin
+
+
 def bloc_posture(tension: float, *, echelle_s: float) -> dict[str, Any] | None:
     """Bloc macro d'une posture d'execution, construit par son PROPRIETAIRE.
 
@@ -535,7 +549,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--comparer",
-        type=Path,
+        type=_table_lisible,
         default=None,
         help="table ndjson de reference a comparer cellule par cellule",
     )

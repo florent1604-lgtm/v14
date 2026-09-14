@@ -58,9 +58,24 @@ def indexer(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 def lire_ndjson(chemin: Path | str) -> list[dict[str, Any]]:
-    """Les lignes d'une table ndjson, dans l'ordre du fichier."""
+    """Les lignes d'une table ndjson, dans l'ordre du fichier.
+
+    Une ligne illisible nomme le FICHIER et la LIGNE : une passe
+    interrompue laisse une table tronquee, et c'est exactement la table
+    qu'un operateur va vouloir comparer.
+    """
+    lignes: list[dict[str, Any]] = []
     with Path(chemin).open("r", encoding="utf-8") as handle:
-        return [json.loads(ligne) for ligne in handle if ligne.strip()]
+        for numero, ligne in enumerate(handle, 1):
+            if not ligne.strip():
+                continue
+            try:
+                lignes.append(json.loads(ligne))
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"{chemin}: ligne {numero} illisible ({exc.msg})"
+                ) from None
+    return lignes
 
 
 def projeter(

@@ -147,6 +147,11 @@ Ce que la règle a fait tomber, et pourquoi :
   n'ont plus qu'un exemplaire. Une tension hors de `[0, 1]` est refusée par la
   ligne de commande — sans quoi le mécanisme refusait de planifier (correct) mais
   le rapport affichait la valeur **déclarée** comme si elle avait été appliquée.
+  Deux autres refus, mesurés sur la vraie façade : une table de référence
+  **introuvable** est rejetée au lancement et non après douze secondes de calcul
+  (`--comparer` pointe un artefact non versionné, donc absent d'un checkout neuf),
+  et une ligne ndjson illisible **nomme son fichier et sa ligne** — une passe
+  interrompue laisse une table tronquée, et c'est celle-là qu'on veut comparer.
 * **La comparaison de deux tables d'arène, écrite deux fois.**
   `_cellules` / `_empreinte` / `_comparer` (`tools/comparer_budget_arene.py`) et
   `comparer` / `empreinte` (`tools/execution_adaptative.py`) portaient la même
@@ -574,6 +579,12 @@ Assumé, et pas seulement reporté :
   remplissages reste invisible à l'écran. Si le panneau doit la montrer, elle doit
   être **importée** de `gate.macro_posture`, jamais recalculée — une seule formule
   doit exister.
+* **La sortie par défaut du harnais d'arène est l'emplacement de l'artefact
+  scellé.** Sans `--output`, il écrit dans `results/execution_adaptative/`, où
+  vit la mesure publiée — 30 Mo, non versionnés (`results/` est ignoré par git).
+  Le mode d'emploi passe toujours un `--output` explicite, mais une passe de
+  tension lancée sans lui **remplacerait la référence**. Ce n'est pas corrigé ici :
+  déplacer la sortie par défaut est une décision d'exploitation, pas un correctif.
 * **L'encodage console sous Windows.** La ligne d'etat de `tools/live_demo.py`
   et ses motifs macro sont accentues ; un terminal en page de code 1252 les rend
   mal. Ce qui decide et s'affiche — le battement et la jauge — est de l'UTF-8

@@ -254,14 +254,13 @@ def charger_artefact(chemin: Path) -> dict[str, list]:
     return _cellules(arene.lire_ndjson(chemin))
 
 
-def verifier_reproduction(seed: int, jobs: int = 4, *, quick: bool = False,
-                          artefact: Path | None = None) -> dict:
+def verifier_reproduction(seed: int, jobs: int = 4, *, quick: bool = False) -> dict:
     """La passe rejoue-t-elle, cellule par cellule, l'artefact publie ?
 
     Sans cette verification, comparer deux passes ne dit pas si elles portent
     sur la mesure publiee ou sur un harnais qui a derive.
     """
-    chemin = Path(artefact) if artefact is not None else ARTEFACT
+    chemin = ARTEFACT
     if not chemin.exists():
         return {"artefact": str(chemin), "present": False,
                 "raison": "artefact absent de ce checkout"}

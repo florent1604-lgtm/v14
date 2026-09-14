@@ -346,7 +346,8 @@ def evaluate_live_loss_guard(
     if not relevant_account_seen:
         return LiveLossVerdict(action="WAIT", reason="LIVE_LOSS_ACCOUNT_HISTORY_MISSING")
 
-    rolling = [item for item in by_ticket.values() if cutoff <= item[0] <= current]
+    # `by_ticket` ne contient deja que la fenetre : elle est filtree a la lecture.
+    rolling = list(by_ticket.values())
     daily = [item for item in rolling if item[0].date() == current.date()]
     daily_net_r = round(sum(pnl_r for _, pnl_r in daily), 4)
     rolling_net_r = round(sum(pnl_r for _, pnl_r in rolling), 4)

@@ -349,17 +349,27 @@ def _traiter(d):
 
 
 def _entry_loss_gate():
-    """Lit le coupe-circuit comptable sans initialiser ni appeler MT5."""
-    from titanium.execution.live_loss_guard import LiveLossVerdict, evaluate_live_loss_guard
+    """Lit le coupe-circuit comptable sans initialiser ni appeler MT5.
+
+    Le verdict lu est celui du moteur, verrou de quarantaine inclus : lire la
+    seule fenetre glissante faisait dire ALLOW a cette surface pendant que le
+    moteur bloquait. La lecture ne pose ni ne leve le verrou.
+    """
+    from titanium.execution.live_loss_guard import (
+        LiveLossVerdict,
+        live_loss_guard_path,
+        read_live_loss_guard,
+    )
     from titanium.execution.mt5_executor import ExecutionPolicy
 
     try:
         account = ExecutionPolicy.from_config().expected_demo_login
         if account is None:
             return LiveLossVerdict("WAIT", "LIVE_LOSS_ACCOUNT_UNCONFIGURED")
-        return evaluate_live_loss_guard(
+        return read_live_loss_guard(
             RACINE / "results" / "trades.ndjson",
             account=str(account),
+            quarantine_path=live_loss_guard_path(RACINE, str(account)),
             not_before=DEMO_COHORT_START_UTC,
         )
     except Exception:  # noqa: BLE001 - une preuve illisible doit rester fail-closed
@@ -433,6 +443,9 @@ def _traiter_lot(demandes):
                 "summary": (
                     f"{loss_gate.reason}: jour {loss_gate.daily_net_r:+.2f} R, "
                     f"7j {loss_gate.rolling_net_r:+.2f} R"
+                    + (f" (verrou du {loss_gate.quarantine_since} sur "
+                       f"{loss_gate.quarantine_reason})"
+                       if loss_gate.quarantine_reason else "")
                 ),
                 "sources": ["journal-live"],
                 "evidence_digest": digest({

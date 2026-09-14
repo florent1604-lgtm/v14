@@ -79,7 +79,6 @@ class AdaptiveTechnique(ExecutionPolicy):
             "depth_ratio": round(features.depth_ratio, 6),
             "inventory_ratio": round(features.inventory_ratio, 6),
             "urgency": round(features.urgency, 6),
-            "urgency_source": features.urgency_source,
         }
         record.update(extra)
         return record

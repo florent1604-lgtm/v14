@@ -278,16 +278,25 @@ def test_les_features_sont_deterministes_et_decrivent_le_contexte():
     assert premier.spread_bps == pytest.approx(0.25 / 100.105 * 10_000.0)
     assert premier.depth_ratio == pytest.approx(13.0 / 10.0)
     assert premier.inventory_ratio == pytest.approx(0.5)
-    assert premier.urgency_source == "default"
+    assert premier.urgency == pytest.approx(0.5)
 
 
 def test_l_urgence_declaree_prime_sur_le_defaut():
-    features = build_features(intent(metadata={"urgency": 0.9}), context())
-    assert features.urgency == pytest.approx(0.9)
-    assert features.urgency_source == "metadata"
-    derive = build_features(intent(metadata={"horizon_ms": 6_000}), context())
-    assert derive.urgency_source == "horizon_ms"
-    assert derive.urgency == pytest.approx(0.9)
+    """Trois sources, trois valeurs DISTINCTES : la precedence se prouve ainsi.
+
+    La valeur declaree (0,7) et celle que l'horizon produirait (0,9) sont
+    differentes : si la derivee l'emportait, le test le verrait. C'est ce qui
+    permet de retirer l'etiquette de provenance sans perdre la capacite de
+    mordre.
+    """
+    declaree = build_features(
+        intent(metadata={"urgency": 0.7, "horizon_ms": 6_000}), context()
+    )
+    assert declaree.urgency == pytest.approx(0.7)
+    derivee = build_features(intent(metadata={"horizon_ms": 6_000}), context())
+    assert derivee.urgency == pytest.approx(0.9)
+    defaut = build_features(intent(), context())
+    assert defaut.urgency == pytest.approx(0.5)
 
 
 def _marbres(n=10, debut=100.0):
@@ -348,6 +357,36 @@ def test_aucune_entree_ne_remplit_plus_que_la_quantite_voulue():
             total += rempli_moteur
     # Sans cela, la porte passerait aussi sur un executeur qui ne remplit rien.
     assert total > 0
+
+
+def test_les_deux_entrees_appliquent_la_meme_posture():
+    """Le moteur et le runner lisent la MEME posture, ou la nomment absente.
+
+    `BacktestExecutionEngine.execute` recoit `macro` en opt-in : sans ce test, le
+    parametre serait une surface que personne n'emprunte, et un cablage par cette
+    entree aurait pu ignorer la posture sans que rien ne le dise -- le defaut que
+    la garde du proprietaire ferme pour la construction du contexte.
+    """
+    config = load_config()
+    jeux = _marbres()
+    bloc = bloc_posture(1.0)
+    neutre = executer_sur_snapshots(
+        "adapt_urgency_ladder", jeux, intent(qty=6.0), config=config,
+        seed=1, latency_ms=0, tick_size=0.01,
+    )
+    tendu_runner = executer_sur_snapshots(
+        "adapt_urgency_ladder", jeux, intent(qty=6.0), config=config,
+        seed=1, latency_ms=0, tick_size=0.01, macro=bloc,
+    )
+    tendu_moteur = BacktestExecutionEngine(policy="adapt_urgency_ladder", seed=1).execute(
+        intent(qty=6.0), jeux, tick_size=0.01, macro=bloc
+    )
+    decisions = lambda ordres: [order.metadata["decision"] for order in ordres]  # noqa: E731
+    assert decisions(tendu_runner) != decisions(neutre), "la posture doit decider"
+    assert decisions(tendu_moteur) == decisions(tendu_runner)
+    assert [order.order_type for order in tendu_moteur] == [
+        order.order_type for order in tendu_runner
+    ]
 
 
 def test_les_deux_entrees_suivent_le_meme_ordonnancement():
@@ -543,7 +582,10 @@ def test_la_posture_macro_deplace_la_decision_d_execution():
     assert decision(immediat) == "urgence_haute"
     assert decision(patient) == "urgence_basse"
     assert immediat[0].order_type != patient[0].order_type
-    assert patient[0].metadata["urgency_source"] == f"metadata+{MACRO_POSTURE_KEY}"
+    # La VALEUR appliquee, relevee dans la trace : 0,9 intacte d'un cote,
+    # 0,9 reduite par une tension de 1 de l'autre.
+    assert immediat[0].metadata["urgency"] == pytest.approx(0.9)
+    assert patient[0].metadata["urgency"] == pytest.approx(0.0)
 
 
 def test_la_posture_est_graduee_et_pas_binaire():
@@ -582,7 +624,6 @@ def test_la_posture_neutre_rend_exactement_le_vecteur_d_avant():
     nulle = build_features(intent(), context(macro=bloc_posture(0.0)))
     assert sans_bloc is not None
     assert sans_bloc == sans_cle == nulle
-    assert nulle.urgency_source == sans_bloc.urgency_source
 
 
 def test_une_posture_illisible_refuse_de_planifier():
@@ -635,11 +676,26 @@ def test_un_seul_module_construit_un_contexte_d_execution():
     Un nouveau point d'entree doit passer par `contexte_execution`, donc NOMMER
     la posture ; s'il construit le dataclass directement, ce test tombe.
     """
+    import ast
+
     paquet = Path(titanium.execution_sim.__file__).parent
-    fautifs = [
-        fichier.name
-        for fichier in sorted(paquet.glob("*.py"))
-        if fichier.name != "policies.py"
-        and "PolicyContext(" in fichier.read_text(encoding="utf-8")
-    ]
+    fautifs: list[str] = []
+    for fichier in sorted(paquet.glob("*.py")):
+        if fichier.name == "policies.py":
+            continue
+        arbre = ast.parse(fichier.read_text(encoding="utf-8"))
+        for noeud in ast.walk(arbre):
+            if not isinstance(noeud, ast.Call):
+                continue
+            fonction = noeud.func
+            nom = (
+                fonction.attr
+                if isinstance(fonction, ast.Attribute)
+                else getattr(fonction, "id", "")
+            )
+            if nom == "PolicyContext":
+                fautifs.append(f"{fichier.name}:{noeud.lineno}")
+    # Un appel, pas une chaine : un simple commentaire mentionnant le nom ne fait
+    # plus echouer ce test a tort, et `policies.PolicyContext(...)` est vu comme
+    # les autres -- la recherche de texte laissait passer les deux.
     assert fautifs == []

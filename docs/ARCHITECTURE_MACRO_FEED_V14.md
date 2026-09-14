@@ -124,9 +124,18 @@ Ce que la règle a fait tomber, et pourquoi :
 
   **Puis la règle a trouvé son autre issue : l'application.** La posture du §6.3
   n'est pas recopiée sur le vecteur — elle est *appliquée* à `urgency`, l'axe que
-  les techniques lisent déjà, et `urgency_source` en nomme la provenance. Il n'y
-  a toujours **aucun champ macro** sur `AdaptiveFeatures` : la même règle,
-  satisfaite par un lecteur réel au lieu d'un champ décoratif.
+  les techniques lisent déjà, et la **valeur** appliquée est celle que la trace de
+  chaque technique porte déjà. Il n'y a toujours **aucun champ macro** sur
+  `AdaptiveFeatures` : la même règle, satisfaite par un lecteur réel au lieu d'un
+  champ décoratif.
+* **`urgency_source`, `source_digest`, `cle_cellule` / `COLONNE_ECART`, et la
+  seconde déclaration des colonnes de décision** — relevés par l'audit du 14/09,
+  tombés le même jour. L'étiquette dont le seul lecteur était un test est
+  remplacée par la valeur appliquée, que le test fixe avec trois valeurs
+  **distinctes** (0,7 / 0,9 / 0,5 : la précédence reste prouvée sans elle) ; la clé
+  de trace que personne ne citait sort du bloc macro ; les deux noms publics sans
+  appelant deviennent privés ; et les cinq colonnes de décision, déclarées deux
+  fois, n'ont plus qu'un propriétaire.
 * **`tools/macro_status.py`**, dont le seul lecteur était ce document. La
   vérification « la source répond-elle » est faite par la boucle elle-même au
   démarrage, dans le processus qui trade — le contrôle préalable en ligne de
@@ -162,9 +171,11 @@ Ce que la règle a fait tomber, et pourquoi :
   d'un seul côté comptées comme des écarts ou non.
 
 Ce qui *n'est pas* tombé, et pourquoi : les champs de trace (`state`, `score`,
-`next_event`, `source_digest`) restent dans le bloc parce que **la porte les
-cite** dans ses motifs — un `WAIT` qui ne nomme pas la publication qui l'a causé
-oblige à relire le calendrier à la main, donc à ne pas le faire.
+`next_event`) restent dans le bloc parce que **la porte les cite** dans ses motifs
+— un `WAIT` qui ne nomme pas la publication qui l'a causé oblige à relire le
+calendrier à la main, donc à ne pas le faire. `source_digest` est tombé le 14/09 :
+écrit dans chaque bloc, cité par personne — ni la porte, ni un journal (la
+télémétrie publie le sien). Être écrit n'est pas être lu.
 
 ## 4. Contrats et invariants
 
@@ -281,8 +292,8 @@ urgence_effective = urgence x (1 - tension)
 ```
 
 La posture ne peut donc que **réduire** l'agressivité demandée, jamais
-l'augmenter, `urgency_source` la nomme, et **aucun champ macro n'est recopié dans
-le vecteur** : la règle du §3.1 est satisfaite par un lecteur réel, pas par un
+l'augmenter, la valeur appliquée est celle de la trace, et **aucun champ macro
+n'est recopié dans le vecteur** : la règle du §3.1 est satisfaite par un lecteur réel, pas par un
 champ décoratif. `tension` absente vaut neutre (un producteur qui ne la publie
 pas laisse le comportement d'avant) ; `tension` illisible la fait **refuser de
 planifier**, jamais retomber en silence sur « neutre ».
@@ -369,10 +380,8 @@ donc **pas nulle par construction**. Avec l'échelle livrée
 mesuré ci-dessus — et à ~1 h 51 elle donne 0,35, le premier échelon qui déplace
 une cellule. Autrement dit : brancher cette ligne avec le flux allumé **change
 les décisions dans les trois heures qui précèdent une publication**, et laisse
-le comportement intact au-delà. **La boucle armée n'appelle pas la famille
-adaptative** : l'y brancher est une décision d'opérateur, et elle demande sa
-propre mesure — ce qui est prouvé ici est qu'une décision change, pas qu'elle est
-meilleure.
+le comportement intact au-delà. Le §10 dit ce qui reste à faire, et le §11 ce
+que cette mesure ne prouve pas.
 
 Défaut `None` ⇒ **comportement d'avant, au bit près** : c'est ce qui rend la
 non-régression de la matrice adaptative démontrable plutôt que promise, et c'est
@@ -510,22 +519,17 @@ sa garantie.
 | `tests/test_web_macro_gauges.py` | 7 | route `/ui/macro`, rendu des jauges, severite, verdict de boucle perime |
 
 Le côté exécution est couvert dans son propre fichier,
-`tests/test_execution_sim_adaptive.py` (**64 cas, dont 8 ajoutés ici**) : la
-posture déplace une décision d'exécution, elle est graduée plutôt que binaire,
-elle ne rend jamais plus agressif que l'intention, la posture neutre rend le
-vecteur d'avant **au bit**, une posture illisible refuse de planifier, un contexte
-d'exécution ne peut pas naître sans que la posture soit nommée, et aucun module du
-simulateur ne construit de contexte hors du propriétaire. Deux mutations le
-prouvent : neutraliser le consommateur tue 4 de ces cas, et rendre le producteur
-dégénéré (une coupure à l'horizon du veto) tue le cas de non-dégénérescence. Les
-deux gardes du propriétaire ont été falsifiées de la même façon : redonner un
-défaut à `macro`, ou réintroduire une construction directe, fait tomber celle qui
-la couvre.
+`tests/test_execution_sim_adaptive.py` (**65 cas, dont 9 ajoutés ici**) : ce qui
+n'est pas lisible dans le nom d'un cas est écrit ici. **Deux mutations** tuent le
+consommateur — neutraliser la posture tue 4 cas, rendre le producteur dégénéré
+(une coupure à l'horizon du veto) tue la non-dégénérescence — et **les deux gardes
+du propriétaire** tombent si l'on redonne un défaut à `macro` ou si l'on
+réintroduit une construction directe de contexte.
 
 | Fichier | Cas | Ce qu'il couvre |
 |---|---:|---|
 | `tests/test_arene_cellules.py` | 4 | propriétaire de la comparaison : clé d'appariement, empreinte insensible à l'ordre des clés, écart de coût vu à résultat constant, cellules présentes d'un seul côté |
-| `tests/test_execution_adaptative_sortie.py` | 2 | garde d'écriture du harnais : la passe implicite n'écrit pas sur l'artefact de référence et atterrit dans un dossier daté, la passe explicite écrit où on le demande et rien d'autre |
+| `tests/test_execution_adaptative_sortie.py` | 3 | garde d'écriture du harnais : la passe implicite n'écrit pas sur l'artefact de référence et atterrit dans un dossier daté, la passe explicite écrit où on le demande et rien d'autre, et le rapport publie la posture et l'échelle réellement employées |
 
 `tests/test_macro_feed.py` — la non-régression en tête de fichier parce que
 c'est elle qu'on casse en premier :
@@ -542,17 +546,13 @@ c'est elle qu'on casse en premier :
 * la sonde du tableau de bord ne lève jamais, même configuration illisible.
 
 Le chemin **HTTP** était livré mais jamais parcouru : aucun test ne construisait
-`HttpMacroSource`. Cinq cas le font désormais, et chacun finit en refus :
-
-* **clé absente** ⇒ erreur nommant la variable, et **aucune requete emise** ;
-* **délai dépassé** ⇒ panne de source, la dernière lecture connue survit, et
-  c'est la **fraîcheur** qui la juge (perimée ⇒ `STALE` ⇒ refus) ;
-* **charge utile illisible** (une ligne sans devise) ⇒ tout le calendrier est
-  invalidé, rien n'est publié, le risque neuf est refusé ;
-* **erreur serveur (500)** ⇒ panne de source, pas d'exception brute ;
-* **calendrier valide** ⇒ `BLACKOUT` puis refus à la porte, et `CLEAR` puis
-  `ENTER` quand la publication est lointaine. Un test qui n'exercerait que les
-  pannes ne prouverait pas que le chemin marche.
+`HttpMacroSource`. Cinq cas le font désormais — clé absente (erreur nommant la
+variable, **aucune requête émise**), délai dépassé (la dernière lecture survit et
+c'est la **fraîcheur** qui la juge ⇒ `STALE` ⇒ refus), charge utile illisible
+(tout le calendrier est invalidé), erreur serveur 500 — quatre refus, plus un
+**calendrier valide** qui donne `BLACKOUT` ⇒ refus à la porte et `CLEAR` ⇒
+`ENTER` : un test qui n'exercerait que les pannes ne prouverait pas que le chemin
+marche.
 
 Le fichier échoue si l'on retire le veto macro, si l'on rend `CLEAR` à un
 calendrier périmé, ou si l'on remet la lecture réseau sur le fil appelant.

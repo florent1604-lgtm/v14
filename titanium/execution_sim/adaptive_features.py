@@ -75,15 +75,14 @@ class AdaptiveFeatures:
     depth_ratio: float
     inventory_ratio: float
     urgency: float
-    urgency_source: str
     baseline_spread_bps: float | None = None
     horizon_ms: int = 0
     # ── Pas de champ macro recopie ici, et c'est deliberé : la posture macro
     #    n'est pas COPIEe, elle est APPLIQUEE a l'axe d'agressivite que les
-    #    techniques lisent deja (`urgency`), et `urgency_source` en nomme la
-    #    provenance. Recopier l'etat ou le score dans des champs que personne ne
-    #    lirait aurait ajoute de l'etat sans lecteur — le defaut que ce module
-    #    refuse par ailleurs.
+    #    techniques lisent deja (`urgency`), et la valeur appliquee est celle que
+    #    la trace de chaque technique porte deja. Recopier l'etat ou le score dans
+    #    des champs que personne ne lirait aurait ajoute de l'etat sans lecteur —
+    #    le defaut que ce module refuse par ailleurs.
 
 
 def build_features(
@@ -161,27 +160,26 @@ def build_features(
         posture = float(declaree)
 
     metadata = dict(intent.metadata or {})
+    # Precedence : declaree > derivee de l'horizon > defaut. Aucune etiquette ne
+    # nomme la branche gagnante : c'est la VALEUR qui la nomme, et un test la
+    # fixe avec trois valeurs distinctes.
     urgency_declaree = metadata.get("urgency")
     if fini(urgency_declaree):
         urgency = borne(float(urgency_declaree), 0.0, 1.0)
-        urgency_source = "metadata"
     elif fini(metadata.get("horizon_ms")):
         horizon = max(1.0, float(metadata["horizon_ms"]))
         urgency = borne(1.0 - horizon / max(1.0, horizon_reference_ms), 0.0, 1.0)
-        urgency_source = "horizon_ms"
     else:
         urgency = borne(float(urgency_default), 0.0, 1.0)
-        urgency_source = "default"
 
     # ── Effet de la posture : une tension T ramene l'agressivite a (1 - T) de sa
-    #    valeur. T = 0 rend le vecteur EXACTEMENT celui d'avant (aucune source
+    #    valeur. T = 0 rend le vecteur EXACTEMENT celui d'avant (aucune valeur
     #    modifiee), donc la posture neutre est prouvable, pas promise. T = 1
     #    ramene a l'urgence nulle, qui est le palier le plus patient de la
     #    famille : la posture ne peut jamais rendre une technique plus agressive
     #    que ce que l'intention demandait.
     if posture > 0.0:
         urgency = borne(urgency * (1.0 - posture), 0.0, 1.0)
-        urgency_source = f"{urgency_source}+{MACRO_POSTURE_KEY}"
 
     horizon_ms = int(metadata.get("horizon_ms") or 0)
     return AdaptiveFeatures(
@@ -200,7 +198,6 @@ def build_features(
         depth_ratio=depth_ratio,
         inventory_ratio=inventory_ratio,
         urgency=urgency,
-        urgency_source=urgency_source,
         baseline_spread_bps=baseline_spread_bps,
         horizon_ms=horizon_ms,
     )

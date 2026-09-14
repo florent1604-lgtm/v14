@@ -72,10 +72,12 @@ def macro_block(risk: MacroRisk, *, posture_scale_s: float) -> dict[str, Any]:
         # Champs de trace. La porte ne les lit pas pour DECIDER, mais elle les
         # cite dans son motif : un WAIT qui ne nomme pas la publication qui l'a
         # cause oblige a relire le calendrier a la main, donc a ne pas le faire.
+        # `source_digest` a ete retire : personne ne le citait -- ni la porte,
+        # ni la telemetrie (qui publie le sien), ni un journal. Etre ecrit n'est
+        # pas etre lu.
         "state": risk.state.value,
         "score": round(float(risk.score), 4),
         "next_event": risk.next_event_title,
-        "source_digest": risk.source_digest,
     }
 
 

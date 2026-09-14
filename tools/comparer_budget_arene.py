@@ -73,12 +73,6 @@ SEED_DOSSIER = 7
 PLAFONDS_LIVRES = {"grappe": 5.7, "global": 17.1}
 PLAFONDS_PRECEDENTS = {"grappe": 2.0, "global": 6.0}
 
-#: Les colonnes qui portent la DECISION d'execution. Comparer le `net_pnl` seul
-#: laisserait passer une cellule dont le cout ou le taux de remplissage a bouge
-#: a net constant.
-COLONNES = ("net_pnl", "fill_ratio", "total_cost_bps", "filled_quantity",
-            "rejected_reason")
-
 TEMOIN = "market"
 
 
@@ -126,7 +120,7 @@ def _cellules(rows: list[dict]) -> dict[str, list]:
     ``tools.arene_cellules`` ; ici on ne fait que nommer les colonnes de
     decision de ce harnais.
     """
-    return arene.projeter(arene.indexer(rows), COLONNES)
+    return arene.projeter(arene.indexer(rows), arene.COLONNES_DECISION)
 
 
 def _comparer(gauche: dict[str, list], droite: dict[str, list]) -> dict:
@@ -136,7 +130,7 @@ def _comparer(gauche: dict[str, list], droite: dict[str, list]) -> dict:
     ``tools.arene_cellules`` ; ce harnais ne fait que mettre le resultat en
     forme pour son rapport.
     """
-    brut = arene.comparer(gauche, droite, colonnes=COLONNES)
+    brut = arene.comparer(gauche, droite, colonnes=arene.COLONNES_DECISION)
     return {
         "cellules_comparees": brut["cellules_communes"],
         "cellules_differentes": brut["cellules_bougees"],

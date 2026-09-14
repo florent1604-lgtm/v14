@@ -39,22 +39,22 @@ COLONNES_DECISION: tuple[str, ...] = (
     "rejected_reason",
 )
 
-#: Colonne dont l'ecart maximal est rapporte.
-COLONNE_ECART = "net_pnl"
+#: Colonne dont l'ecart maximal est rapporte. Privee : aucun appelant externe.
+_COLONNE_ECART = "net_pnl"
 
 #: Nom de la pseudo-colonne qui porte les cellules presentes d'un seul cote,
 #: quand l'appelant decide de les compter comme des ecarts.
 COLONNE_ABSENTE = "cellule_absente"
 
 
-def cle_cellule(row: dict[str, Any]) -> str:
-    """Cle d'appariement textuelle : ``politique|split|scenario``."""
+def _cle_cellule(row: dict[str, Any]) -> str:
+    """Cle d'appariement : ``politique|split|scenario`` (privee, 0 appelant externe)."""
     return "|".join(str(row[champ]) for champ in CLE)
 
 
 def indexer(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Indexe les lignes par cle d'appariement."""
-    return {cle_cellule(row): dict(row) for row in rows}
+    return {_cle_cellule(row): dict(row) for row in rows}
 
 
 def lire_ndjson(chemin: Path | str) -> list[dict[str, Any]]:
@@ -108,8 +108,8 @@ def comparer(
     represente : un ecart (harnais qui compare deux passes du meme seed) ou rien
     (harnais qui compare une projection publiee).
 
-    ``ecart_net_max`` porte sur la colonne ``COLONNE_ECART`` et sur TOUTES les
-    cellules qui bougent, pas seulement sur les exemples rapportes.
+    ``ecart_net_max`` porte sur la colonne ``_COLONNE_ECART`` et sur TOUTES
+    les cellules qui bougent, pas seulement sur les exemples rapportes.
     """
     communes = sorted(set(gauche) & set(droite))
     absentes = sorted(set(gauche) ^ set(droite))
@@ -117,7 +117,7 @@ def comparer(
     colonnes_bougees: dict[str, int] = {}
     par_politique: dict[str, int] = {}
     ecarts_net: list[float] = []
-    index_ecart = colonnes.index(COLONNE_ECART) if COLONNE_ECART in colonnes else None
+    index_ecart = colonnes.index(_COLONNE_ECART) if _COLONNE_ECART in colonnes else None
     for cle in communes:
         a, b = gauche[cle], droite[cle]
         champs = tuple(

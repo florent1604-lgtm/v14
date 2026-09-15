@@ -24,6 +24,16 @@ Les trois compartiments de la regle sont chiffres separement dans la fenetre
 OOS — retenus, exclus, non mesures — parce que le cout d'une cohorte se lit
 la, et pas dans le classement qui l'a produite.
 
+UN RAPPORT COMPLET N'EST PAS UN RAPPORT CONCLUANT
+--------------------------------------------------
+Trois etats produisent un document rempli qui ne dit rien : une fenetre de
+jugement vide (``--part-is 1.0``), une regle qui ne retient aucun symbole
+(``--min-n`` plus grand que le vivier), et un null trop court pour distinguer le
+seuil du hasard (``--tirages 1`` rend ``p=0,0`` — donc « effet au-dela du
+hasard » — sur des donnees de hasard). Dans ces trois cas l'outil ecrit
+``AUCUN VERDICT`` et son motif : un verdict absent ne doit pas se lire comme un
+verdict.
+
 Les axes d'allocation (classe d'actif, cote, motif de sortie) sont rendus plus
 bas, sans test : ce qui les rend lisibles est le SIGNE CONSERVE d'une fenetre a
 l'autre, avec les effectifs des deux cotes. Un axe dont le signe se retourne
@@ -80,6 +90,13 @@ SEED = 14082026
 #: Convention de RAPPORT, pas une politique : le p du null est rendu tel quel,
 #: et cette borne ne sert qu'a formuler la phrase du verdict.
 SEUIL_RAPPORT = 0.05
+
+#: Plancher de tirages. Un null de `t` tirages ne sait pas exprimer un p plus fin
+#: que `1/(t+1)` : sous ce plancher, la phrase du verdict porterait sur une
+#: resolution trop grossiere pour distinguer ce seuil du hasard — et a `t=1`,
+#: n'importe quelle donnee rend `p=0,0` ou `p=1,0`. Le plancher demande dix pas a
+#: l'interieur du seuil, ce qui le derive de `SEUIL_RAPPORT` au lieu de le poser.
+TIRAGES_MIN = int(10 / SEUIL_RAPPORT) - 1
 
 
 def lire_journal(chemin: Path) -> list[dict]:
@@ -179,6 +196,28 @@ def queue_haute(valeurs: list[float], observe: float) -> float | None:
     if not valeurs:
         return None
     return sum(1 for v in valeurs if v >= observe) / len(valeurs)
+
+
+def motif_non_jugeable(selection: dict) -> str | None:
+    """Pourquoi le verdict NE PEUT PAS etre rendu, ou ``None`` s'il peut l'etre.
+
+    Proprietaire unique de cette decision : l'impression et le JSON la lisent, et
+    aucun des deux ne la refait. Un null court reste chiffre — ses nombres sont
+    vrais — mais il ne conclut pas.
+    """
+    if not selection["retenus"]:
+        return ("aucun symbole retenu : la regle ne selectionne rien dans cette "
+                "fenetre de classement — elargir la fenetre (--part-is) ou "
+                "abaisser --min-n")
+    if selection["oos_retenus"]["n"] == 0:
+        return ("la fenetre de jugement ne contient aucun trade des symboles "
+                "retenus : augmenter la part de jugement (--part-is)")
+    tirages = selection["null"]["tirages"]
+    if tirages < TIRAGES_MIN:
+        return (f"null court : {tirages} tirage(s), plancher {TIRAGES_MIN} — "
+                f"sans lui la resolution vaut 1/(t+1) et ne separe pas "
+                f"{SEUIL_RAPPORT} du hasard (relancer avec --tirages {TIRAGES_MIN})")
+    return None
 
 
 def profil_de_compte(trades: list[dict]) -> dict:
@@ -304,6 +343,9 @@ def mesurer(
         },
     }
 
+    motif = motif_non_jugeable(rapport["selection"])
+    rapport["selection"]["jugement"] = {"possible": motif is None, "motif": motif}
+
     if cohorte is not None:
         retenue = set(cohorte)
         bloc = compartiment(trades, retenue)
@@ -350,7 +392,10 @@ def _imprimer(rapport: dict) -> None:
     nul = sel["null"]
     print(f"  null {nul['tirages']} tirages de {len(sel['retenus'])} symboles (seed {nul['seed']}) :"
           f" mediane {_signe(nul['mediane'])} | p90 {_signe(nul['p90'])} | p={nul['p']}")
-    if nul["p"] is not None:
+    jugement = sel["jugement"]
+    if not jugement["possible"]:
+        print(f"  AUCUN VERDICT : {jugement['motif']}")
+    elif nul["p"] is not None:
         verdict = ("AUCUN effet mesurable : la selection ne se distingue pas du hasard"
                    if nul["p"] > SEUIL_RAPPORT
                    else "effet au-dela du hasard sur cet echantillon")
@@ -379,7 +424,8 @@ def main(argv: list[str] | None = None) -> int:
     analyseur.add_argument("--journal", type=Path, default=JOURNAL)
     analyseur.add_argument("--part-is", type=float, default=PART_IS)
     analyseur.add_argument("--min-n", type=int, default=MIN_N)
-    analyseur.add_argument("--tirages", type=int, default=TIRAGES)
+    analyseur.add_argument("--tirages", type=int, default=TIRAGES,
+                           help="tirages du null ; sous {TIRAGES_MIN} aucun verdict n'est rendu")
     analyseur.add_argument("--seed", type=int, default=SEED)
     analyseur.add_argument("--cohorte", default="",
                            help="liste de symboles separes par des virgules, a juger telle quelle")

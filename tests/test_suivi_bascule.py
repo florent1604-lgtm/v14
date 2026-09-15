@@ -230,3 +230,51 @@ def test_le_prix_n_est_imprime_que_si_un_lecteur_le_demande(module, tmp_path, ca
     assert "prix de la preuve (equite 1000.00 EUR)" in texte
     assert "effectif requis 407 clotures" in texte
     assert "engage mesure" in texte
+
+
+def test_un_journal_a_l_envers_donne_le_meme_prix_qu_a_l_endroit(module, tmp_path):
+    """L'ordre des lignes ne doit pas decider du prix de la preuve.
+
+    Mesure : le meme contenu, lignes a l'envers, faisait disparaitre
+    `rythme_par_h` et `duree_h` sans le dire — tous les autres champs
+    identiques, aucune erreur. Le contrat d'ordre appartient au chargeur.
+    """
+    contenu = _deux_fenetres()
+    chronologie = [t["closed_at"] for t in contenu]
+
+    def prix(trades, nom):
+        dossier = tmp_path / nom
+        dossier.mkdir(exist_ok=True)
+        journal = dossier / "trades.ndjson"
+        lignes = "\n".join(json.dumps(t, default=str) for t in trades)
+        journal.write_text(lignes + "\n", encoding="utf-8")
+        charges = module.charger(journal)
+        assert [t["closed_at"] for t in charges] == sorted(chronologie)
+        return module.prix_de_la_preuve(charges, BASCULE, equite=1000.0)
+
+    endroit = prix(contenu, "endroit")
+    envers = prix(list(reversed(contenu)), "envers")
+    assert endroit["rythme_par_h"] is not None
+    assert envers["rythme_par_h"] == endroit["rythme_par_h"]
+    assert envers["duree_h"] == endroit["duree_h"]
+    assert envers["n_requis"] == endroit["n_requis"]
+    assert envers["lignes"] == endroit["lignes"]
+
+
+def test_une_seule_cloture_apres_la_bascule_dit_la_vraie_cause(module):
+    """`n = 1` apres la bascule n'est pas une fenetre vide.
+
+    Mesure : le rapport annoncait « une des deux fenetres est vide » alors que la
+    meme page affichait `apres 1`, ce qui se lit comme une contradiction. Ce qui
+    manque, c'est la dispersion — et c'est ce que le motif doit dire.
+    """
+    contenu = _deux_fenetres()
+    avant = [t for t in contenu if t["closed_at"] < BASCULE]
+    apres = [t for t in contenu if t["closed_at"] >= BASCULE][:1]
+    assert len(avant) > 1 and len(apres) == 1
+
+    bloc = module.prix_de_la_preuve(avant + apres, BASCULE, equite=1000.0)
+    assert bloc["n_observe"] == 1
+    assert bloc["n_requis"] is None
+    assert "dispersion" in bloc["motif"]
+    assert "vide" not in bloc["motif"]

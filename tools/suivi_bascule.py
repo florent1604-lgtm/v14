@@ -71,7 +71,14 @@ def _famille(contexte: str) -> str:
 
 
 def charger(journal: Path = JOURNAL) -> list[dict]:
-    """Trades clos exploitables : horodates et porteurs d'un R fini."""
+    """Trades clos exploitables, tries par instant de CLOTURE.
+
+    L'ordre fait partie du contrat, pas du hasard du fichier : le prix de la
+    preuve lit la premiere et la derniere cloture de la fenetre pour en tirer le
+    rythme et la duree. Sur un journal aux lignes inversees, ces deux champs
+    disparaissaient sans le dire — mesures, tous les autres champs identiques.
+    Le tri est fait ici, une fois, comme dans `optimiser_allocation_cohorte`.
+    """
     lignes: list[dict] = []
     try:
         brut = Path(journal).read_text(encoding="utf-8").splitlines()
@@ -100,6 +107,7 @@ def charger(journal: Path = JOURNAL) -> list[dict]:
             "cost_r": trade.get("cost_r"),
             "risk_money": trade.get("risk_money"),
         })
+    lignes.sort(key=lambda trade: trade["closed_at"])
     return lignes
 
 
@@ -235,10 +243,13 @@ def prix_de_la_preuve(trades: list[dict], bascule: datetime, *, equite: float,
 
     ecart_type = cellule_apres["ecart_type"]
     esperance = cellule_apres["moyenne_r"]
-    if (esperance is None or ecart_type is None
-            or cellule_avant["moyenne_r"] is None):
+    if cellule_avant["n"] == 0 or cellule_apres["n"] == 0:
         bloc["motif"] = ("une des deux fenetres est vide : l'ecart et l'effectif "
                          "requis ne sont pas calculables")
+        return bloc
+    if cellule_apres["n"] < 2:
+        bloc["motif"] = ("dispersion non estimable : une seule cloture apres la "
+                         "bascule, l'ecart-type en demande deux")
         return bloc
     ecart = esperance - cellule_avant["moyenne_r"]
     bloc["ecart_r"] = round(ecart, 4)

@@ -22,6 +22,7 @@ Usage :
     python tools/suivi_bascule.py
     python tools/suivi_bascule.py --bascule 2026-08-24T06:20:00+00:00
     python tools/suivi_bascule.py --json
+    python tools/suivi_bascule.py --equite 1357.84
 """
 from __future__ import annotations
 
@@ -49,6 +50,11 @@ EFFECTIF_MIN = 20
 
 #: Multiple d'erreur type au-dela duquel un ecart cesse d'etre du bruit.
 SIGMA_VERDICT = 2.0
+
+#: Risques par trade (part de l'equite) dont on chiffre le prix de la preuve.
+#: Convention de rapport : la liste ne deplace aucun seuil, elle choisit les
+#: lignes d'un tableau. Le risque REELLEMENT engage est mesure et ajoute a part.
+RISQUES_PREUVE = (0.02, 0.01, 0.005, 0.002, 0.001)
 
 
 def _instant(valeur: str) -> datetime | None:
@@ -92,6 +98,7 @@ def charger(journal: Path = JOURNAL) -> list[dict]:
             "famille": _famille(trade.get("context")),
             "context": trade.get("context") or "",
             "cost_r": trade.get("cost_r"),
+            "risk_money": trade.get("risk_money"),
         })
     return lignes
 
@@ -100,16 +107,20 @@ def _cellule(trades: list[dict]) -> dict:
     valeurs = [t["pnl_r"] for t in trades]
     n = len(valeurs)
     if n == 0:
-        return {"n": 0, "moyenne_r": None, "somme_r": 0.0, "erreur_type": None}
+        return {"n": 0, "moyenne_r": None, "somme_r": 0.0, "erreur_type": None,
+                "ecart_type": None}
     moyenne = sum(valeurs) / n
     if n > 1:
         variance = sum((v - moyenne) ** 2 for v in valeurs) / (n - 1)
         erreur = math.sqrt(variance / n)
+        ecart_type = math.sqrt(variance)
     else:
         erreur = None
+        ecart_type = None
     return {"n": n, "moyenne_r": round(moyenne, 4),
             "somme_r": round(sum(valeurs), 2),
-            "erreur_type": round(erreur, 4) if erreur is not None else None}
+            "erreur_type": round(erreur, 4) if erreur is not None else None,
+            "ecart_type": round(ecart_type, 4) if ecart_type is not None else None}
 
 
 def _ecart(avant: dict, apres: dict, *, effectif_min: int) -> dict:
@@ -179,6 +190,115 @@ def comparer(trades: list[dict], bascule: datetime, *,
     }
 
 
+def prix_de_la_preuve(trades: list[dict], bascule: datetime, *, equite: float,
+                      seuil_sigma: float = SIGMA_VERDICT,
+                      risques: tuple[float, ...] = RISQUES_PREUVE) -> dict:
+    """Ce que coute la preuve : combien de clotures, combien de temps, combien d'euros.
+
+    UNE SEULE BASE, enoncee ici et nulle part ailleurs — c'est ce qui manquait
+    quand le meme tableau portait deux chiffres pour la meme ligne :
+
+        n_requis x |esperance post-bascule| x risque par trade x equite
+
+    ``n_requis`` est le nombre de clotures qui tranche l'ecart avant/apres a
+    ``seuil_sigma`` erreurs types : ``(seuil_sigma x ecart-type post / ecart)**2``,
+    arrondi au superieur. L'esperance post-bascule est ce que chaque cloture
+    coute en R ; le risque par trade est la part d'equite engagee a chaque
+    cloture. Rien d'autre n'entre dans la formule, donc deux lignes du tableau ne
+    peuvent pas se contredire — chacune ne change que le risque.
+
+    Le risque REELLEMENT engage est mesure, lui aussi : la moyenne de
+    ``risk_money`` sur l'equite. C'est la ligne a lire pour savoir ce que la
+    preuve coute aujourd'hui, parce que le plafond par trade n'est pas ce que la
+    boucle engage en moyenne.
+    """
+    avant = [t for t in trades if t["closed_at"] < bascule]
+    apres = [t for t in trades if t["closed_at"] >= bascule]
+    cellule_avant, cellule_apres = _cellule(avant), _cellule(apres)
+    bloc: dict = {
+        "schema_version": 1,
+        "equite": round(equite, 2),
+        "n_observe": cellule_apres["n"],
+        "ecart_r": None,
+        "ecart_type_post": cellule_apres["ecart_type"],
+        "seuil_sigma": seuil_sigma,
+        "n_requis": None,
+        "rythme_par_h": None,
+        "duree_h": None,
+        "risque_engage_pct": None,
+        "lignes": [],
+        "motif": None,
+    }
+    if not equite > 0:
+        bloc["motif"] = "equite absente ou nulle : le prix de la preuve n'est pas chiffrable"
+        return bloc
+
+    ecart_type = cellule_apres["ecart_type"]
+    esperance = cellule_apres["moyenne_r"]
+    if (esperance is None or ecart_type is None
+            or cellule_avant["moyenne_r"] is None):
+        bloc["motif"] = ("une des deux fenetres est vide : l'ecart et l'effectif "
+                         "requis ne sont pas calculables")
+        return bloc
+    ecart = esperance - cellule_avant["moyenne_r"]
+    bloc["ecart_r"] = round(ecart, 4)
+    if ecart == 0 or ecart_type == 0:
+        bloc["motif"] = ("ecart ou ecart-type nul : l'effectif requis tend vers "
+                         "l'infini, le prix n'est pas chiffrable")
+        return bloc
+
+    n_requis = math.ceil((seuil_sigma * ecart_type / abs(ecart)) ** 2)
+    bloc["n_requis"] = n_requis
+    if len(apres) > 1:
+        heures = (apres[-1]["closed_at"] - apres[0]["closed_at"]).total_seconds() / 3600
+        if heures > 0:
+            rythme = len(apres) / heures
+            bloc["rythme_par_h"] = round(rythme, 2)
+            bloc["duree_h"] = round(n_requis / rythme, 1)
+
+    engages = [float(t["risk_money"]) for t in apres
+               if isinstance(t.get("risk_money"), (int, float))
+               and float(t["risk_money"]) > 0]
+    if engages:
+        bloc["risque_engage_pct"] = round((sum(engages) / len(engages)) / equite, 6)
+
+    def _ligne_prix(risque: float, source: str) -> dict:
+        perte = n_requis * abs(esperance) * risque * equite
+        return {"risque_pct": round(risque, 6),
+                "perte_eur": round(perte, 2),
+                "perte_pct_compte": round(perte / equite * 100, 1),
+                "source_du_risque": source}
+
+    bloc["lignes"] = [_ligne_prix(risque, "plafond") for risque in risques]
+    if bloc["risque_engage_pct"]:
+        bloc["lignes"].append(_ligne_prix(bloc["risque_engage_pct"], "engage_mesure"))
+    return bloc
+
+
+def _lignes_prix(bloc: dict) -> list[str]:
+    """Le prix de la preuve, tel que l'operateur le lit — une seule mise en forme."""
+    lignes = ["", f"prix de la preuve (equite {bloc['equite']:.2f} EUR)"]
+    if bloc.get("motif"):
+        lignes.append(f"  non chiffrable : {bloc['motif']}")
+        return lignes
+    lignes.append(f"  effectif requis {bloc['n_requis']} clotures (ecart "
+                  f"{bloc['ecart_r']:+.4f} R, ecart-type post "
+                  f"{bloc['ecart_type_post']} R, seuil {bloc['seuil_sigma']} sigma)"
+                  f" ; observe {bloc['n_observe']}")
+    if bloc.get("duree_h") is not None:
+        lignes.append(f"  duree {bloc['duree_h']} h au rythme de "
+                      f"{bloc['rythme_par_h']} clotures/h — independante de la "
+                      f"taille du risque")
+    lignes.append("  risque par trade      perte attendue de la preuve")
+    for ligne in bloc["lignes"]:
+        marque = ("   <- engage mesure"
+                  if ligne["source_du_risque"] == "engage_mesure" else "")
+        lignes.append(f"    {ligne['risque_pct'] * 100:6.2f} %   "
+                      f"{ligne['perte_eur']:9.2f} EUR   "
+                      f"({ligne['perte_pct_compte']:6.1f} % du compte){marque}")
+    return lignes
+
+
 def _ligne(nom: str, bloc: dict) -> str:
     a, b, e = bloc["avant"], bloc["apres"], bloc["ecart"]
     return (f"  {nom:<16}"
@@ -209,6 +329,8 @@ def resumer(rapport: dict) -> str:
         lignes += ["", "Rappel : le temoin hors FX doit rester stable. S'il "
                        "bouge autant que le global, c'est le marche qui a "
                        "change, pas la suspension."]
+    if rapport.get("prix_preuve"):
+        lignes += _lignes_prix(rapport["prix_preuve"])
     return "\n".join(lignes)
 
 
@@ -254,6 +376,8 @@ def main() -> int:
     ap.add_argument("--effectif-min", type=int, default=EFFECTIF_MIN)
     ap.add_argument("--sortie", type=Path, default=SORTIE)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--equite", type=float, default=None,
+                    help="equite du compte en EUR ; ajoute le prix de la preuve")
     ap.add_argument("--veiller", action="store_true",
                     help="attendre le plancher d'effectif, puis publier")
     ap.add_argument("--intervalle", type=float, default=600.0)
@@ -275,8 +399,10 @@ def main() -> int:
                           sortie_md=args.sortie_md, max_h=args.max_h)
         print(resumer(rapport))
         return 0
-    rapport = comparer(charger(args.journal), bascule,
-                       effectif_min=args.effectif_min)
+    trades = charger(args.journal)
+    rapport = comparer(trades, bascule, effectif_min=args.effectif_min)
+    if args.equite is not None:
+        rapport["prix_preuve"] = prix_de_la_preuve(trades, bascule, equite=args.equite)
     args.sortie.parent.mkdir(parents=True, exist_ok=True)
     args.sortie.write_text(json.dumps(rapport, ensure_ascii=False, indent=1),
                            encoding="utf-8")

@@ -486,3 +486,34 @@ def test_bootstrap_refuse_trop_peu_de_tirages_valides():
 
     with pytest.raises(banc.ContractError, match="bootstrap valide insuffisant"):
         banc._bootstrap_two_way(records, bootstrap)
+
+
+def test_le_sceau_suit_le_contenu_et_non_la_fin_de_ligne_du_poste(tmp_path):
+    """Le meme artefact doit rendre le meme sha sur un poste LF et sur un poste CRLF.
+
+    `core.autocrlf` reecrit les fins de ligne au checkout : sans normalisation, le
+    sceau d'un artefact scelle depend du poste qui l'a extrait (62025d16… sous
+    Windows contre 10d62776… en CI), donc `git status` est propre et le test
+    echoue quand meme. Le fichier ci-dessous est ecrit en **octets bruts**, donc
+    l'assertion vaut sur les deux plateformes.
+    """
+    contenu = b'{"cohort": [], "cohort_count": 0}\n'
+    crlf = contenu.replace(b"\n", b"\r\n")
+
+    reference = tmp_path / "reference.json"
+    reference.write_bytes(contenu)
+    poste_windows = tmp_path / "poste_windows.json"
+    poste_windows.write_bytes(crlf)
+
+    assert banc._read_bytes_once(poste_windows) == contenu
+    assert (hashlib.sha256(banc._read_bytes_once(reference)).hexdigest()
+            == hashlib.sha256(banc._read_bytes_once(poste_windows)).hexdigest())
+
+
+def test_l_artefact_scelle_correspond_au_sha_du_spec_sur_ce_poste():
+    """Bout en bout : l'artefact committe passe son propre sceau ici."""
+    spec = banc.load_spec()
+    chemin = banc.RACINE / spec["source"]["artifact"]
+    lu = banc._read_bytes_once(chemin)
+    assert hashlib.sha256(lu).hexdigest() == spec["source"]["artifact_sha256"]
+    assert b"\r\n" not in lu

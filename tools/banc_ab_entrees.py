@@ -67,8 +67,17 @@ def _sha256(value: object) -> str:
 
 
 def _read_bytes_once(path: Path) -> bytes:
-    """Retourne l'unique snapshot d'octets utilisé pour hash ET parsing."""
-    return Path(path).read_bytes()
+    """Retourne l'unique snapshot d'octets utilisé pour hash ET parsing.
+
+    Les fins de ligne sont ramenées à LF. Le spec scelle l'artefact sur les
+    octets que git conserve (LF) ; `core.autocrlf` les réécrit en CRLF au
+    checkout sous Windows sans changer le contenu. Sans cette normalisation,
+    le même artefact vaut deux empreintes selon la plateforme — 62025d16…
+    sous Windows contre 10d62776… en CI — et le sceau ne vérifie plus le
+    contenu mais le poste de travail qui l'a extrait. Le JSON se parse à
+    l'identique : seule l'empreinte change.
+    """
+    return Path(path).read_bytes().replace(b"\r\n", b"\n")
 
 
 def _validate_spec(spec: dict[str, Any]) -> dict[str, Any]:

@@ -317,3 +317,46 @@ def test_un_journal_illisible_est_refuse_en_nommant_le_chemin(module, tmp_path,
     assert module.main() == 0
     assert "une des deux fenetres est vide" in capsys.readouterr().out
     assert sortie.exists()
+
+
+def _journal_deux_fenetres(module, tmp_path):
+    """Un journal qui atteint le plancher des la premiere lecture."""
+    journal = tmp_path / "trades.ndjson"
+    journal.write_text(
+        "\n".join(json.dumps(t, default=str) for t in _deux_fenetres()) + "\n",
+        encoding="utf-8")
+    return journal
+
+
+def _veille(module, tmp_path, monkeypatch, *, extra):
+    journal = _journal_deux_fenetres(module, tmp_path)
+    sortie, markdown = tmp_path / "suivi.json", tmp_path / "suivi.md"
+    monkeypatch.setattr(sys, "argv", [
+        "suivi_bascule", "--journal", str(journal), "--bascule",
+        BASCULE.isoformat(), "--veiller", "--max-h", "0",
+        "--sortie", str(sortie), "--sortie-md", str(markdown)] + extra)
+    return module.main(), sortie, markdown
+
+
+def test_la_veille_honore_l_equite_a_chaque_battement(module, tmp_path, capsys,
+                                                     monkeypatch):
+    """`--veiller --equite` produisait un rapport SANS prix, `rc=0`, en silence."""
+    assert _veille(module, tmp_path, monkeypatch,
+                   extra=["--equite", "1000"])[0] == 0
+    _, sortie, markdown = _veille(module, tmp_path, monkeypatch,
+                                  extra=["--equite", "1000"])
+    publie = json.loads(sortie.read_text(encoding="utf-8"))
+    assert publie["prix_preuve"]["n_requis"] == 407
+    assert publie["prix_preuve"]["equite"] == 1000.0
+    assert "prix de la preuve (equite 1000.00 EUR)" in capsys.readouterr().out
+    assert "effectif requis 407 clotures" in markdown.read_text(encoding="utf-8")
+
+
+def test_la_veille_sans_equite_ne_porte_aucun_prix(module, tmp_path, capsys,
+                                                   monkeypatch):
+    """Sans `--equite`, la veille reste exactement ce qu'elle etait : muette."""
+    assert _veille(module, tmp_path, monkeypatch, extra=[])[0] == 0
+    _, sortie, markdown = _veille(module, tmp_path, monkeypatch, extra=[])
+    assert "prix_preuve" not in json.loads(sortie.read_text(encoding="utf-8"))
+    assert "prix de la preuve" not in capsys.readouterr().out
+    assert "prix de la preuve" not in markdown.read_text(encoding="utf-8")

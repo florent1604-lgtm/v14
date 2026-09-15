@@ -352,23 +352,33 @@ def plancher_atteint(rapport: dict) -> bool:
 
 def veiller(journal: Path, bascule: datetime, *, effectif_min: int,
             intervalle: float, sortie: Path, sortie_md: Path,
-            max_h: float) -> dict:
+            max_h: float, equite: float | None = None) -> dict:
     """Attend le plancher d'effectif, puis publie -- sans juger avant.
 
     Une bascule se regarde toutes les cinq minutes quand on est impatient, et
     c'est ainsi qu'on finit par lire du bruit comme un resultat. Cette veille
     ne rend son rapport qu'au plancher, ou a l'expiration du delai.
+
+    `equite` suit la meme regle que le mode ponctuel : fournie, elle est
+    honoree a chaque battement comme dans le rapport publie ; absente, le
+    rapport ne porte aucun prix. Accepter puis taire un drapeau n'existe pas
+    ici — c'est la seule difference entre les deux modes.
     """
     debut = time.time()
     while True:
-        rapport = comparer(charger(journal), bascule,
-                           effectif_min=effectif_min)
+        trades = charger(journal)
+        rapport = comparer(trades, bascule, effectif_min=effectif_min)
+        if equite is not None:
+            rapport["prix_preuve"] = prix_de_la_preuve(trades, bascule,
+                                                       equite=equite)
         apres = rapport["global"]["apres"]["n"]
         expire = (time.time() - debut) >= max_h * 3600
         horodatage = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"[{horodatage}] trades clos depuis la bascule : "
               f"{apres}/{effectif_min}"
               f"{' — delai expire' if expire else ''}", flush=True)
+        if equite is not None:
+            print("\n".join(_lignes_prix(rapport["prix_preuve"])), flush=True)
         if plancher_atteint(rapport) or expire:
             rapport["arret"] = "plancher" if plancher_atteint(rapport) else "delai"
             sortie.parent.mkdir(parents=True, exist_ok=True)
@@ -416,7 +426,8 @@ def main() -> int:
         rapport = veiller(args.journal, bascule,
                           effectif_min=args.effectif_min,
                           intervalle=args.intervalle, sortie=args.sortie,
-                          sortie_md=args.sortie_md, max_h=args.max_h)
+                          sortie_md=args.sortie_md, max_h=args.max_h,
+                          equite=args.equite)
         print(resumer(rapport))
         return 0
     trades = charger(args.journal)

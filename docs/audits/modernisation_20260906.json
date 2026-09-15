@@ -1,0 +1,370 @@
+{
+  "schema": "v14.modernisation.audit.v1",
+  "snapshot": {
+    "trades.ndjson": {
+      "bytes": 331171,
+      "sha256": "27df7539ec97115bdf0779b9b1151867001421c254ffcd97fe048cf1d7579b2e",
+      "records": 780,
+      "partial_tail_bytes": 0
+    },
+    "excursions.ndjson": {
+      "bytes": 2723190,
+      "sha256": "ea4e95005dd3a951121c76d33739720c9444dbdb6de7496198fc4c9c24d505b9",
+      "records": 780,
+      "partial_tail_bytes": 0
+    },
+    "limit_lifecycle.ndjson": {
+      "bytes": 980534,
+      "sha256": "d8cfc066f98ade90f0473e3c662bc9ac31e01105178e0459cf1daaac03ff37d7",
+      "records": 1755,
+      "partial_tail_bytes": 0
+    },
+    "decision_registry.ndjson": {
+      "bytes": 250825,
+      "sha256": "3671ab1f3af822cd2e04e1926b34b8fed5bdf4d92fae41c7aeca7ed4cce128d8",
+      "records": 453,
+      "partial_tail_bytes": 0
+    }
+  },
+  "kind": "descriptive_live_history_not_oos",
+  "period": [
+    "2026-08-10T11:01:29+00:00",
+    "2026-09-06T01:21:28+00:00"
+  ],
+  "performance": {
+    "n": 780,
+    "mean_r": -0.12440833333333333,
+    "sum_r": -97.0385,
+    "winrate": 0.4346153846153846,
+    "profit_factor": 0.7516973198811794,
+    "cost_known_n": 780,
+    "cost_estimated_mean_r": 0.0783776923076923,
+    "cost_exact_n": 0,
+    "net_explicitly_exact_n": 722,
+    "gross_proxy_mean_r": -0.04603064102564101
+  },
+  "closing_day_bootstrap": {
+    "days": 21,
+    "ci95": [
+      -0.2257223394533285,
+      -0.013130349811984316
+    ],
+    "repetitions": 4000,
+    "seed": 601,
+    "limitation": "closing-day clusters; dependence across days remains possible"
+  },
+  "raw_live_records": 780,
+  "duplicate_identical_records": 0,
+  "by_support_pillars": {
+    "2": {
+      "n": 661,
+      "mean_r": -0.10370181543116491,
+      "sum_r": -68.54690000000001,
+      "winrate": 0.44478063540090773,
+      "profit_factor": 0.7894172384608177,
+      "cost_known_n": 661,
+      "cost_estimated_mean_r": 0.07911482602118003,
+      "cost_exact_n": 0,
+      "net_explicitly_exact_n": 627,
+      "gross_proxy_mean_r": -0.024586989409984876
+    },
+    "3": {
+      "n": 118,
+      "mean_r": -0.24716610169491524,
+      "sum_r": -29.165599999999998,
+      "winrate": 0.3728813559322034,
+      "profit_factor": 0.5533379889979295,
+      "cost_known_n": 118,
+      "cost_estimated_mean_r": 0.07450677966101693,
+      "cost_exact_n": 0,
+      "net_explicitly_exact_n": 95,
+      "gross_proxy_mean_r": -0.17265932203389833
+    },
+    "4": {
+      "n": 1,
+      "mean_r": 0.674,
+      "sum_r": 0.674,
+      "winrate": 1,
+      "profit_factor": null,
+      "cost_known_n": 1,
+      "cost_estimated_mean_r": 0.0479,
+      "cost_exact_n": 0,
+      "net_explicitly_exact_n": 0,
+      "gross_proxy_mean_r": 0.7219
+    }
+  },
+  "pillars_class_week": {
+    "strata": 17,
+    "matched_n": 725,
+    "delta_3_minus_2": -0.12441491846912058,
+    "p_exploratory": 0.24687656171914044,
+    "seed": 601,
+    "repetitions": 2000,
+    "limitation": "not randomized; no control for side, policy, selection or serial dependence"
+  },
+  "pillars_symbol_week": {
+    "strata": 49,
+    "matched_n": 411,
+    "delta_3_minus_2": -0.12724140637079231,
+    "p_exploratory": 0.2943528235882059,
+    "seed": 601,
+    "repetitions": 2000,
+    "limitation": "not randomized; no control for side, policy, selection or serial dependence"
+  },
+  "contexts": {
+    "n": 188,
+    "at_least_20": 1,
+    "symbols": 77
+  },
+  "joins": {
+    "excursions": 780,
+    "missing_excursions": 0,
+    "pnl_mismatches": 0,
+    "decision_resolved": 224,
+    "limit_closed": 373,
+    "limit_closed_joined": 373,
+    "limit_closed_with_placed": 373
+  },
+  "limits": {
+    "placed": 690,
+    "filled": 375,
+    "expired": 315,
+    "fill_ratio": 0.5434782608695652
+  },
+  "excursions": {
+    "censored": 441,
+    "uncensored": 339,
+    "regime_analysis_population": "all joined trades with measured MFE",
+    "censored_definition": "phase != trailing AND pnl_r <= 0; outcome-derived, NOT missing-data flag",
+    "mfe_ge_08_uncensored": 300,
+    "mfe_ge_08": 311,
+    "mfe_max": 2.1416,
+    "planned_rr_rounded_counts": {
+      "2.0": 754,
+      "2.1": 23,
+      "2.2": 2,
+      "2.3": 1
+    },
+    "counterfactual_exits": "NOT_IDENTIFIABLE_FROM_EXTREMA_WITHOUT_ORDERED_QUOTES_AND_ATR"
+  },
+  "regime_vs_mfe": {
+    "n_trades": 780,
+    "n_gagnants": 311,
+    "n_perdants": 469,
+    "n_indicateurs": 4,
+    "fdr": 0.1,
+    "suffisant": true,
+    "message": "0 discriminant(s) retenu(s) sur 4 testés (FDR 10%, effet ≥ 0.147). Aucun indicateur ne sépare les groupes de façon crédible.",
+    "discriminants": [
+      {
+        "nom": "htf_adx",
+        "n_gagnants": 311,
+        "n_perdants": 469,
+        "mediane_gagnants": 26.86469,
+        "mediane_perdants": 25.15967,
+        "delta": 0.0382,
+        "p_brut": 0.36732,
+        "p_corrige": 0.91754,
+        "retenu": false,
+        "taille": "négligeable"
+      },
+      {
+        "nom": "ltf_chop",
+        "n_gagnants": 311,
+        "n_perdants": 469,
+        "mediane_gagnants": 50.03768,
+        "mediane_perdants": 49.74473,
+        "delta": 0.0073,
+        "p_brut": 0.87006,
+        "p_corrige": 0.91754,
+        "retenu": false,
+        "taille": "négligeable"
+      },
+      {
+        "nom": "ltf_adx",
+        "n_gagnants": 311,
+        "n_perdants": 469,
+        "mediane_gagnants": 23.75311,
+        "mediane_perdants": 23.10643,
+        "delta": 0.0043,
+        "p_brut": 0.91704,
+        "p_corrige": 0.91754,
+        "retenu": false,
+        "taille": "négligeable"
+      },
+      {
+        "nom": "htf_chop",
+        "n_gagnants": 311,
+        "n_perdants": 469,
+        "mediane_gagnants": 48.19094,
+        "mediane_perdants": 48.46384,
+        "delta": 0.0041,
+        "p_brut": 0.91754,
+        "p_corrige": 0.91754,
+        "retenu": false,
+        "taille": "négligeable"
+      }
+    ],
+    "retenus": []
+  },
+  "regime_recent_third": {
+    "n_trades": 260,
+    "n_gagnants": 76,
+    "n_perdants": 184,
+    "n_indicateurs": 4,
+    "fdr": 0.1,
+    "suffisant": true,
+    "message": "1 discriminant(s) retenu(s) sur 4 testés (FDR 10%, effet ≥ 0.147). Ce sont des HYPOTHÈSES : à valider temporellement avant tout câblage.",
+    "discriminants": [
+      {
+        "nom": "ltf_chop",
+        "n_gagnants": 76,
+        "n_perdants": 184,
+        "mediane_gagnants": 47.44306,
+        "mediane_perdants": 50.34431,
+        "delta": -0.1947,
+        "p_brut": 0.01199,
+        "p_corrige": 0.04796,
+        "retenu": true,
+        "taille": "petit"
+      },
+      {
+        "nom": "ltf_adx",
+        "n_gagnants": 76,
+        "n_perdants": 184,
+        "mediane_gagnants": 21.24048,
+        "mediane_perdants": 18.04142,
+        "delta": 0.1094,
+        "p_brut": 0.15742,
+        "p_corrige": 0.31484,
+        "retenu": false,
+        "taille": "négligeable"
+      },
+      {
+        "nom": "htf_adx",
+        "n_gagnants": 76,
+        "n_perdants": 184,
+        "mediane_gagnants": 20.58251,
+        "mediane_perdants": 20.24381,
+        "delta": -0.0557,
+        "p_brut": 0.51074,
+        "p_corrige": 0.68099,
+        "retenu": false,
+        "taille": "négligeable"
+      },
+      {
+        "nom": "htf_chop",
+        "n_gagnants": 76,
+        "n_perdants": 184,
+        "mediane_gagnants": 47.68058,
+        "mediane_perdants": 48.50325,
+        "delta": -0.0231,
+        "p_brut": 0.77611,
+        "p_corrige": 0.77611,
+        "retenu": false,
+        "taille": "négligeable"
+      }
+    ],
+    "retenus": [
+      {
+        "nom": "ltf_chop",
+        "n_gagnants": 76,
+        "n_perdants": 184,
+        "mediane_gagnants": 47.44306,
+        "mediane_perdants": 50.34431,
+        "delta": -0.1947,
+        "p_brut": 0.01199,
+        "p_corrige": 0.04796,
+        "retenu": true,
+        "taille": "petit"
+      }
+    ]
+  },
+  "regime_uncensored_sensitivity": {
+    "n_trades": 339,
+    "n_gagnants": 300,
+    "n_perdants": 39,
+    "n_indicateurs": 4,
+    "fdr": 0.1,
+    "suffisant": true,
+    "message": "2 discriminant(s) retenu(s) sur 4 testés (FDR 10%, effet ≥ 0.147). Ce sont des HYPOTHÈSES : à valider temporellement avant tout câblage.",
+    "discriminants": [
+      {
+        "nom": "ltf_adx",
+        "n_gagnants": 300,
+        "n_perdants": 39,
+        "mediane_gagnants": 23.77755,
+        "mediane_perdants": 15.87497,
+        "delta": 0.2757,
+        "p_brut": 0.007,
+        "p_corrige": 0.028,
+        "retenu": true,
+        "taille": "petit"
+      },
+      {
+        "nom": "htf_adx",
+        "n_gagnants": 300,
+        "n_perdants": 39,
+        "mediane_gagnants": 26.91831,
+        "mediane_perdants": 19.70101,
+        "delta": 0.2425,
+        "p_brut": 0.01499,
+        "p_corrige": 0.02998,
+        "retenu": true,
+        "taille": "petit"
+      },
+      {
+        "nom": "htf_chop",
+        "n_gagnants": 300,
+        "n_perdants": 39,
+        "mediane_gagnants": 47.95947,
+        "mediane_perdants": 50.61051,
+        "delta": -0.0912,
+        "p_brut": 0.35532,
+        "p_corrige": 0.47376,
+        "retenu": false,
+        "taille": "négligeable"
+      },
+      {
+        "nom": "ltf_chop",
+        "n_gagnants": 300,
+        "n_perdants": 39,
+        "mediane_gagnants": 50.08468,
+        "mediane_perdants": 47.52894,
+        "delta": 0.0397,
+        "p_brut": 0.67816,
+        "p_corrige": 0.67816,
+        "retenu": false,
+        "taille": "négligeable"
+      }
+    ],
+    "retenus": [
+      {
+        "nom": "ltf_adx",
+        "n_gagnants": 300,
+        "n_perdants": 39,
+        "mediane_gagnants": 23.77755,
+        "mediane_perdants": 15.87497,
+        "delta": 0.2757,
+        "p_brut": 0.007,
+        "p_corrige": 0.028,
+        "retenu": true,
+        "taille": "petit"
+      },
+      {
+        "nom": "htf_adx",
+        "n_gagnants": 300,
+        "n_perdants": 39,
+        "mediane_gagnants": 26.91831,
+        "mediane_perdants": 19.70101,
+        "delta": 0.2425,
+        "p_brut": 0.01499,
+        "p_corrige": 0.02998,
+        "retenu": true,
+        "taille": "petit"
+      }
+    ]
+  },
+  "regime_limitations": "4 prespecified features; FDR within each analysis, not across repeated looks; not OOS",
+  "promotion": "NONE: descriptive selection and policy-confounded history"
+}

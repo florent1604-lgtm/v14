@@ -8,7 +8,6 @@ from pathlib import Path
 
 from tools.console_output import configure_console_output
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -39,12 +38,12 @@ def test_service_output_survit_aux_glyphes_unicode_windows() -> None:
         stderr.detach()
 
 
-def test_lanceur_impose_utf8_aux_trois_services() -> None:
+def test_lanceur_impose_utf8_aux_quatre_services() -> None:
     source = (ROOT / "DEMARRER_V14.bat").read_text(encoding="ascii")
 
     assert 'set "PYTHONUTF8=1"' in source
     assert 'set "PYTHONIOENCODING=utf-8"' in source
-    assert source.count("-X utf8 tools\\") == 3
+    assert source.count("-X utf8 tools\\") == 4
 
 
 def test_services_activent_leur_filet_console() -> None:

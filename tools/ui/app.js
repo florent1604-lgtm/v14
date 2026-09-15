@@ -255,7 +255,7 @@ function rendrePositions(p) {
   }
   const t = el('table', 'grid');
   const htr = el('tr');
-  ['Ticket', 'Symbole', 'Sens', 'Lot', 'Entrée', 'SL', 'Phase', '+R', 'P&L']
+  ['Ticket', 'Symbole', 'Sens', 'Lot', 'Entrée', 'SL', 'Phase', '+R', 'P&L net']
     .forEach((h) => htr.append(el('th', null, h)));
   t.append(el('thead').appendChild(htr).parentNode);
   const tb = el('tbody');
@@ -266,7 +266,11 @@ function rendrePositions(p) {
       nombre(r.entry, 5), r.sl ? nombre(r.sl, 5) : '—', r.phase,
       r.fav_r === null ? '—' : nombre(r.fav_r, 2),
     ].forEach((v) => tr.append(el('td', null, v)));
-    tr.append(el('td', r.profit >= 0 ? 'ok' : 'bad', nombre(r.profit)));
+    // Flottant RÉEL : le portage compte (voir tools/ui/poste.js). /api/state
+    // fournit `net` ; le repli sur `profit` couvre une page rechargée devant
+    // un serveur qui tourne encore l'ancien module.
+    const net = Number((r.net ?? r.profit) ?? 0);
+    tr.append(el('td', net >= 0 ? 'ok' : 'bad', nombre(net)));
     tb.append(tr);
   });
   t.append(tb);
@@ -386,7 +390,9 @@ function rendreBoucle(l) {
       l.stale ? 'bad' : 'dim'],
     ['exécution', l.armed ? 'ARMÉE' : 'désarmée', l.armed ? 'bad' : 'ok'],
     ['activité', s.tours ? `${s.tours} tours · ${s.enter || 0} ENTER · ${s.envoyes || 0} ordre(s)` : '—'],
-    ['plafonds', `${l.max_positions} positions · ${l.max_per_symbol}/actif`],
+    // MAX_POSITIONS = 0 veut dire « illimité » : « 0 positions » se lirait
+    // comme une limite nulle, l'inverse de l'intention (voir poste.js).
+    ['plafonds', `${l.max_positions == null ? '—' : l.max_positions > 0 ? l.max_positions : 'illimité'} positions · ${l.max_per_symbol}/actif`],
     ['gestion', `breakeven +${l.breakeven_r} R · trailing dès +${l.trail_start_r} R`],
   ];
   if (Object.keys(flow).length) {

@@ -17,6 +17,40 @@ class PolicyContext:
     tick_size: float
     historical_volumes: tuple[float, ...] = ()
     inventory: float = 0.0
+    #: Bloc macro (voir `titanium.macro.gate`), ou None. Ajoute en DERNIER avec
+    #: un defaut : toute construction positionnelle existante reste valide, donc
+    #: la matrice historique et ses 864 scenarios ne bougent pas d'un bit.
+    macro: dict[str, Any] | None = None
+
+
+def contexte_execution(
+    snapshot: MarketSnapshot,
+    *,
+    tick_size: float,
+    macro: dict[str, Any] | None,
+    historical_volumes: tuple[float, ...] = (),
+    inventory: float = 0.0,
+) -> PolicyContext:
+    """Proprietaire unique de la construction d'un contexte d'execution.
+
+    ``macro`` est un mot-cle OBLIGATOIRE, sans valeur par defaut : un
+    appelant qui n'a pas de bloc doit l'ecrire (``macro=None``), il ne
+    peut pas l'oublier. C'est la garde, et elle repond a un defaut
+    mesure : deux points d'entree sur quatre construisaient leur
+    contexte sans le bloc, donc la posture macro y etait silencieusement
+    absente, sans test ni journal pour le dire. Un oubli doit couter une
+    exception, pas une decision mal informee.
+
+    Les autres champs gardent leurs defauts : le contexte rendu est
+    exactement celui que l'appelant construisait a la main.
+    """
+    return PolicyContext(
+        snapshot=snapshot,
+        tick_size=tick_size,
+        historical_volumes=historical_volumes,
+        inventory=inventory,
+        macro=macro,
+    )
 
 
 class ExecutionPolicy:

@@ -129,7 +129,7 @@ class Decision:
     def _add(self, name: str, passed: bool, detail: str = "") -> None:
         self.checks.append({"gate": name, "passed": bool(passed), "detail": detail})
 
-    def _deny(self, name: str, reason: str, detail: str = "") -> "Decision":
+    def _deny(self, name: str, reason: str, detail: str = "") -> Decision:
         self._add(name, False, detail)
         self.verdict = DENY
         self.reason = reason

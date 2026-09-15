@@ -98,6 +98,10 @@ class Budget:
     timeframe: str = "M15"
     #: Part du risque mangée par le spread, à l'unité retenue.
     cout_spread: float = 0.0
+    #: Code de tunnel du refus, écrit LÀ OÙ le refus est décidé. Vide quand le
+    #: motif n'est pas un coût : l'appelant retombe alors sur son propre
+    #: classement. Un refus pour coût, lui, ne se redécode plus depuis le texte.
+    refus_code: str = ""
 
     @property
     def overshoot(self) -> float:
@@ -174,8 +178,17 @@ def budget_for(spec: SymbolSpec, stop_distance: float, equity: float, *,
                     f"plafond {max_pct:.1f} %"),
         )
 
+    # L'executor recalcule le lot depuis ``risk_money``. Un arrondi au centime
+    # inferieur au cout exact peut alors ramener le volume juste sous le minimum
+    # et refuser une intention pourtant deja validee ici. Le centime superieur
+    # conserve le budget necessaire sans changer le lot ni le plafond, tous deux
+    # fondes sur ``cout_min`` exact. ``nextafter`` neutralise un bruit flottant
+    # d'un ULP lorsqu'un cout tombe exactement sur un centime.
+    risque_executeur = math.ceil(
+        math.nextafter(cout_min * 100.0, -math.inf)
+    ) / 100.0
     return Budget(
-        spec.name, True, lot=spec.volume_min, risk_money=round(cout_min, 2),
+        spec.name, True, lot=spec.volume_min, risk_money=risque_executeur,
         target_money=round(cible, 2), effective_pct=round(pct_min, 3),
         at_min_lot=True,
         reason=(f"lot minimum imposé : risque {pct_min:.2f} % "
@@ -257,16 +270,29 @@ def tradable_universe(symbols: list[str], equity: float, *,
             #     est de mesurer sur une fenetre ou la volatilite redevient
             #     significative, pas d'assouplir le plafond de cout.
             from titanium.echelle import choisir as choisir_echelle
+            from titanium.echelle import verdict_cout
 
             ch = choisir_echelle(sym, spec, plafond=MAX_COUT_SPREAD_PCT,
                                  k_stop=sl_atr_k, reference=timeframe)
-            if ch is None or ch.cout > MAX_COUT_SPREAD_PCT:
-                motif = (ch.motif if ch is not None
-                         else "volatilite illisible a toute echelle")
-                out[sym] = Budget(sym, False, reason=motif)
+            # La distance que les DEUX usages partagent : le verdict de coût et
+            # le dimensionnement. Une seule multiplication, donc un seul stop.
+            distance = (sl_atr_k * ch.atr) if ch is not None else 0.0
+            # Le code de refus et la valeur viennent du verdict : la boucle ne
+            # les reconstitue plus depuis le texte du motif.
+            verdict = (verdict_cout(spec, distance, plafond=MAX_COUT_SPREAD_PCT)
+                       if ch is not None else None)
+            if ch is None or verdict.depasse:
+                if verdict is None:
+                    out[sym] = Budget(sym, False,
+                                      reason="volatilite illisible a toute "
+                                             "echelle")
+                else:
+                    out[sym] = Budget(sym, False,
+                                      reason=(ch.motif or verdict.motif),
+                                      cout_spread=round(verdict.cout, 4),
+                                      refus_code=verdict.code)
                 continue
 
-            distance = sl_atr_k * ch.atr
             b = budget_for(spec, distance, equity,
                            target_pct=target_pct, max_pct=max_pct)
             # `Budget` est GELE : on remplace plutot que d'assigner. Une
@@ -326,10 +352,10 @@ def marches_ouverts(symboles) -> dict:
                     continue
     except Exception:  # noqa: BLE001
         # Sans mesure, on n'affirme pas qu'un marché est fermé.
-        return {s: True for s in symboles}
+        return dict.fromkeys(symboles, True)
 
     if not derniers:
-        return {s: True for s in symboles}
+        return dict.fromkeys(symboles, True)
 
     reference = max(derniers.values())
     limite = RETARD_MAX_MIN * 60.0

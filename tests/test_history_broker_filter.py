@@ -37,8 +37,8 @@ SYMBOLE = "EURGBP"
 
 def _deal(**kw):
     """Un deal MT5 minimal ; les champs absents sont tolérés par le lecteur."""
-    d = dict(time=1_800_000_000, price=0.857, commission=0.0, swap=0.0,
-             fee=0.0, profit=0.0, entry=0, position_id=TICKET, symbol=SYMBOLE)
+    d = {"time": 1_800_000_000, "price": 0.857, "commission": 0.0, "swap": 0.0,
+             "fee": 0.0, "profit": 0.0, "entry": 0, "position_id": TICKET, "symbol": SYMBOLE}
     d.update(kw)
     return type("Deal", (), d)()
 

@@ -180,13 +180,25 @@ def place_limit_order(symbol: str, side: int, risk_money: float,
                 "expiration": int(expiration.timestamp()) + decalage,
                 "type_filling": mt5.ORDER_FILLING_RETURN,
             }
+            r.requested_price = plan.price
+            r.reference_bid, r.reference_ask = float(tick.bid), float(tick.ask)
+            r.quote_time_msc = getattr(tick, "time_msc", None)
+            r.submitted_at = datetime.now(timezone.utc).isoformat()
+            r.request_attempted = True
             res = mt5.order_send(requete)
+            r.acknowledged_at = datetime.now(timezone.utc).isoformat()
             if res is None:
                 r.reason = "ORDER_SEND_NUL"
-                r._add("send", False, f"last_error={mt5.last_error()}")
+                error = mt5.last_error()
+                if isinstance(error, (tuple, list)) and error and type(error[0]) is int:
+                    r.terminal_error_code = error[0]
+                r._add("send", False, f"last_error={error}")
                 return r
 
             r.retcode = int(res.retcode)
+            r.broker_deal_ticket = int(getattr(res, "deal", 0)) or None
+            r.filled_volume = getattr(res, "volume", None)
+            r.ticket = int(getattr(res, "order", 0)) or None
             r.price = plan.price
             r.sl, r.tp = sl, (tp or None)
             r.expires_at = expiration.isoformat()
@@ -198,6 +210,7 @@ def place_limit_order(symbol: str, side: int, risk_money: float,
             accepted = {
                 int(getattr(mt5, "TRADE_RETCODE_PLACED", 10008)),
                 int(getattr(mt5, "TRADE_RETCODE_DONE", 10009)),
+                10010,  # partial execution is exposure, not a rejected request
             }
             if r.retcode not in accepted:
                 r.reason = f"RETCODE_{r.retcode}"
@@ -207,7 +220,7 @@ def place_limit_order(symbol: str, side: int, risk_money: float,
             r.sent = True
             r.pending = True
             r.ticket = int(getattr(res, "order", 0)) or None
-            r.reason = "PLACED_LIMIT"
+            r.reason = "PARTIAL_FILL_REVIEW" if r.retcode == 10010 else "PLACED_LIMIT"
             r._add(
                 "limit_plan", True,
                 f"prix={plan.price} économie={plan.saving_vs_market:.8g} "

@@ -20,9 +20,9 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
+from titanium.data import mt5_dataflows as md
 from tradingagents.dataflows.errors import NoMarketDataError, VendorNotConfiguredError
 from tradingagents.dataflows.interface import VENDOR_METHODS
-from titanium.data import mt5_dataflows as md
 
 CATALOGUE = ["EURUSD", "XAUUSD", "US500", "GER40", "NAS100.fs", "HSI.fs", "BTCUSD"]
 
@@ -161,7 +161,8 @@ def rates(monkeypatch):
 
 def test_cours_format_v13(catalogue, rates):
     """L'agent doit lire la même forme que pour yfinance : en-tête # puis CSV."""
-    catalogue(); rates(bougies(5))
+    catalogue()
+    rates(bougies(5))
     out = md.get_mt5_stock_data("EURUSD", "2026-07-01", "2026-07-05")
     lignes = out.splitlines()
     assert lignes[0].startswith("# Stock data for EURUSD")
@@ -172,35 +173,40 @@ def test_cours_format_v13(catalogue, rates):
 
 def test_cours_mentionne_la_resolution(catalogue, rates):
     """Quand le nom courtier diffère, l'agent doit voir lequel a été coté."""
-    catalogue(); rates(bougies(3))
+    catalogue()
+    rates(bougies(3))
     out = md.get_mt5_stock_data("NAS100", "2026-07-01", "2026-07-03")
     assert "NAS100.fs (from NAS100)" in out
 
 
 def test_cours_index_sans_heure(catalogue, rates):
     """Des bougies D1 doivent produire des dates, pas des horodatages UTC."""
-    catalogue(); rates(bougies(3))
+    catalogue()
+    rates(bougies(3))
     out = md.get_mt5_stock_data("EURUSD", "2026-07-01", "2026-07-03")
     assert "2026-07-01," in out
     assert "00:00:00" not in out
 
 
 def test_plage_inversee_rejetee(catalogue, rates):
-    catalogue(); rates()
+    catalogue()
+    rates()
     with pytest.raises(ValueError, match="plage vide"):
         md.get_mt5_stock_data("EURUSD", "2026-07-10", "2026-07-01")
 
 
 def test_absence_de_donnees_remonte_telle_quelle(catalogue, rates):
     """L'erreur ne doit pas être avalée : le routeur en a besoin pour basculer."""
-    catalogue(); rates(erreur=NoMarketDataError("EURUSD", detail="marché fermé"))
+    catalogue()
+    rates(erreur=NoMarketDataError("EURUSD", detail="marché fermé"))
     with pytest.raises(NoMarketDataError):
         md.get_mt5_stock_data("EURUSD", "2026-07-01", "2026-07-05")
 
 
 def test_terminal_ferme_remonte_un_vendeur_non_configure(catalogue, rates):
     from titanium.data.mt5_vendor import Mt5NotAvailableError
-    catalogue(); rates(erreur=Mt5NotAvailableError("terminal fermé"))
+    catalogue()
+    rates(erreur=Mt5NotAvailableError("terminal fermé"))
     with pytest.raises(VendorNotConfiguredError):
         md.get_mt5_stock_data("EURUSD", "2026-07-01", "2026-07-05")
 
@@ -208,13 +214,15 @@ def test_terminal_ferme_remonte_un_vendeur_non_configure(catalogue, rates):
 # ═══════════════════════════ indicateurs ════════════════════════════════════
 
 def test_indicateur_inconnu_rejete(catalogue, rates):
-    catalogue(); rates()
+    catalogue()
+    rates()
     with pytest.raises(ValueError, match="not supported"):
         md.get_mt5_indicators("EURUSD", "super_moyenne", "2026-07-10", 5)
 
 
 def test_indicateur_format_v13(catalogue, rates):
-    catalogue(); rates(bougies(300, debut="2025-09-01"))
+    catalogue()
+    rates(bougies(300, debut="2025-09-01"))
     out = md.get_mt5_indicators("EURUSD", "close_50_sma", "2026-06-25", 5)
     assert out.startswith("## close_50_sma values from")
     assert "2026-06-25:" in out
@@ -247,6 +255,7 @@ def test_amorcage_charge_plus_que_la_fenetre(catalogue, monkeypatch):
 
 def test_fenetre_vide_leve(catalogue, rates):
     """Des bougies hors de la fenêtre demandée = pas de valeur à rendre."""
-    catalogue(); rates(bougies(60, debut="2024-01-01"))
+    catalogue()
+    rates(bougies(60, debut="2024-01-01"))
     with pytest.raises(NoMarketDataError, match="aucune valeur"):
         md.get_mt5_indicators("EURUSD", "close_50_sma", "2026-07-10", 5)

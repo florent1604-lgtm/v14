@@ -27,7 +27,7 @@ from titanium.execution_sim.models import (
     Side,
 )
 from titanium.execution_sim.oms import OrderManager
-from titanium.execution_sim.policies import PolicyContext, get_policy
+from titanium.execution_sim.policies import contexte_execution, get_policy
 from titanium.execution_sim.portfolio import Portfolio
 from titanium.execution_sim.risk import RiskEngine, RiskRejected
 from titanium.execution_sim.sequencing import (
@@ -262,6 +262,7 @@ def _executer_politique_evenementielle(
     portfolio: Portfolio,
     risk: RiskEngine,
     matcher: MatchingSimulator,
+    macro: dict[str, Any] | None,
 ) -> list[Order]:
     """Execute les politiques reactives dans l'ordre causal des evenements.
 
@@ -271,6 +272,11 @@ def _executer_politique_evenementielle(
     Cette separation interdit d'utiliser le volume ou le deplacement d'un
     evenement pour decider puis se remplir retroactivement sur ce meme
     evenement.
+
+    Le contexte d'une observation est construit par le proprietaire unique
+    (`contexte_execution`) avec le meme bloc macro que l'entree : la
+    posture ne peut donc pas disparaitre sur ce chemin sans que
+    l'appelant ait eu a la nommer.
     """
     base_time = snapshots[0].timestamp
     posted: set[str] = set()
@@ -337,7 +343,7 @@ def _executer_politique_evenementielle(
             matcher.match(order, snapshot, oms)
             post_new_fills(portfolio, order, posted)
 
-        context = PolicyContext(snapshot=snapshot, tick_size=tick_size)
+        context = contexte_execution(snapshot, tick_size=tick_size, macro=macro)
         if (
             policy_name == "cancel_replace"
             and current_dynamic is not None
@@ -418,6 +424,7 @@ def executer_sur_snapshots(
     fee_multiplier: float = 1.0,
     initial_cash: float = 100_000.0,
     seconds_per_snapshot: float = 1.0,
+    macro: dict[str, Any] | None = None,
 ) -> list[Order]:
     """Sequence une politique sur une suite de snapshots, quelle qu'en soit la source.
 
@@ -437,11 +444,12 @@ def executer_sur_snapshots(
     quantity = float(intent.quantity)
     side = intent.side
     symbol = intent.symbol
-    context = PolicyContext(
-        snapshot=snapshots[0],
+    context = contexte_execution(
+        snapshots[0],
         tick_size=tick_size,
         historical_volumes=historical_volumes,
         inventory=inventory,
+        macro=macro,
     )
     policy = get_policy(policy_name, _policy_config(policy_name, config))
     if policy_name == "multi_leg_simultaneous":
@@ -499,6 +507,7 @@ def executer_sur_snapshots(
             portfolio=portfolio,
             risk=risk,
             matcher=matcher,
+            macro=macro,
         )
     if policy_name == "adaptive":
         return executer_sequentiel(
@@ -578,7 +587,7 @@ def executer_sur_snapshots(
         emergency = policy.emergency_order(
             residual_signed=residual_signed,
             symbol=symbol,
-            context=PolicyContext(snapshots[-1], tick_size),
+            context=contexte_execution(snapshots[-1], tick_size=tick_size, macro=macro),
         )
         if emergency is not None:
             emergency.metadata["residual_exposure"] = residual
@@ -596,6 +605,7 @@ def _run_case(
     config: dict[str, Any],
     initial_cash: float,
     axes_override: dict[str, float] | None = None,
+    macro: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute un cas. ``axes_override`` sert a SONDER une technique isolement.
 
@@ -636,6 +646,7 @@ def _run_case(
         inventory=inventory,
         fee_multiplier=2.0 if scenario.fees == "adverse" else 1.0,
         initial_cash=initial_cash,
+        macro=macro,
     )
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     metrics = execution_metrics(
@@ -661,7 +672,19 @@ def _run_case(
     }
 
 
-def run_matrix(spec: MatrixSpec, config: dict[str, Any]) -> list[dict[str, Any]]:
+def run_matrix(
+    spec: MatrixSpec,
+    config: dict[str, Any],
+    *,
+    macro: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Execute la matrice. ``macro`` est un BLOC macro applique a tous les cas.
+
+    Defaut ``None`` : aucune cle macro n'entre dans un ``PolicyContext``, donc
+    les artefacts sont ceux d'avant, au bit pres. Une posture d'execution ne se
+    transmet ainsi que si un appelant la demande — la grille des scenarios et la
+    spec de la matrice ne bougent pas.
+    """
     if config["execution"].get("live_enabled") is not False:
         raise ValueError("execution matrix is dry-run only")
     unknown = set(spec.policies) - set(ALL_POLICIES) - set(ADAPTIVE_POLICIES)
@@ -669,7 +692,7 @@ def run_matrix(spec: MatrixSpec, config: dict[str, Any]) -> list[dict[str, Any]]
         raise ValueError(f"unknown policies: {sorted(unknown)}")
     scenarios = generate_scenarios(seed=spec.seed, quick=spec.quick)
     tasks = [
-        (policy, scenario, config, spec.initial_cash)
+        (policy, scenario, config, spec.initial_cash, None, macro)
         for policy in spec.policies
         for scenario in scenarios
     ]

@@ -47,7 +47,7 @@ def main() -> int:
     print()
     print("  Leurs stops et objectifs restent actifs chez le courtier.")
     print("  Pour les fermer :")
-    print("    .venv\Scripts\python.exe tools\fermer_positions.py --confirmer")
+    print(r"    .venv\Scripts\python.exe tools\fermer_positions.py --confirmer")
     return 0
 
 

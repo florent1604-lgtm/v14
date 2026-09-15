@@ -17,7 +17,11 @@ import json
 import pytest
 
 from titanium.correlation import (
-    MAX_RISQUE_GRAPPE_PCT, NB_GRAPPES, Grappes, charger, place_disponible,
+    MAX_RISQUE_GRAPPE_PCT,
+    NB_GRAPPES,
+    Grappes,
+    charger,
+    place_disponible,
     risque_par_grappe,
 )
 
@@ -85,7 +89,7 @@ class TestRisqueParGrappe:
         """La plus dangereuse ne doit pas passer pour gratuite."""
         p = _Pos("EURJPY")
         p.sl = 0.0
-        assert risque_par_grappe(_mt5([p]), GRAPPES, 10_000.0)["g4"] == 2.0
+        assert risque_par_grappe(_mt5([p]), GRAPPES, 10_000.0)["g4"] == 5.7
 
     def test_equite_nulle_ne_divise_pas_par_zero(self):
         assert risque_par_grappe(_mt5([_Pos("EURJPY")]), GRAPPES, 0.0) == {}
@@ -107,8 +111,8 @@ class TestPlaceDisponible:
         C'est exactement la situation qui a coûté −318 EUR, sous un budget
         global parfaitement respecté.
         """
-        ouvertes = [_Pos("EURJPY", vol=0.6), _Pos("NZDJPY", vol=0.6),
-                    _Pos("AUDJPY", vol=0.6)]
+        ouvertes = [_Pos("EURJPY", vol=1.8), _Pos("NZDJPY", vol=1.8),
+                    _Pos("AUDJPY", vol=1.8)]
         ok, motif = place_disponible("EURJPY", 0.5, _mt5(ouvertes),
                                      GRAPPES, 10_000.0)
         assert not ok
@@ -124,13 +128,13 @@ class TestPlaceDisponible:
 
     def test_le_motif_est_chiffre(self):
         """« trop corrélé » ne se vérifie pas ; « g4 déjà à 1.80 % » si."""
-        ouvertes = [_Pos("EURJPY", vol=0.9), _Pos("NZDJPY", vol=0.9)]
+        ouvertes = [_Pos("EURJPY", vol=2.7), _Pos("NZDJPY", vol=2.7)]
         _, motif = place_disponible("AUDJPY", 0.5, _mt5(ouvertes),
                                     GRAPPES, 10_000.0)
         assert "%" in motif
 
     def test_le_motif_nomme_les_voisins(self):
-        ouvertes = [_Pos("EURJPY", vol=0.9), _Pos("NZDJPY", vol=0.9)]
+        ouvertes = [_Pos("EURJPY", vol=2.7), _Pos("NZDJPY", vol=2.7)]
         _, motif = place_disponible("AUDJPY", 0.5, _mt5(ouvertes),
                                     GRAPPES, 10_000.0)
         assert "EURJPY" in motif or "NZDJPY" in motif
@@ -138,6 +142,9 @@ class TestPlaceDisponible:
     def test_plafond_sous_le_budget_global(self):
         """Un plafond de grappe égal au budget global ne borderait rien."""
         from tools.live_demo import MAX_RISQUE_CUMULE_PCT
+        assert MAX_RISQUE_GRAPPE_PCT == 5.7
+        assert MAX_RISQUE_CUMULE_PCT == 17.1
+        assert pytest.approx(3 * MAX_RISQUE_GRAPPE_PCT) == MAX_RISQUE_CUMULE_PCT
         assert MAX_RISQUE_GRAPPE_PCT < MAX_RISQUE_CUMULE_PCT
 
 

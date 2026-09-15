@@ -4,7 +4,7 @@ import warnings
 import pytest
 
 from tradingagents.llm_clients.base_client import BaseLLMClient
-from tradingagents.llm_clients.model_catalog import get_known_models
+from tradingagents.llm_clients.model_catalog import MODEL_OPTIONS, get_known_models
 from tradingagents.llm_clients.validators import validate_model
 
 
@@ -31,6 +31,17 @@ class ModelValidationTests(unittest.TestCase):
             for model in models:
                 with self.subTest(provider=provider, model=model):
                     self.assertTrue(validate_model(provider, model))
+
+    def test_latest_anthropic_flagship_is_offered_in_deep_mode(self):
+        """The picker must offer the current flagship, not only the previous one.
+
+        Regression: Fable 5.1 shipped 2026-09-01 and the catalog still stopped
+        at Fable 5, so `validate_model` rejected the ID the user wanted.
+        """
+        deep = [value for _, value in MODEL_OPTIONS["anthropic"]["deep"]]
+
+        self.assertIn("claude-fable-5-1", deep)
+        self.assertTrue(validate_model("anthropic", "claude-fable-5-1"))
 
     def test_unknown_model_emits_warning_for_strict_provider(self):
         client = DummyLLMClient("openai", "not-a-real-openai-model")

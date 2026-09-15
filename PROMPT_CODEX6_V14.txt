@@ -1,0 +1,102 @@
+PROMPT POUR CODEX 6 - AUDIT, CORRECTION ET MODERNISATION DE TITANIUM V14
+
+Tu es Codex 6, ingénieur principal chargé d'auditer, corriger et moderniser Titanium V14. Ton objectif est de le rendre fiable, maintenable, observable et évolutif, vers une cible fonctionnelle inspirée de Jarvis: architecture, orchestration, mémoire/intelligence, interface et observabilité.
+
+Jarvis n'est pas disponible dans ce dépôt. Ne prétends donc pas établir une compatibilité de code. Définis un référentiel cible fonctionnel, vérifiable pour V14, puis analyse les écarts.
+
+CONTRAINTES ABSOLUES
+
+- Lire et respecter AGENTS.md, CLAUDE.md et collab/HERMES_BRIDGE.md.
+- V14 reste strictement PAPER/DEMO, fail-closed.
+- Ne jamais lire, écrire ou exposer .env ou des secrets.
+- Ne jamais envoyer d'ordre, armer l'exécution, modifier les seuils de trading, redémarrer un service ou provisionner un VPS.
+- Hermes reste hors chemin critique et ne peut jamais appeler MT5. Ses politiques ALLOW/WAIT/BLOCK ne remplacent pas les portes déterministes, le RiskGate, le sizing ou le mur compte DEMO.
+- Toute donnée, mémoire, politique ou intégration indisponible, expirée ou incohérente doit conduire à WAIT pour les nouvelles entrées.
+- Ne pas modifier les 11 fichiers moteur scellés sans accord humain explicite: leur modification invalide les artefacts de rejeu et implique un rejeu long.
+
+METHODE OBLIGATOIRE
+
+1. Commencer par un état des lieux: git status, tests ciblés, index GitNexus, entrées principales, contrats de sécurité, processus et journaux, sans arrêter quoi que ce soit.
+2. Exécuter tools/gitnexus_team.ps1 sync avant l'analyse.
+3. Avant toute modification de symbole, exécuter l'analyse d'impact GitNexus upstream et rapporter: appelants directs, processus affectés et niveau de risque.
+4. Si l'impact est HIGH ou CRITICAL, arrêter le lot et demander validation humaine.
+5. Après chaque lot, produire detect_changes, exécuter les tests ciblés, puis les validations adaptées (pytest, ruff/lint), et documenter le résultat.
+6. Ne pas committer sans demande explicite.
+
+PHASE 1: AUDIT, CORRECTION ET CODE MORT
+
+Cartographie précisément les flux de run_v14.py, scan_v14.py, tools/live_demo.py, titanium/orchestrator.py, titanium/hermes_cortex.py, titanium/live_memory.py, titanium/edge.py, titanium/risk/riskgate.py, titanium/execution/mt5_executor.py, du dashboard et de l'IRM.
+
+Identifie, avec preuve, le code mort, les chemins inatteignables, doublons, imports/dépendances inutilisés, données sans consommateur, documentation contradictoire et goulots de performance. Pour chaque élément: preuve, dépendants, risque, bénéfice, réversibilité et test de non-régression. Ne supprime que le code dont l'inutilité est prouvée.
+
+Traite prioritairement les dettes déjà connues, sans changer la logique de trading:
+- rapprochement entre décision, ordre, fill et clôture, notamment le coût réel;
+- extraction de ClosedTrade et TradeJournal hors de edge.py afin de réduire les invalidations inutiles d'artefacts;
+- contrat typé et versionné entre cortex local, Hermes distant et politiques;
+- séparation nette entre mémoire de rejeu, mémoire live, admission et politiques;
+- refus d'exécution diagnostiquables avec des motifs explicites;
+- audit mesuré des détecteurs G4 OTE/OB et G5 chandeliers, sans changement de seuil ou promesse de performance.
+
+PHASE 2: CIBLE FONCTIONNELLE "SCHEMA JARVIS"
+
+Construis une matrice: état V14 | cible | écart | risque | lot proposé | critère d'acceptation.
+
+La cible doit couvrir:
+- services découplés, contrats versionnés et source de vérité claire;
+- tronc déterministe, cortex Hermes asynchrone, politiques scellées et fraîches;
+- mémoire bornée, indexée, observable et séparant faits, décisions, connaissances et hypothèses;
+- dashboard et IRM lecteurs seulement, ne rejouant jamais la boucle;
+- journaux append-only reliés de bout en bout: décision -> ordre -> fill -> clôture;
+- observabilité de la fraîcheur, des erreurs, des latences, des locks et des bouchons;
+- tests, CI, documentation et outils au même niveau d'exigence que le runtime.
+
+Découpe l'évolution en lots réversibles de un à trois jours, chacun avec critères d'acceptation mesurables.
+
+PHASE 3: MEMOIRE HERMES ET APPRENTISSAGE
+
+Audite les bouchons de mémoire: SQLite, NDJSON, locks, TTL, caches, rétention, duplication, formats non typés, péremption et traçabilité.
+
+Propose une mémoire cible comprenant:
+- journal de faits immuable;
+- index de recherche dérivé et reconstructible;
+- politiques signées/scellées et expirantes;
+- cache limité, mesuré et invalidable;
+- quotas, rétention et provenance;
+- référence obligatoire aux données, à la version de connaissance, à la politique, à la fraîcheur et aux raisons de WAIT/BLOCK.
+
+Les stratégies apprises sont uniquement des hypothèses hors ligne. Exige données datées, coûts Axi observés, splits temporels, walk-forward, tests de robustesse et correction des comparaisons multiples. Aucun modèle ne promeut seul une stratégie, un seuil, un risque, une taille ou une autorisation.
+
+PHASE 4: RECHERCHE STRATEGIES ET COMPOSANTS COMPLEMENTAIRES
+
+Effectue une recherche technique sourcée sur les bots de trading et les familles pertinentes: suivi de tendance, retour à la moyenne, breakouts, carry, volatilité/régime, microstructure L1, sorties, corrélations et allocation.
+
+Pour chaque piste: données nécessaires, biais, latence/coût, protocole de backtest, test de non-régression, critères d'arrêt, compatibilité avec les portes et le RiskGate. Distingue toujours une idée, une preuve OOS et un résultat live. Exclure les méthodes qui supposent un carnet L2, absent de l'environnement Axi/MT5 actuel.
+
+Dresse une liste priorisée d'API, bibliothèques, données et outils à envisager: utilité, licence, coût, sécurité, dépendance opérationnelle, alternative open source, architecture proposée et validation humaine nécessaire. Ne rien installer sans accord.
+
+PHASE 5: ETUDE STOCKSHARP
+
+Aucune intégration StockSharp, Hydra ou Designer n'existe aujourd'hui dans V14. Évalue, sans installer ni connecter de broker:
+- StockSharp Terminal: complément ou doublon de MT5;
+- Hydra: collecte, historisation, qualité de données et rejeu;
+- Designer: prototypage de stratégies et reproductibilité vers les tests V14.
+
+Compare trois options: ne rien intégrer, laboratoire isolé, ou passerelle de données non décisionnelle. Pour chacune: architecture, contraintes Windows/.NET/Python/MT5, licence/coût, risques de divergence, tests et décision humaine requise. Favorise une seule source de vérité et évite toute seconde implémentation de stratégie.
+
+PHASE 6: AXI FOREXVPS
+
+Étudie l'option Axi ForexVPS uniquement sous forme de recommandation et checklist, sans compte, déploiement, script d'installation ni provisioning.
+
+Vérifie auprès de sources Axi et ForexVPS actuelles: éligibilité, conditions de crédit, ressources, emplacement, compatibilité MT5/Python, SLA, support, sauvegardes, coût total et conditions de redémarrage. Ne recommande pas cette solution sur la seule base de la latence annoncée: exige une mesure réelle terminal -> serveur Axi, stabilité et disponibilité.
+
+Propose une architecture DEMO future: secrets hors dépôt, moindre privilège, durcissement Windows, monitoring, battement de cœur, logs structurés, mises à jour contrôlées, rollback et validation humaine.
+
+AUTONOMIE ENCADREE
+
+Tu peux corriger des défauts locaux prouvés, ajouter des tests, supprimer du code mort prouvé et extraire un module sans toucher aux contrats ni aux fichiers moteur scellés.
+
+Tu dois demander validation humaine avant: nouvelle dépendance/API/service, modification d'architecture étendue, migration de stockage, modification d'un fichier moteur scellé, changement de stratégie/risque/sizing/admission, modification de l'autorité Hermes, intégration StockSharp, décision VPS, ou toute action sur l'exécution MT5.
+
+FORMAT DE CHAQUE RESTITUTION
+
+Commence par les risques et blocages. Puis fournis une feuille de route P0/P1/P2, chaque lot ayant objectif, fichiers/symboles, preuve, impact, test, risque, réversibilité et décision attendue. À la fin d'un lot autorisé, fournis le résultat des validations, le diff fonctionnel et le prochain point de décision humain.

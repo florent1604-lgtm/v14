@@ -20,6 +20,7 @@ Deux corrections, testées ici :
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -110,21 +111,83 @@ def test_index_sans_horodatage_ne_leve_pas():
 
 # ═══════════════ le second garde-fou : plafond par symbole ═════════════════
 
-def test_le_plafond_par_symbole_est_serre():
-    """Une seule position par actif. C'est le filet indépendant de la clé."""
+def test_le_plafond_par_symbole_borne_les_renforts():
+    """Trois positions au plus, chacune soumise à la porte d'empilement."""
     from tools.live_demo import MAX_PAR_SYMBOLE, MAX_POSITIONS
-    assert MAX_PAR_SYMBOLE == 1
+    assert MAX_PAR_SYMBOLE == 3
     # 0 = illimité (17/08/2026) : le plafond de créneaux ne borne plus rien,
     # c'est MAX_RISQUE_CUMULE_PCT qui porte l'exposition.
     assert MAX_POSITIONS == 0 or MAX_POSITIONS >= MAX_PAR_SYMBOLE
 
 
-@pytest.mark.parametrize("deja,attendu", [(0, True), (1, False), (3, False)])
-def test_regle_du_plafond(deja, attendu):
-    """Reproduit la condition du script : on n'entre que si l'actif est libre."""
-    from tools.live_demo import MAX_PAR_SYMBOLE
-    autorise = deja < MAX_PAR_SYMBOLE
-    assert autorise is attendu
+class TestMultipositionConditionnelle:
+    def _regle(self, expositions, *, side=1, prix=99.0, stop=10.0,
+               famille="continuation", atr=0.0, spread=0.0):
+        from tools.live_demo import _autoriser_empilement
+        return _autoriser_empilement(
+            expositions, side=side, prix=prix, stop_distance=stop,
+            setup_family=famille, atr=atr, spread=spread,
+        )
+
+    def test_actif_libre(self):
+        assert self._regle([]) == (True, "ACTIF_LIBRE")
+
+    def test_long_renforce_seulement_a_meilleur_prix(self):
+        ok, motif = self._regle([(1, 100.0)], prix=99.0)
+        assert ok is True
+        assert motif == "ENTREE_AMELIOREE_0.100R"
+        assert self._regle([(1, 100.0)], prix=99.01)[0] is False
+        assert self._regle([(1, 100.0)], prix=101.0)[0] is False
+
+    def test_short_renforce_seulement_a_meilleur_prix(self):
+        ok, motif = self._regle([(-1, 100.0)], side=-1, prix=101.0)
+        assert ok is True
+        assert motif == "ENTREE_AMELIOREE_0.100R"
+        assert self._regle([(-1, 100.0)], side=-1, prix=99.0)[0] is False
+
+    def test_espacement_s_adapte_a_l_atr_et_au_spread(self):
+        # stop=10, ATR=8 -> 0,25 ATR = 2 points = 0,20 R.
+        assert self._regle([(1, 100.0)], prix=98.0, atr=8.0) == (
+            True, "ENTREE_AMELIOREE_0.200R_MIN_0.200R",
+        )
+        assert self._regle([(1, 100.0)], prix=98.01, atr=8.0)[0] is False
+        # Deux spreads de 2 points imposent 4 points = 0,40 R.
+        assert self._regle([(1, 100.0)], prix=96.0, spread=2.0) == (
+            True, "ENTREE_AMELIOREE_0.400R_MIN_0.400R",
+        )
+
+    def test_sens_oppose_exige_un_retournement(self):
+        assert self._regle([(1, 100.0)], side=-1, prix=99.0)[0] is False
+        assert self._regle(
+            [(1, 100.0)], side=-1, prix=99.0, famille="reversal",
+        ) == (True, "RETOURNEMENT_CONFIRME")
+
+    def test_livre_mixte_et_plafond_sont_fail_closed(self):
+        assert self._regle([(1, 100.0), (-1, 101.0)], prix=98.0)[0] is False
+        assert self._regle([(1, 100.0), (1, 99.0), (1, 98.0)], prix=97.0) == (
+            False, "PLAFOND_PAR_SYMBOLE",
+        )
+        assert self._regle([(1, None)], prix=98.0) == (
+            False, "EXPOSITION_INVALIDE",
+        )
+
+
+def test_risque_panier_mesure_le_risque_restant_sans_compter_le_be():
+    from tools.live_demo import _risque_exposition_pct
+
+    mt5 = SimpleNamespace(symbol_info=lambda _sym: SimpleNamespace(
+        trade_tick_size=1.0,
+        trade_tick_value_loss=1.0,
+        trade_tick_value=1.0,
+    ))
+    position = SimpleNamespace(
+        symbol="XAUUSD", price_open=100.0, sl=90.0, volume=1.0,
+    )
+    assert _risque_exposition_pct(mt5, position, 1000.0, side=1) == pytest.approx(1.0)
+    position.sl = 101.0
+    assert _risque_exposition_pct(mt5, position, 1000.0, side=1) == 0.0
+    position.sl = 0.0
+    assert _risque_exposition_pct(mt5, position, 1000.0, side=1) is None
 
 
 class TestMeriteEtReserve:

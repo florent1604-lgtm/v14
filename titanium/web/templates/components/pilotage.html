@@ -1,0 +1,56 @@
+{% set a = compte.data or {} %}
+{% set w = mur.data or {} %}
+{% set l = boucle.data or {} %}
+{% set p = positions.data or {} %}
+{% set m = meta.data or {} %}
+
+<div class="pilotage-grille">
+  <section>
+    <div class="titre-ligne">
+      <h2>Master Controls</h2>
+      <span class="badge {{ 'vert-bg' if w.open else 'rouge-bg' }}">
+        {{ 'ARMÉ DÉMO' if w.open else 'DÉSARMÉ' }}
+      </span>
+    </div>
+    <div class="mode-switch" aria-label="Mode d’exécution en lecture seule">
+      <span class="{{ 'actif' if not w.open else '' }}">DRY-RUN</span>
+      <span class="{{ 'actif demo' if w.open else '' }}">MT5 DÉMO</span>
+    </div>
+    <div class="controle-actions">
+      <button class="bouton" disabled title="Pilotage moteur interdit depuis HTTP">START</button>
+      <button class="bouton" disabled title="Pilotage moteur interdit depuis HTTP">PAUSE</button>
+      <button class="bouton danger" disabled title="Désarmement hors interface uniquement">KILL SWITCH</button>
+    </div>
+    <p class="garde">
+      <span class="point {{ 'ok' if a.is_demo else 'ko' }}"></span>
+      Interface sans autorité d’exécution · jamais de compte réel
+    </p>
+    <p class="micro">{{ w.code or 'ÉTAT INCONNU' }}{% if w.detail %} · {{ w.detail }}{% endif %}</p>
+  </section>
+
+  <section>
+    <div class="titre-ligne">
+      <h2>Strategy Configuration</h2>
+      <span class="badge">LECTURE SEULE</span>
+    </div>
+    <div class="parametres">
+      <label>Timeframe décisionnel <output>M15</output></label>
+      <label>Risque / position
+        <output>{{ p.params.risk_pct if p.params else '—' }}{% if p.params and p.params.risk_pct %}%{% endif %}</output>
+      </label>
+      <label>Break-even
+        <output>{{ p.params.be_trigger_r if p.params else '—' }} R</output>
+      </label>
+      <label>Trailing
+        <output>{{ p.params.trail_start_r if p.params else '—' }} R</output>
+      </label>
+      <label>Cortex <output>{{ m.provider or '—' }}</output></label>
+      <label>Modèle <output>{{ m.deep_model or '—' }}</output></label>
+    </div>
+    <p class="micro">Paramètres chauds verrouillés : changement uniquement via le canal moteur validé.</p>
+  </section>
+</div>
+
+{% if compte.stale or mur.stale or boucle.stale %}
+  <div class="alerte-donnee">DONNÉE PÉRIMÉE — contrôles neutralisés, ne pas décider sur cet état.</div>
+{% endif %}

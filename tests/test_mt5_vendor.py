@@ -19,13 +19,12 @@ from pathlib import Path
 
 import pytest
 
+from titanium.data import mt5_vendor as v
 from tradingagents.dataflows.errors import (
     NoMarketDataError,
     VendorError,
     VendorNotConfiguredError,
 )
-from titanium.data import mt5_vendor as v
-
 
 # ────────────────────────────── faux terminal ───────────────────────────────
 
@@ -111,6 +110,7 @@ def fake(monkeypatch):
     def _install(**kwargs):
         m = FakeMt5(**kwargs)
         monkeypatch.setattr(v, "_mt5", lambda: m)
+        monkeypatch.setattr(v, "_terminal_candidates", lambda: ())
         monkeypatch.setattr(v, "_initialized", False)
         return m
     yield _install
@@ -186,6 +186,24 @@ def test_terminal_injoignable_leve(fake):
         v.account_snapshot()
 
 
+def test_session_reessaie_avec_un_terminal_explicite(fake, monkeypatch):
+    terminal = Path("C:/faux/terminal64.exe")
+    m = fake(init_ok=False)
+    appels = []
+
+    def initialize(*, path=None):
+        appels.append(path)
+        return path == str(terminal)
+
+    m.initialize = initialize
+    monkeypatch.setattr(v, "_terminal_candidates", lambda: (terminal,), raising=False)
+
+    with v.mt5_session():
+        pass
+
+    assert appels == [None, str(terminal)]
+
+
 def test_is_available_ne_leve_jamais(fake):
     fake(init_ok=False)
     assert v.is_available() is False
@@ -197,9 +215,8 @@ def test_le_verrou_est_reentrant():
     """`get_rates` appelle `ensure_symbol`, qui reprend le verrou. Un Lock
     simple provoquerait un interblocage — c'est la leçon `mt5_lock` de V12."""
     assert isinstance(v.mt5_lock, type(threading.RLock()))
-    with v.mt5_lock:
-        with v.mt5_lock:
-            pass  # ne doit pas bloquer
+    with v.mt5_lock, v.mt5_lock:
+        pass  # ne doit pas bloquer
 
 
 def test_session_initialise_une_seule_fois(fake):

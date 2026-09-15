@@ -9,6 +9,12 @@ else
   PYTHON="python"
 fi
 
+# Placee AVANT le lint et les tests : ils prennent une dizaine de secondes, et
+# si un secret est indexe rien d'autre n'a d'importance. Refuse le commit sans
+# jamais imprimer la valeur qu'elle denonce.
+echo "[pre-commit] Garde acces personnels"
+"$PYTHON" -X utf8 tools/garde_secrets.py
+
 echo "[pre-commit] Ruff critical errors"
 # Porte unique, partagee avec la CI : voir tools/lint_gate.sh. Ne pas remettre
 # un `ruff check` en dur ici -- c'est la divergence entre ce hook et la CI qui

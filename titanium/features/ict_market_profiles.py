@@ -43,11 +43,9 @@ Ce module fournit :
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PARTICIPANTS — qui est derrière les prix ?
@@ -229,165 +227,165 @@ class AssetProfile:
 
 def _forex_major_profile(symbol: str, name: str, **kw) -> AssetProfile:
     """Paires majeures : les plus liquides, les plus lisibles en ICT."""
-    defaults = dict(
-        asset_class="forex_major",
-        dominant_participants=["banque_centrale", "banque_commerciale", "hedge_fund", "market_maker"],
-        manipulation_intensity=0.6,
-        judas_swing_frequency="frequent",
-        stop_hunt_depth_atr=0.4,
-        primary_session="london",
-        secondary_session="new_york",
-        avoid_session="late_ny",
-        fvg_fill_rate=0.75,
-        ob_respect_rate=0.65,
-        displacement_frequency="moderate",
-        atr_stability=0.7,
-        spread_sensitivity="low",
-        institutional_flow_readable=True,
-        best_setup_types=["continuation", "reversal_on_sweep"],
-        rr_optimal=2.0,
-        timeframe_entry="M15",
-        timeframe_structure="H4",
-    )
+    defaults = {
+        "asset_class": "forex_major",
+        "dominant_participants": ["banque_centrale", "banque_commerciale", "hedge_fund", "market_maker"],
+        "manipulation_intensity": 0.6,
+        "judas_swing_frequency": "frequent",
+        "stop_hunt_depth_atr": 0.4,
+        "primary_session": "london",
+        "secondary_session": "new_york",
+        "avoid_session": "late_ny",
+        "fvg_fill_rate": 0.75,
+        "ob_respect_rate": 0.65,
+        "displacement_frequency": "moderate",
+        "atr_stability": 0.7,
+        "spread_sensitivity": "low",
+        "institutional_flow_readable": True,
+        "best_setup_types": ["continuation", "reversal_on_sweep"],
+        "rr_optimal": 2.0,
+        "timeframe_entry": "M15",
+        "timeframe_structure": "H4",
+    }
     defaults.update(kw)
     return AssetProfile(symbol=symbol, display_name=name, **defaults)
 
 
 def _forex_cross_profile(symbol: str, name: str, **kw) -> AssetProfile:
     """Crosses : moins liquides, mais schémas ICT respectés."""
-    defaults = dict(
-        asset_class="forex_cross",
-        dominant_participants=["banque_commerciale", "hedge_fund", "corporate"],
-        manipulation_intensity=0.5,
-        judas_swing_frequency="moderate",
-        stop_hunt_depth_atr=0.5,
-        primary_session="london",
-        secondary_session="new_york",
-        avoid_session="asian",
-        fvg_fill_rate=0.70,
-        ob_respect_rate=0.60,
-        displacement_frequency="moderate",
-        atr_stability=0.6,
-        spread_sensitivity="medium",
-        institutional_flow_readable=True,
-        best_setup_types=["continuation"],
-        rr_optimal=2.0,
-        timeframe_entry="M15",
-        timeframe_structure="H4",
-    )
+    defaults = {
+        "asset_class": "forex_cross",
+        "dominant_participants": ["banque_commerciale", "hedge_fund", "corporate"],
+        "manipulation_intensity": 0.5,
+        "judas_swing_frequency": "moderate",
+        "stop_hunt_depth_atr": 0.5,
+        "primary_session": "london",
+        "secondary_session": "new_york",
+        "avoid_session": "asian",
+        "fvg_fill_rate": 0.70,
+        "ob_respect_rate": 0.60,
+        "displacement_frequency": "moderate",
+        "atr_stability": 0.6,
+        "spread_sensitivity": "medium",
+        "institutional_flow_readable": True,
+        "best_setup_types": ["continuation"],
+        "rr_optimal": 2.0,
+        "timeframe_entry": "M15",
+        "timeframe_structure": "H4",
+    }
     defaults.update(kw)
     return AssetProfile(symbol=symbol, display_name=name, **defaults)
 
 
 def _forex_exotic_profile(symbol: str, name: str, **kw) -> AssetProfile:
     """Exotiques : liquidité réduite, spreads larges, manipulation différente."""
-    defaults = dict(
-        asset_class="forex_exotic",
-        dominant_participants=["banque_centrale", "souverain", "corporate"],
-        manipulation_intensity=0.3,
-        judas_swing_frequency="rare",
-        stop_hunt_depth_atr=0.8,
-        primary_session="london",
-        secondary_session="new_york",
-        avoid_session="asian",
-        fvg_fill_rate=0.55,
-        ob_respect_rate=0.45,
-        displacement_frequency="rare",
-        atr_stability=0.4,
-        spread_sensitivity="high",
-        institutional_flow_readable=False,
-        best_setup_types=["continuation"],
-        rr_optimal=2.5,
-        timeframe_entry="H1",
-        timeframe_structure="D1",
-        warnings=["spread élevé — vérifier le coût relatif avant toute entrée",
+    defaults = {
+        "asset_class": "forex_exotic",
+        "dominant_participants": ["banque_centrale", "souverain", "corporate"],
+        "manipulation_intensity": 0.3,
+        "judas_swing_frequency": "rare",
+        "stop_hunt_depth_atr": 0.8,
+        "primary_session": "london",
+        "secondary_session": "new_york",
+        "avoid_session": "asian",
+        "fvg_fill_rate": 0.55,
+        "ob_respect_rate": 0.45,
+        "displacement_frequency": "rare",
+        "atr_stability": 0.4,
+        "spread_sensitivity": "high",
+        "institutional_flow_readable": False,
+        "best_setup_types": ["continuation"],
+        "rr_optimal": 2.5,
+        "timeframe_entry": "H1",
+        "timeframe_structure": "D1",
+        "warnings": ["spread élevé — vérifier le coût relatif avant toute entrée",
                    "liquidité faible hors Londres — slippage probable",
                    "interventions de banque centrale imprévisibles"],
-    )
+    }
     defaults.update(kw)
     return AssetProfile(symbol=symbol, display_name=name, **defaults)
 
 
 def _index_profile(symbol: str, name: str, **kw) -> AssetProfile:
     """Indices boursiers : pilotés par les flux institutionnels et la macro."""
-    defaults = dict(
-        asset_class="index",
-        dominant_participants=["asset_manager", "hedge_fund", "algorithmique", "market_maker"],
-        manipulation_intensity=0.7,
-        judas_swing_frequency="frequent",
-        stop_hunt_depth_atr=0.3,
-        primary_session="new_york" if "US" in symbol or "NAS" in symbol or "S&P" in symbol else "london",
-        secondary_session="london" if "US" in symbol or "NAS" in symbol else "new_york",
-        avoid_session="asian",
-        fvg_fill_rate=0.80,
-        ob_respect_rate=0.70,
-        displacement_frequency="frequent",
-        atr_stability=0.6,
-        spread_sensitivity="medium",
-        institutional_flow_readable=True,
-        best_setup_types=["continuation", "reversal_on_sweep", "gap_fill"],
-        rr_optimal=2.0,
-        timeframe_entry="M15",
-        timeframe_structure="H4",
-        drivers=["earnings", "fed", "risk_sentiment", "sector_rotation"],
-    )
+    defaults = {
+        "asset_class": "index",
+        "dominant_participants": ["asset_manager", "hedge_fund", "algorithmique", "market_maker"],
+        "manipulation_intensity": 0.7,
+        "judas_swing_frequency": "frequent",
+        "stop_hunt_depth_atr": 0.3,
+        "primary_session": "new_york" if "US" in symbol or "NAS" in symbol or "S&P" in symbol else "london",
+        "secondary_session": "london" if "US" in symbol or "NAS" in symbol else "new_york",
+        "avoid_session": "asian",
+        "fvg_fill_rate": 0.80,
+        "ob_respect_rate": 0.70,
+        "displacement_frequency": "frequent",
+        "atr_stability": 0.6,
+        "spread_sensitivity": "medium",
+        "institutional_flow_readable": True,
+        "best_setup_types": ["continuation", "reversal_on_sweep", "gap_fill"],
+        "rr_optimal": 2.0,
+        "timeframe_entry": "M15",
+        "timeframe_structure": "H4",
+        "drivers": ["earnings", "fed", "risk_sentiment", "sector_rotation"],
+    }
     defaults.update(kw)
     return AssetProfile(symbol=symbol, display_name=name, **defaults)
 
 
 def _crypto_profile(symbol: str, name: str, **kw) -> AssetProfile:
     """Crypto : 24/7, retail dominant, manipulation intense par les whales."""
-    defaults = dict(
-        asset_class="crypto",
-        dominant_participants=["retail", "hedge_fund", "algorithmique"],
-        manipulation_intensity=0.9,
-        judas_swing_frequency="frequent",
-        stop_hunt_depth_atr=0.6,
-        primary_session="new_york",
-        secondary_session="asian",
-        avoid_session="",
-        fvg_fill_rate=0.65,
-        ob_respect_rate=0.55,
-        displacement_frequency="frequent",
-        atr_stability=0.3,
-        spread_sensitivity="medium",
-        institutional_flow_readable=False,
-        best_setup_types=["sweep_reversal", "displacement_continuation"],
-        rr_optimal=2.0,
-        timeframe_entry="M15",
-        timeframe_structure="H4",
-        drivers=["sentiment", "regulatory_news", "btc_dominance", "whale_activity"],
-        warnings=["volatilité extrême — ATR instable, adapter le sizing",
+    defaults = {
+        "asset_class": "crypto",
+        "dominant_participants": ["retail", "hedge_fund", "algorithmique"],
+        "manipulation_intensity": 0.9,
+        "judas_swing_frequency": "frequent",
+        "stop_hunt_depth_atr": 0.6,
+        "primary_session": "new_york",
+        "secondary_session": "asian",
+        "avoid_session": "",
+        "fvg_fill_rate": 0.65,
+        "ob_respect_rate": 0.55,
+        "displacement_frequency": "frequent",
+        "atr_stability": 0.3,
+        "spread_sensitivity": "medium",
+        "institutional_flow_readable": False,
+        "best_setup_types": ["sweep_reversal", "displacement_continuation"],
+        "rr_optimal": 2.0,
+        "timeframe_entry": "M15",
+        "timeframe_structure": "H4",
+        "drivers": ["sentiment", "regulatory_news", "btc_dominance", "whale_activity"],
+        "warnings": ["volatilité extrême — ATR instable, adapter le sizing",
                    "manipulation whale : les mèches sont plus profondes",
                    "24/7 : pas de session dominante claire, mais NY reste le pic"],
-    )
+    }
     defaults.update(kw)
     return AssetProfile(symbol=symbol, display_name=name, **defaults)
 
 
 def _commodity_profile(symbol: str, name: str, **kw) -> AssetProfile:
     """Commodities : flux réels + spéculatif, saisonnalité."""
-    defaults = dict(
-        asset_class="commodity",
-        dominant_participants=["corporate", "hedge_fund", "souverain", "algorithmique"],
-        manipulation_intensity=0.5,
-        judas_swing_frequency="moderate",
-        stop_hunt_depth_atr=0.5,
-        primary_session="london",
-        secondary_session="new_york",
-        avoid_session="asian",
-        fvg_fill_rate=0.70,
-        ob_respect_rate=0.60,
-        displacement_frequency="moderate",
-        atr_stability=0.5,
-        spread_sensitivity="medium",
-        institutional_flow_readable=True,
-        best_setup_types=["continuation", "range_breakout"],
-        rr_optimal=2.0,
-        timeframe_entry="M15",
-        timeframe_structure="H4",
-        drivers=["supply_demand", "geopolitics", "usd_strength", "seasonality"],
-    )
+    defaults = {
+        "asset_class": "commodity",
+        "dominant_participants": ["corporate", "hedge_fund", "souverain", "algorithmique"],
+        "manipulation_intensity": 0.5,
+        "judas_swing_frequency": "moderate",
+        "stop_hunt_depth_atr": 0.5,
+        "primary_session": "london",
+        "secondary_session": "new_york",
+        "avoid_session": "asian",
+        "fvg_fill_rate": 0.70,
+        "ob_respect_rate": 0.60,
+        "displacement_frequency": "moderate",
+        "atr_stability": 0.5,
+        "spread_sensitivity": "medium",
+        "institutional_flow_readable": True,
+        "best_setup_types": ["continuation", "range_breakout"],
+        "rr_optimal": 2.0,
+        "timeframe_entry": "M15",
+        "timeframe_structure": "H4",
+        "drivers": ["supply_demand", "geopolitics", "usd_strength", "seasonality"],
+    }
     defaults.update(kw)
     return AssetProfile(symbol=symbol, display_name=name, **defaults)
 

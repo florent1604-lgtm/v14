@@ -21,6 +21,22 @@ const signe = (v, d = 2) =>
   (v == null) ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(d);
 const classeSigne = (v) => (v == null ? 'eteint' : v > 0 ? 'pos' : v < 0 ? 'neg' : '');
 
+/* Le flottant RÉEL d'un poste : MT5 sépare ``profit`` et ``swap``, l'équité du
+   compte les additionne. Mesure du 13/09/2026 sur le compte démo : +6,38 de
+   brut contre −45,25 de swap sur un seul poste, et equity − balance égal à
+   profit + swap au centime. Le repli sur ``profit`` couvre une page rechargée
+   devant un serveur qui tourne encore l'ancien module. */
+const montantNet = (position) => {
+  const valeur = position.net ?? position.profit;
+  return Number(valeur ?? 0);
+};
+
+/* MAX_POSITIONS vaut 0 pour « illimité » — c'est le budget de risque qui borne
+   l'exposition. Afficher la valeur brute ferait lire « 3 / 0 » comme « trois
+   positions pour une limite nulle », l'inverse exact de l'intention. */
+const limitePositions = (valeur) =>
+  valeur == null ? '—' : valeur > 0 ? String(valeur) : 'illimité';
+
 let ETAT = {};
 let TF = 'M15';
 let CHART = null;
@@ -33,7 +49,8 @@ let CHART = null;
 function anomalies(d) {
   const out = [];
   const w = d.wall || {}, l = d.loop || {}, r = d.risque || {},
-        a = d.account || {}, an = d.analystes || {}, p = d.promotion || {};
+        a = d.account || {}, an = d.analystes || {}, p = d.promotion || {},
+        cx = d.cortex || {};
 
   if (a.connected === false)
     out.push(['grave', 'MT5', 'terminal injoignable — la boucle ne peut ni lire ni gérer']);
@@ -55,6 +72,11 @@ function anomalies(d) {
 
   if (an.actif && an.en_attente > 8)
     out.push(['attention', 'ANALYSTES', `${an.en_attente} demandes en attente — le travailleur décroche`]);
+
+  if (cx.status === 'provider_refused' || cx.status === 'quota_exhausted')
+    out.push(['attention', 'HERMÈS', 'appel refusé par le fournisseur — vérifier le mode d’authentification et le motif retourné']);
+  else if (cx.status === 'unavailable' || cx.status === 'circuit_open')
+    out.push(['attention', 'HERMÈS', cx.label || 'cortex indisponible']);
 
   if (p.total_trades > 0 && p.sans_classe > 0)
     out.push(['attention', 'JOURNAL',
@@ -86,8 +108,13 @@ function vitaux(d) {
         r = d.risque || {}, p = d.positions || {};
   const positions = p.positions || [];
   const limites = p.pending || [];
+  // Le total est le flottant RÉEL — profit moins le portage — et non la somme
+  // des profits bruts, qui annonçait +4,08 EUR quand le compte flottait à
+  // −40,12 EUR (mesure du 13/09/2026).
   const pnlOuvert = positions.reduce(
-    (total, position) => total + Number(position.profit || 0), 0);
+    (total, position) => total + montantNet(position), 0);
+  const portageOuvert = positions.reduce(
+    (total, position) => total + Number(position.swap || 0), 0);
 
   const mode = $('#v-mode');
   mode.textContent = a.is_demo === true ? 'PAPER / DÉMO' : 'ATTENTION : NON DÉMO';
@@ -104,6 +131,9 @@ function vitaux(d) {
 
   $('#v-pnl').textContent = `${signe(pnlOuvert)} ${a.currency || ''}`.trim();
   $('#v-pnl').className = 'v n ' + classeSigne(pnlOuvert);
+  // Le portage est invisible dans une colonne de profit brut : on le nomme.
+  $('#v-pnl').title = portageOuvert
+    ? `dont ${signe(portageOuvert)} de portage` : '';
 
   const occ = r.occupation || 0;
   $('#v-risque').textContent = r.disponible
@@ -112,8 +142,8 @@ function vitaux(d) {
 
   const n = positions.length;
   $('#v-positions').textContent = limites.length
-    ? `${n} + ${limites.length}L / ${l.max_positions ?? '—'}`
-    : `${n} / ${l.max_positions ?? '—'}`;
+    ? `${n} + ${limites.length}L / ${limitePositions(l.max_positions)}`
+    : `${n} / ${limitePositions(l.max_positions)}`;
 
   const mur = $('#v-mur');
   mur.innerHTML = '';
@@ -137,6 +167,148 @@ function vitaux(d) {
   $('#v-heure').className = 'v n ' + (l.stale ? 'mal' : '');
 }
 
+/* ── Cortex Hermès ────────────────────────────────────────────────
+   Sépare l'indisponibilité du LLM d'un refus fondé de la mémoire V4.
+   La page ne déclenche jamais d'appel : elle ne fait que relire les preuves. */
+
+function cortex(d) {
+  const x = d.cortex || {}, m = x.memory || {}, r = x.refusals || {},
+        cats = r.categories || {}, com = x.communication || {};
+  const c = $('#cortex');
+  if (!c) return;
+  c.innerHTML = '';
+  $('#cortex-fenetre').textContent = `${x.window_minutes || 60} dernières minutes`;
+
+  const head = el('div', 'cortex-head');
+  const badge = el('span', 'etat-pastille', x.label || 'Hermès non mesuré');
+  badge.style.color = x.status === 'ready' ? 'var(--long)'
+    : (x.status === 'provider_refused' || x.status === 'quota_exhausted') ? 'var(--grave)'
+    : x.status === 'unknown' ? 'var(--encre-3)' : 'var(--alerte)';
+  head.append(badge);
+  const terminal = com.terminal?.running && com.hub?.running;
+  const lien = el('a', 'cortex-chat', terminal ? 'Ouvrir la conversation' : 'Terminal indisponible');
+  lien.href = 'http://127.0.0.1:8097/#chat';
+  lien.target = '_blank';
+  lien.rel = 'noopener';
+  if (!terminal) lien.setAttribute('aria-disabled', 'true');
+  head.append(lien);
+  c.append(head);
+
+  const total = Number(m.checks || 0);
+  const allowRate = m.allow_rate == null ? null : Number(m.allow_rate) * 100;
+  const blockRate = m.block_rate == null ? null : Number(m.block_rate) * 100;
+  const grid = el('div', 'cortex-grid');
+  const cellule = (titre, valeur, detail, cls) => {
+    const n = el('div', 'cortex-kpi ' + (cls || ''));
+    n.append(el('span', 'k', titre), el('strong', 'n', valeur), el('small', null, detail));
+    grid.append(n);
+  };
+  cellule('Mémoire V4 · autorise', String(m.allow || 0),
+    allowRate == null ? 'aucune mesure' : `${nb(allowRate, 1)} % des contrôles`, 'ok');
+  cellule('Mémoire V4 · bloque', String(m.block || 0),
+    blockRate == null ? 'aucune mesure' : `${nb(blockRate, 1)} % des contrôles`, 'att');
+  cellule('Contextes distincts', String(m.unique_contexts || 0),
+    `${m.unique_allow || 0} autorisés · ${m.unique_block || 0} bloqués`);
+  cellule('Politiques invalides', String(cats.policy_model_invalid || 0),
+    `${cats.policy_missing || 0} absente(s) · ${cats.policy_stale || 0} périmée(s)`,
+    cats.policy_model_invalid ? 'mal' : '');
+  c.append(grid);
+
+  if (total) {
+    const barre = el('div', 'cortex-barre');
+    const ok = el('i', 'allow');
+    ok.style.width = `${Math.max(0, Math.min(100, allowRate || 0))}%`;
+    const block = el('i', 'block');
+    block.style.width = `${Math.max(0, Math.min(100, blockRate || 0))}%`;
+    barre.append(ok, block);
+    c.append(barre);
+  }
+
+  const last = x.last_result || {};
+  const note = el('div', 'cortex-note');
+  if (last.at) {
+    const quand = new Date(last.at).toLocaleString('fr-FR');
+    note.append(el('b', null, `Dernier retour · ${last.symbol || '—'} · ${last.action || 'WAIT'}`));
+    note.append(el('span', 'eteint', `${quand} · ${last.source || ''}`));
+    if (last.summary) note.append(el('span', null, last.summary));
+  } else {
+    note.append(el('span', 'eteint', 'Aucun retour Hermès récent.'));
+  }
+  c.append(note);
+}
+
+/* ── Dialogue Hermès ───────────────────────────────────────────────
+   Cette couture parle au terminal local, lequel journalise et route vers le
+   hub commun. Elle ne lance jamais Hermes/Claude et ne touche pas au moteur. */
+
+const COLLAB_CHAT = 'http://127.0.0.1:8097/api/chat';
+
+function afficherDialogue(messages) {
+  const fil = $('#cortex-fil');
+  if (!fil) return;
+  fil.innerHTML = '';
+  const utiles = (Array.isArray(messages) ? messages : [])
+    .filter(m => m && (m.from === 'hermes' || m.to === 'hermes'))
+    .slice(-12);
+  if (!utiles.length) {
+    fil.append(el('span', 'eteint', 'Aucun échange Hermès dans le journal récent.'));
+    return;
+  }
+  for (const m of utiles) {
+    const auteur = m.from === 'hermes' ? 'Hermès' : (m.from || 'Système');
+    const instant = m.at ? new Date(m.at).toLocaleTimeString('fr-FR') : '—';
+    const ligne = el('article', `cortex-msg ${m.from === 'hermes' ? 'hermes' : 'florent'}`);
+    ligne.append(el('span', 'meta', `${auteur} · ${instant}`));
+    ligne.append(el('span', null, String(m.content || '').slice(0, 2000)));
+    fil.append(ligne);
+  }
+  fil.scrollTop = fil.scrollHeight;
+}
+
+async function chargerDialogue() {
+  try {
+    const reponse = await fetch(COLLAB_CHAT, {cache: 'no-store'});
+    if (!reponse.ok) throw new Error(`HTTP ${reponse.status}`);
+    afficherDialogue(await reponse.json());
+  } catch {
+    const fil = $('#cortex-fil');
+    if (fil) {
+      fil.innerHTML = '';
+      fil.append(el('span', 'eteint', 'Terminal commun indisponible sur le port 8097.'));
+    }
+  }
+}
+
+async function transmettreHermes(event) {
+  event.preventDefault();
+  const champ = $('#cortex-message'), bouton = $('#cortex-envoyer'), etat = $('#cortex-envoi-etat');
+  const content = String(champ.value || '').trim();
+  if (!content) {
+    etat.textContent = 'Écrivez un message avant de transmettre.';
+    champ.focus();
+    return;
+  }
+  bouton.disabled = true;
+  etat.textContent = 'Transmission au hub…';
+  try {
+    const reponse = await fetch(COLLAB_CHAT, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({from: 'florent', to: 'hermes', type: 'message', content}),
+    });
+    const resultat = await reponse.json();
+    if (!reponse.ok) throw new Error(resultat.error || `HTTP ${reponse.status}`);
+    const routes = Array.isArray(resultat.routes) ? resultat.routes.join(' + ') : 'journal';
+    champ.value = '';
+    etat.textContent = `Transmis · ${routes || 'journal local'}.`;
+    await chargerDialogue();
+  } catch (erreur) {
+    etat.textContent = `Échec de transmission · ${erreur.message || erreur}`;
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
 /* ── Exécution ────────────────────────────────────────────────────── */
 
 function execution(d) {
@@ -152,7 +324,7 @@ function execution(d) {
   ligne('login attendu', String(w.expected_login ?? '—'));
   ligne('compte réel', w.real_allowed ? 'AUTORISÉ' : 'interdit',
         w.real_allowed ? 'mal' : 'ok');
-  ligne('positions max', String(l.max_positions ?? '—'));
+  ligne('positions max', limitePositions(l.max_positions));
   ligne('budget de risque', `${nb(l.max_risque_cumule_pct, 0)} %`);
   ligne('gestion', `BE +${l.breakeven_r ?? '—'} R · trail +${l.trail_start_r ?? '—'} R`);
   ligne('dernier battement', l.age_s == null ? '—' : `il y a ${nb(l.age_s, 0)} s`,
@@ -191,12 +363,17 @@ function positions(d) {
     t.innerHTML = `<thead><tr>
       <th>Ticket</th><th>Actif</th><th>Sens</th><th class="n">Lot</th>
       <th class="n">Entrée</th><th class="n">Stop</th>
-      <th class="n">R courant</th><th class="n">P&amp;L</th><th>Phase</th>
+      <th class="n">R courant</th><th class="n">P&amp;L net</th><th>Phase</th>
     </tr></thead>`;
     const tb = el('tbody');
     for (const x of lignes) {
       const tr = el('tr');
       const sens = x.side > 0 ? 'LONG' : 'SHORT';
+      const net = montantNet(x);
+      const portage = Number(x.swap || 0);
+      const cellulePnl = portage
+        ? `${signe(net, 2)} <small class="eteint">portage ${signe(portage)}</small>`
+        : signe(net, 2);
       tr.innerHTML = `
         <td class="n eteint">${x.ticket ?? ''}</td>
         <td>${x.symbol ?? ''}</td>
@@ -205,12 +382,20 @@ function positions(d) {
         <td class="n">${nb(x.entry, 5)}</td>
         <td class="n">${x.sl ? nb(x.sl, 5) : '—'}</td>
         <td class="n ${classeSigne(x.fav_r)}">${signe(x.fav_r, 2)}</td>
-        <td class="n ${classeSigne(x.profit)}">${signe(x.profit, 2)}</td>
+        <td class="n ${classeSigne(net)}">${cellulePnl}</td>
         <td class="eteint">${x.phase ?? ''}</td>`;
       tb.append(tr);
     }
     t.append(tb);
     c.append(t);
+    const portage = Number(p.portage_total || 0);
+    if (portage) {
+      const note = el('div', 'eteint',
+        `dont ${signe(portage)} de portage — la somme des profits bruts est `
+        + `optimiste de ce montant`);
+      note.style.cssText = 'font-size:10.5px;margin-top:5px';
+      c.append(note);
+    }
   }
   if (limites.length) {
     const titre = el('div', 'eteint', 'ORDRES LIMITES EN ATTENTE');
@@ -951,7 +1136,7 @@ async function chargerEtat() {
   try {
     const d = await (await fetch('/api/state')).json();
     ETAT = d;
-    vitaux(d); anomalies(d); execution(d); positions(d);
+    vitaux(d); anomalies(d); cortex(d); execution(d); positions(d);
     analystes(d); fantome(d); edge(d); organes(d); vendeurs(d);
     const m = d.meta || {};
     $('#pied-llm').textContent =
@@ -997,6 +1182,7 @@ async function tracer() {
 /* ── Amorçage ─────────────────────────────────────────────────────── */
 
 $('#btn-tracer').addEventListener('click', tracer);
+$('#cortex-form').addEventListener('submit', transmettreHermes);
 $('#sel-actif').addEventListener('change', tracer);
 for (const b of document.querySelectorAll('.tf button')) {
   b.addEventListener('click', () => {
@@ -1020,6 +1206,7 @@ document.querySelector('#anatomie').addEventListener('mouseleave',
   () => { document.querySelector('#anat-info').hidden = true; });
 
 chargerEtat();
+chargerDialogue();
 chargerUnivers();
 chargerMedecin();
 chargerCarte();
@@ -1033,5 +1220,6 @@ setInterval(() => {
   if (VUE === 'flux' && MED) dessinerAnatomie();
 }, 50);
 setInterval(chargerEtat, 10000);
+setInterval(chargerDialogue, 10000);
 setInterval(promotion, 30000);
 setInterval(chargerUnivers, 120000);

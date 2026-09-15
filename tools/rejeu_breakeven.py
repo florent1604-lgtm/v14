@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -47,10 +48,8 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-try:
+with suppress(AttributeError, ValueError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except (AttributeError, ValueError):  # pragma: no cover
-    pass
 
 EXCURSIONS = RACINE / "results" / "excursions.ndjson"
 
@@ -184,9 +183,9 @@ def barres_du_trade(t: Trade, lecteur) -> list | None:
 
 def _chemin_intra(bar, side: int, adverse_dabord: bool) -> list[float]:
     """Suite de prix parcourus dans une barre, selon l'ordre postulé."""
-    o, h, l, c = (float(bar["open"]), float(bar["high"]),
+    o, h, low, c = (float(bar["open"]), float(bar["high"]),
                   float(bar["low"]), float(bar["close"]))
-    extreme_adverse, extreme_favorable = (l, h) if side > 0 else (h, l)
+    extreme_adverse, extreme_favorable = (low, h) if side > 0 else (h, low)
     if adverse_dabord:
         return [o, extreme_adverse, extreme_favorable, c]
     return [o, extreme_favorable, extreme_adverse, c]
@@ -199,7 +198,10 @@ def rejouer(t: Trade, barres, seuil: float, *, adverse_dabord: bool) -> dict:
     fonction du moteur. Aucune règle n'est réécrite ici.
     """
     from titanium.execution.position_manager import (
-        ManageParams, PositionSnapshot, TrackedState, decide_new_sl,
+        ManageParams,
+        PositionSnapshot,
+        TrackedState,
+        decide_new_sl,
     )
 
     params = ManageParams(breakeven_r=seuil)
@@ -362,7 +364,7 @@ def rapport(a: dict, trades: list[Trade]) -> str:
             continue
         rs_c = a["resultats"][seuil]["defavorable"]
         rs_b = a["resultats"][0.80]["defavorable"]
-        deltas = [c - b for c, b in zip(rs_c, rs_b)]
+        deltas = [c - b for c, b in zip(rs_c, rs_b, strict=False)]
         net = sum(deltas)
         if not deltas:
             continue
@@ -388,7 +390,7 @@ def rapport(a: dict, trades: list[Trade]) -> str:
         w("  La conclusion résiste à l'ambiguïté intra-barre.")
     elif ed_m > ed_b and ef_m > ef_b:
         w(f"  Le seuil {meilleur:.2f} domine l'actuel dans les DEUX ordres,")
-        w(f"  mais les intervalles se chevauchent — la conclusion dépend en")
+        w("  mais les intervalles se chevauchent — la conclusion dépend en")
         w("  partie d'une hypothèse invérifiable sur l'intérieur des barres.")
     else:
         w("  Aucun seuil ne domine l'actuel de façon robuste. Ne rien changer.")

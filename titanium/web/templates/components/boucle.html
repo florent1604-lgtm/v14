@@ -1,0 +1,48 @@
+<h2>Boucle &amp; risque</h2>
+{% set l = boucle.data or {} %}
+{% set r = risque.data or {} %}
+
+<table class="{{ 'perime' if boucle.stale else '' }}">
+  <tr><td class="gris">Boucle</td>
+      <td class="{{ 'vert' if l.running else 'rouge' }}">
+        {% if l.running and l.stale %}<span class="rouge">FIGÉE</span>
+        {% elif l.running %}EN MARCHE
+        {% else %}ARRÊTÉE{% endif %}</td></tr>
+  <tr><td class="gris">Armement</td>
+      <td class="{{ 'vert' if l.armed else 'gris' }}">
+        {{ 'ARMÉ' if l.armed else 'DÉSARMÉ' }}</td></tr>
+  <tr><td class="gris">Battement</td>
+      <td>{{ (l.age_s ~ ' s') if l.age_s is not none else '—' }}</td></tr>
+  <tr><td class="gris">Positions max</td>
+      {# 0 veut dire « illimité » : c'est le budget de risque qui borne. #}
+      <td>{{ l.max_positions if l.max_positions else 'illimité' }} · {{ l.max_per_symbol }}/actif</td></tr>
+  <tr><td class="gris">Break-even</td><td>{{ l.breakeven_r }} R</td></tr>
+  <tr><td class="gris">Trailing</td>
+      <td>dès {{ l.trail_start_r }} R · dist. {{ l.trail_dist_r }} R</td></tr>
+</table>
+
+<h2 style="margin-top:14px">Risque cumulé</h2>
+{% if r.disponible %}
+  <table class="{{ 'perime' if risque.stale else '' }}">
+    <tr><td class="gris">Engagé</td>
+        <td class="{{ 'rouge' if r.occupation > 90 else 'vert' }}">
+          {{ r.engage_pct }} % / {{ r.budget_pct }} %</td></tr>
+    <tr><td class="gris">Occupation</td>
+        <td class="{{ 'rouge' if r.occupation > 90 else '' }}">{{ r.occupation }} %</td></tr>
+    <tr><td class="gris">Positions</td><td>{{ r.positions }}</td></tr>
+  </table>
+  {% set e = r.echelle or {} %}
+  <p class="gris" style="font-size:11px">
+    Échelle {{ e.plancher }} → {{ e.pivot }} → {{ e.plafond_modulation }} %
+    · plafond dur {{ e.plafond_dur }} %
+  </p>
+{% else %}
+  <p class="gris">Risque illisible — budget {{ r.budget_pct }} %.</p>
+{% endif %}
+
+{% if l.etat_incidents %}
+  <p class="rouge" style="font-size:11px;margin-top:8px">
+    {{ l.etat_incidents_total }} incident(s) d'état :
+    {{ l.etat_incidents | join(' · ') }}
+  </p>
+{% endif %}

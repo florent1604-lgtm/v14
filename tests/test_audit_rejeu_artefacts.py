@@ -4,8 +4,7 @@ import json
 from pathlib import Path
 
 from titanium.backtest import Trade
-from tools import audit_rejeu_artefacts as audit
-from tools import rejeu_univers as ru
+from tools import audit_rejeu_artefacts as audit, rejeu_univers as ru
 
 
 def _snapshot(symbole: str) -> dict:

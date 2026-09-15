@@ -1,5 +1,10 @@
 import logging
 
+# Vendeur MetaTrader 5 (V14). Importé APRÈS .y_finance dont il réutilise les
+# descriptions d'indicateurs. Le module ne parle à MT5 qu'à l'appel : l'import
+# reste sans effet si le terminal est fermé ou MetaTrader5 non installé.
+from titanium.data.mt5_dataflows import get_mt5_indicators, get_mt5_stock_data
+
 from .alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -29,11 +34,6 @@ from .y_finance import (
     get_YFin_data_online,
 )
 from .yfinance_news import get_global_news_yfinance, get_news_yfinance
-
-# Vendeur MetaTrader 5 (V14). Importé APRÈS .y_finance dont il réutilise les
-# descriptions d'indicateurs. Le module ne parle à MT5 qu'à l'appel : l'import
-# reste sans effet si le terminal est fermé ou MetaTrader5 non installé.
-from titanium.data.mt5_dataflows import get_mt5_indicators, get_mt5_stock_data
 
 logger = logging.getLogger(__name__)
 

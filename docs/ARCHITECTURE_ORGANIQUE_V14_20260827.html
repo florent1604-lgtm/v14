@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Titanium V14 — Architecture organique</title>
+<style>
+:root{--bg:#071018;--panel:#0d1b26;--line:#294354;--text:#e8f3f8;--muted:#91a9b7;--cyan:#2dd4bf;--blue:#55a8ff;--violet:#a78bfa;--amber:#fbbf24;--red:#fb7185;--green:#65d48b}
+*{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 50% 30%,#102638 0,#071018 58%);color:var(--text);font:14px/1.35 Inter,Segoe UI,sans-serif;min-height:100vh}
+header{padding:25px 34px 11px;display:flex;justify-content:space-between;align-items:end}h1{font-size:28px;margin:0;letter-spacing:.02em} .sub{color:var(--muted);margin-top:5px}.badge{border:1px solid #38566a;border-radius:999px;padding:7px 12px;color:var(--cyan);background:#0a1821}
+main{max-width:1500px;margin:auto;padding:12px 26px 30px}.canvas{position:relative;min-height:820px;border:1px solid #203847;border-radius:22px;background:linear-gradient(180deg,rgba(16,35,48,.76),rgba(6,15,22,.95));overflow:hidden;box-shadow:0 20px 60px #0008}
+.zone{position:absolute;border:1px dashed #2b4759;border-radius:18px;background:#0a182080}.zone h2{position:absolute;top:-12px;left:18px;margin:0;padding:2px 9px;background:#0a1720;color:#8fb0c2;font-size:12px;text-transform:uppercase;letter-spacing:.12em}
+.card{position:absolute;border:1px solid #315063;border-radius:14px;background:linear-gradient(145deg,#122635,#0b1822);padding:12px 14px;box-shadow:0 8px 24px #0005}.card strong{display:block;font-size:15px}.card small{display:block;color:var(--muted);margin-top:5px}.cyan{border-color:#267f77}.blue{border-color:#376f9c}.violet{border-color:#695a9b}.amber{border-color:#957728}.red{border-color:#914457}.green{border-color:#34764a}
+.senses{left:2%;top:5%;width:22%;height:89%}.nerves{left:26%;top:5%;width:20%;height:89%}.brain{left:48%;top:5%;width:31%;height:62%}.action{left:81%;top:5%;width:17%;height:89%}.memory{left:48%;top:70%;width:31%;height:24%}
+.c1{left:8%;top:8%;width:84%}.c2{left:8%;top:28%;width:84%}.c3{left:8%;top:48%;width:84%}.c4{left:8%;top:68%;width:84%}
+.n1{left:8%;top:10%;width:84%}.n2{left:8%;top:34%;width:84%}.n3{left:8%;top:58%;width:84%}.n4{left:8%;top:78%;width:84%}
+.b1{left:5%;top:9%;width:43%}.b2{right:5%;top:9%;width:43%}.b3{left:5%;top:39%;width:43%}.b4{right:5%;top:39%;width:43%}.b5{left:24%;top:70%;width:52%;text-align:center}
+.a1{left:8%;top:10%;width:84%}.a2{left:8%;top:35%;width:84%}.a3{left:8%;top:60%;width:84%}.a4{left:8%;top:79%;width:84%}
+.m1{left:4%;top:17%;width:29%}.m2{left:35.5%;top:17%;width:29%}.m3{right:4%;top:17%;width:29%}
+.arrow{position:absolute;height:2px;background:linear-gradient(90deg,var(--cyan),var(--blue));box-shadow:0 0 10px #2dd4bf88}.arrow:after{content:"";position:absolute;right:-1px;top:-4px;border-left:8px solid var(--blue);border-top:5px solid transparent;border-bottom:5px solid transparent}.x1{left:23%;top:27%;width:4%}.x2{left:45%;top:27%;width:4%}.x3{left:78%;top:27%;width:4%}.x4{left:45%;top:78%;width:4%}.x5{left:78%;top:78%;width:4%}.vertical{width:2px;height:78px;background:linear-gradient(var(--violet),var(--blue))}.vertical:after{right:-4px;top:auto;bottom:-1px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--blue);border-bottom:0}.v1{left:63.5%;top:60%;height:90px}
+.legend{position:absolute;left:2%;right:2%;bottom:1.5%;display:flex;gap:18px;justify-content:center;color:var(--muted);font-size:12px}.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}.warn{position:absolute;right:20.5%;top:63%;color:var(--red);font-size:12px;text-align:center;width:17%}
+@media(max-width:1000px){.canvas{min-width:1050px}main{overflow-x:auto}}
+</style></head>
+<body>
+<header><div><h1>Titanium V14 — organisme cognitif sûr</h1><div class="sub">Le cortex Llama comprend et propose. Le tronc cérébral déterministe protège et décide. Aucun texte LLM n’atteint MT5.</div></div><div class="badge">PAPER / DEMO ONLY · étude shadow</div></header>
+<main><section class="canvas">
+<div class="zone senses"><h2>Sens & organes</h2>
+ <div class="card cyan c1"><strong>Marché / MT5</strong><small>Prix, sessions, expositions · source autoritaire</small></div>
+ <div class="card blue c2"><strong>FRED / ALFRED</strong><small>Macro + vintages · disponibilité causale</small></div>
+ <div class="card blue c3"><strong>EIA</strong><small>Énergie + snapshots de révision locaux</small></div>
+ <div class="card violet c4"><strong>Technique · Émotion · Edge</strong><small>Moteurs spécialisés déterministes</small></div>
+</div>
+<div class="zone nerves"><h2>Système nerveux</h2>
+ <div class="card cyan n1"><strong>Capture brute</strong><small>Bytes, requête redacted, fetch UTC, hash</small></div>
+ <div class="card blue n2"><strong>FactStore causal</strong><small>Append-only · vintages · manifests</small></div>
+ <div class="card violet n3"><strong>EventPlane</strong><small>Schémas, offsets, replay, idempotence</small></div>
+ <div class="card green n4"><strong>OrganSnapshots</strong><small>Identité, version, health, lag, provenance</small></div>
+</div>
+<div class="zone brain"><h2>Cerveau identifiable</h2>
+ <div class="card amber b1"><strong>Tronc cérébral</strong><small>DataQualityKernel · PolicyKernel · invariants</small></div>
+ <div class="card violet b2"><strong>Cortex Llama local</strong><small>Async · JSON strict · citations fact_id · abstention</small></div>
+ <div class="card red b3"><strong>Homéostasie</strong><small>RiskGate · exposition · kill switch · mur DEMO/réel</small></div>
+ <div class="card blue b4"><strong>Hermès exécutif</strong><small>Orchestration et hypothèses gouvernées · hors sink</small></div>
+ <div class="card green b5"><strong>BrainView read-only</strong><small>Snapshot immuable, borné et haché</small></div>
+</div>
+<div class="zone memory"><h2>Mémoire</h2>
+ <div class="card cyan m1"><strong>Travail</strong><small>Un cycle / TTL</small></div>
+ <div class="card blue m2"><strong>Épisodique</strong><small>Faits, décisions, résultats</small></div>
+ <div class="card violet m3"><strong>Sémantique</strong><small>Connaissance validée</small></div>
+</div>
+<div class="zone action"><h2>Action isolée</h2>
+ <div class="card violet a1"><strong>ProposalStore</strong><small>Non autoritaire · audit humain</small></div>
+ <div class="card amber a2"><strong>CommandGateway fermé</strong><small>Aucune capacité d’ordre en shadow</small></div>
+ <div class="card red a3"><strong>Exécuteur MT5</strong><small>Compte/mode/risque revalidés</small></div>
+ <div class="card green a4"><strong>ACK / REJECT</strong><small>Rejoint l’EventPlane comme fait</small></div>
+</div>
+<div class="arrow x1"></div><div class="arrow x2"></div><div class="arrow x3"></div><div class="arrow x4"></div><div class="arrow x5"></div><div class="arrow vertical v1"></div>
+<div class="warn">⛔ Pas de lien direct<br>Cortex Llama → MT5</div>
+<div class="legend"><span><i class="dot" style="background:var(--cyan)"></i>faits</span><span><i class="dot" style="background:var(--violet)"></i>cognition</span><span><i class="dot" style="background:var(--amber)"></i>politique</span><span><i class="dot" style="background:var(--red)"></i>frontière critique</span><span><i class="dot" style="background:var(--green)"></i>preuve/health</span></div>
+</section></main>
+</body></html>

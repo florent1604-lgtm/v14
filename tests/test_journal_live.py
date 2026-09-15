@@ -30,7 +30,6 @@ from titanium.edge import TradeJournal
 from titanium.execution.mt5_executor import ExecutionPolicy
 from titanium.execution.pending_context import limit_lifecycle_summary
 from titanium.execution.position_manager import (
-    PHASE_BREAKEVEN,
     PHASE_INIT,
     PHASE_TRAILING,
     ManageParams,
@@ -48,11 +47,11 @@ P = ManageParams(breakeven_r=0.8, trail_start_r=1.2, trail_dist_r=0.8)
 
 def etat(**over) -> TrackedState:
     """Position long EURUSD, R = 0.0100, contexte complet."""
-    base = dict(r=0.0100, phase=PHASE_INIT, peak_fav_r=0.0, symbol="EURUSD",
-                side=1, entry=1.1000, sl_initial=1.0900, tp_initial=1.1200,
-                context_key="EURUSD|long|continuation|3p",
-                indicators={"ltf_rsi_14": 55.2}, ts_open="2026-08-07T04:00:00+00:00",
-                mae_r=0.0, timeframe="H1", risque_devise=100.0)
+    base = {"r": 0.0100, "phase": PHASE_INIT, "peak_fav_r": 0.0, "symbol": "EURUSD",
+                "side": 1, "entry": 1.1000, "sl_initial": 1.0900, "tp_initial": 1.1200,
+                "context_key": "EURUSD|long|continuation|3p",
+                "indicators": {"ltf_rsi_14": 55.2}, "ts_open": "2026-08-07T04:00:00+00:00",
+                "mae_r": 0.0, "timeframe": "H1", "risque_devise": 100.0}
     base.update(over)
     return TrackedState(**base)
 
@@ -69,7 +68,12 @@ def test_letat_retient_le_contexte_dentree():
 
 def test_aller_retour_disque_preserve_le_contexte(tmp_path):
     f = tmp_path / "s.json"
-    save_state(f, {"42": etat(peak_fav_r=1.4, mae_r=-0.3)})
+    save_state(f, {"42": etat(
+        peak_fav_r=1.4, mae_r=-0.3,
+        entry_policy="MARCHE", policy_epoch="epoch-a",
+        config_sha256="a" * 64, code_sha256="b" * 64,
+        decision_id="epoch-a:42",
+    )})
     relu = load_state(f)["42"]
     assert relu.entry == 1.1000
     assert relu.context_key == "EURUSD|long|continuation|3p"
@@ -77,6 +81,11 @@ def test_aller_retour_disque_preserve_le_contexte(tmp_path):
     assert relu.peak_fav_r == 1.4
     assert relu.mae_r == -0.3
     assert relu.timeframe == "H1"
+    assert relu.entry_policy == "MARCHE"
+    assert relu.policy_epoch == "epoch-a"
+    assert relu.config_sha256 == "a" * 64
+    assert relu.code_sha256 == "b" * 64
+    assert relu.decision_id == "epoch-a:42"
 
 
 def test_etat_ancien_se_relit_sans_planter(tmp_path):
@@ -130,6 +139,35 @@ def test_journalise_un_gagnant(tmp_path):
     )
     assert excursion["contre_tendance"] is True
     assert trades[0].ticket == "live:555"
+
+
+def test_cloture_propage_l_identite_de_politique(tmp_path):
+    j = tmp_path / "trades.ndjson"
+    policy = {
+        "entry_policy": "MARCHE",
+        "policy_epoch": "epoch-a",
+        "config_sha256": "a" * 64,
+        "code_sha256": "b" * 64,
+        "decision_id": "epoch-a:558",
+    }
+    assert journaliser_cloture(
+        etat(**policy), "558", prix_sortie=1.1150,
+        ts_exit="2026-08-07T05:00:00+00:00", journal_path=j,
+        net_devise=150.0,
+    )
+
+    excursion = json.loads(
+        (tmp_path / "excursions.ndjson").read_text(encoding="utf-8").strip()
+    )
+    assert excursion["execution_mode"] == "explore"
+    assert excursion["config_sha256"] == "a" * 64
+    assert excursion["code_sha256"] == "b" * 64
+    registry = [
+        json.loads(line) for line in
+        (tmp_path / "decision_registry.ndjson").read_text(encoding="utf-8").splitlines()
+    ]
+    assert registry[0]["event"] == "resolved"
+    assert registry[0]["decision_id"] == "epoch-a:558"
 
 
 def test_journalise_un_perdant(tmp_path):
@@ -305,11 +343,11 @@ class FakeMt5:
         return self._positions
 
     def symbol_info(self, s):
-        class I:
+        class SymbolInfo:
             point = 1e-5
             digits = 5
             trade_stops_level = 10
-        return I()
+        return SymbolInfo()
 
     def symbol_info_tick(self, s):
         class T:
@@ -707,9 +745,9 @@ def test_journal_par_defaut_a_cote_de_letat(tmp_path):
 
 class TestFraisReels:
     def _deal(self, **kw):
-        d = dict(time=1_800_000_000, price=1.11, profit=0.0,
-                 commission=0.0, swap=0.0, fee=0.0,
-                 position_id=1, symbol="EURUSD", entry=1)
+        d = {"time": 1_800_000_000, "price": 1.11, "profit": 0.0,
+                 "commission": 0.0, "swap": 0.0, "fee": 0.0,
+                 "position_id": 1, "symbol": "EURUSD", "entry": 1}
         d.update(kw)
         return type("Deal", (), d)()
 
@@ -875,7 +913,9 @@ class TestFraisReels:
         """Contrat de `ClosedTrade` : pnl_r est NET, comme au backtest."""
         from titanium.edge import TradeJournal
         from titanium.execution.position_manager import (
-            PHASE_TRAILING, TrackedState, journaliser_cloture,
+            PHASE_TRAILING,
+            TrackedState,
+            journaliser_cloture,
         )
         j = tmp_path / "t.ndjson"
         st = TrackedState(r=0.01, phase=PHASE_TRAILING, symbol="EURUSD",
@@ -891,7 +931,9 @@ class TestFraisReels:
         """MT5 rend la commission négative ; c'est une charge, pas un gain."""
         from titanium.edge import TradeJournal
         from titanium.execution.position_manager import (
-            PHASE_TRAILING, TrackedState, journaliser_cloture,
+            PHASE_TRAILING,
+            TrackedState,
+            journaliser_cloture,
         )
         j = tmp_path / "t.ndjson"
         st = TrackedState(r=0.01, phase=PHASE_TRAILING, symbol="EURUSD",
@@ -903,7 +945,9 @@ class TestFraisReels:
 
     def test_risque_devise_survit_au_disque(self, tmp_path):
         from titanium.execution.position_manager import (
-            TrackedState, load_state, save_state,
+            TrackedState,
+            load_state,
+            save_state,
         )
         p = tmp_path / "pos.json"
         save_state(p, {"1": TrackedState(
@@ -917,6 +961,7 @@ class TestFraisReels:
     def test_etat_ancien_sans_risque_devise(self, tmp_path):
         """Une mise à jour du code, positions ouvertes, ne doit rien casser."""
         import json
+
         from titanium.execution.position_manager import load_state
         p = tmp_path / "pos.json"
         p.write_text(json.dumps({"1": {"r": 0.01, "phase": "init"}}),
@@ -935,9 +980,9 @@ class TestVoieExacte:
 
     def _etat(self, **kw):
         from titanium.execution.position_manager import PHASE_TRAILING, TrackedState
-        d = dict(r=0.01, phase=PHASE_TRAILING, symbol="EURUSD", side=1,
-                 entry=1.1000, context_key="EURUSD|long|continuation|3p",
-                 risque_devise=50.0)
+        d = {"r": 0.01, "phase": PHASE_TRAILING, "symbol": "EURUSD", "side": 1,
+                 "entry": 1.1000, "context_key": "EURUSD|long|continuation|3p",
+                 "risque_devise": 50.0}
         d.update(kw)
         return TrackedState(**d)
 

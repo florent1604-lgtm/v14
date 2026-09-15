@@ -9,7 +9,9 @@ qui en satisfait le minimum.
 
 Ce que ce module ne fait PAS
 ----------------------------
-Il ne touche pas au plafond. `MAX_RISK_PCT = 2 %` reste un mur : moduler
+Il ne touche pas au plafond par trade. `MAX_RISK_PCT = 2 %` — le risque d'UN
+trade, à ne pas confondre avec le budget global d'exposition — reste un
+mur : moduler
 c'est répartir le risque, pas l'augmenter globalement. Un module qui pourrait
 dépasser le plafond ne serait pas un module de confiance, ce serait une
 suppression de garde-fou déguisée.
@@ -31,7 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from titanium.sizing import MAX_RISK_PCT, TARGET_RISK_PCT
+from titanium.sizing import MAX_RISK_PCT, TARGET_RISK_PCT as TARGET_RISK_PCT
 
 #: Plancher. Un setup au quorum minimum garde une taille réduite mais non
 #: nulle : il doit continuer à produire de la donnée pour la mesure d'edge.

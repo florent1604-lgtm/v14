@@ -11,6 +11,7 @@ suit bien. Les deux sont là, dans cet ordre.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +23,7 @@ from titanium.execution.position_manager import (
     ManageParams,
     PositionSnapshot,
     TrackedState,
+    decide_adaptive_exit,
     decide_new_sl,
     load_state,
     manage_once,
@@ -33,14 +35,14 @@ P = ManageParams(breakeven_r=0.8, trail_start_r=1.2, trail_dist_r=0.8)
 
 def pos(**over) -> PositionSnapshot:
     """Long à 1.1000, stop initial 1.0900 → R = 0.0100."""
-    base = dict(ticket="1", symbol="EURUSD", side=1, entry=1.1000, current=1.1000,
-                sl=1.0900, tp=1.1200, digits=5, min_stop_distance=0.0002, spread=0.0001)
+    base = {"ticket": "1", "symbol": "EURUSD", "side": 1, "entry": 1.1000, "current": 1.1000,
+                "sl": 1.0900, "tp": 1.1200, "digits": 5, "min_stop_distance": 0.0002, "spread": 0.0001}
     base.update(over)
     return PositionSnapshot(**base)
 
 
 def etat(**over) -> TrackedState:
-    base = dict(r=0.0100, phase=PHASE_INIT, peak_fav_r=0.0, symbol="EURUSD", side=1)
+    base = {"r": 0.0100, "phase": PHASE_INIT, "peak_fav_r": 0.0, "symbol": "EURUSD", "side": 1}
     base.update(over)
     return TrackedState(**base)
 
@@ -230,6 +232,48 @@ def test_config_du_projet_porte_les_valeurs_du_postmortem():
     assert p.breakeven_r == 0.8, "valeur issue du post-mortem V12 (23 % des pertes)"
 
 
+# ═════════════════════════════ sorties adaptatives ══════════════════════════
+
+def test_sortie_adaptative_non_armee_avant_point_huit_r():
+    d = decide_adaptive_exit(pos(current=1.1079), etat(), P)
+    assert d.should_exit is False
+    assert d.reason == "ATTENTE_ARMEMENT"
+
+
+def test_sortie_adaptative_protege_un_gain_restitue():
+    s = etat(peak_fav_r=1.5)
+    d = decide_adaptive_exit(pos(current=1.1080), s, P)
+    assert d.should_exit is True
+    assert d.floor_r == pytest.approx(0.9)
+    assert d.giveback_r == pytest.approx(0.7)
+
+
+def test_sortie_adaptative_laisse_courir_un_nouveau_sommet():
+    s = etat(peak_fav_r=1.5)
+    d = decide_adaptive_exit(pos(current=1.1160), s, P)
+    assert d.should_exit is False
+    assert d.peak_fav_r == pytest.approx(1.6)
+    assert d.reason == "AVANTAGE_CONSERVE"
+
+
+def test_plancher_adaptatif_monte_avec_le_pic_du_ticket():
+    bas = decide_adaptive_exit(pos(current=1.1080), etat(), P)
+    haut = decide_adaptive_exit(
+        pos(current=1.1300), etat(peak_fav_r=3.0), P,
+    )
+    assert bas.floor_r == pytest.approx(0.28)
+    assert haut.floor_r == pytest.approx(2.4)
+    assert haut.floor_r > bas.floor_r
+
+
+def test_breakeven_sans_trailing_ne_deplace_que_vers_entree():
+    d = decide_new_sl(
+        pos(current=1.1300), etat(), P, allow_trailing=False,
+    )
+    assert d.new_sl == pytest.approx(1.1005)
+    assert d.phase == PHASE_BREAKEVEN
+
+
 # ═══════════════════════════ persistance ════════════════════════════════════
 
 def test_aller_retour_disque(tmp_path):
@@ -264,7 +308,8 @@ def test_ecriture_atomique(tmp_path):
 
 class FakePos:
     def __init__(self, ticket=1, magic=14_000, comment="titanium-v14",
-                 type_=0, open_=1.1000, current=1.1100, sl=1.0900, tp=1.1200):
+                 type_=0, open_=1.1000, current=1.1100, sl=1.0900, tp=1.1200,
+                 volume=0.10):
         self.ticket = ticket
         self.magic = magic
         self.comment = comment
@@ -274,11 +319,20 @@ class FakePos:
         self.price_current = current
         self.sl = sl
         self.tp = tp
+        self.volume = volume
 
 
 class FakeMt5:
     TRADE_ACTION_SLTP = 2
+    TRADE_ACTION_DEAL = 1
     TRADE_RETCODE_DONE = 10009
+    TRADE_RETCODE_DONE_PARTIAL = 10010
+    ORDER_TYPE_BUY = 0
+    ORDER_TYPE_SELL = 1
+    ORDER_TIME_GTC = 0
+    ORDER_FILLING_FOK = 0
+    ORDER_FILLING_IOC = 1
+    ORDER_FILLING_RETURN = 2
 
     def __init__(self, positions=(), retcode=10009):
         self._positions = positions
@@ -289,11 +343,7 @@ class FakeMt5:
         return self._positions
 
     def symbol_info(self, s):
-        class I:
-            point = 1e-5
-            digits = 5
-            trade_stops_level = 10
-        return I()
+        return SimpleNamespace(point=1e-5, digits=5, trade_stops_level=10, filling_mode=2)
 
     def symbol_info_tick(self, s):
         class T:
@@ -328,6 +378,143 @@ def test_passage_deplace_le_sl(tmp_path):
     envoi = m.envois[0]
     assert envoi["action"] == FakeMt5.TRADE_ACTION_SLTP
     assert envoi["tp"] == pytest.approx(1.1200), "le TP doit être renvoyé inchangé"
+
+
+def test_passage_retablit_be_sans_activer_trailing(tmp_path):
+    m = FakeMt5(positions=(FakePos(current=1.1300),))
+    r = manage_once(
+        m, policy=ARMEE, params=P, state_path=tmp_path / "s.json",
+        account=compte_demo(), manage_stops=True, manage_trailing=False,
+    )
+    assert r["moved"] == 1
+    assert m.envois[0]["action"] == FakeMt5.TRADE_ACTION_SLTP
+    assert m.envois[0]["sl"] == pytest.approx(1.1005)
+
+
+def test_passage_cloture_activement_sans_modifier_sl_tp(tmp_path):
+    f = tmp_path / "s.json"
+    save_state(f, {"1": etat(peak_fav_r=1.5)})
+    m = FakeMt5(positions=(FakePos(current=1.1080),))
+    r = manage_once(
+        m, policy=ARMEE, params=P, state_path=f, account=compte_demo(),
+        manage_stops=True, manage_trailing=False, manage_exits=True,
+    )
+    assert r["exit_sent"] == 1
+    assert r["moved"] == 0
+    assert len(m.envois) == 1
+    ordre = m.envois[0]
+    assert ordre["action"] == FakeMt5.TRADE_ACTION_DEAL
+    assert ordre["type"] == FakeMt5.ORDER_TYPE_SELL
+    assert ordre["position"] == 1
+    assert ordre["volume"] == pytest.approx(0.10)
+    assert "sl" not in ordre and "tp" not in ordre
+
+
+def test_passage_cloture_toutes_les_tranches_du_micro_panier(tmp_path):
+    state_path = tmp_path / "s.json"
+    save_state(state_path, {"1": etat(), "2": etat()})
+
+    sommet = FakeMt5(positions=(
+        FakePos(ticket=1, current=1.1080),
+        FakePos(ticket=2, current=1.1080),
+    ))
+    premier = manage_once(
+        sommet, policy=ARMEE, params=P, state_path=state_path,
+        account=compte_demo(), manage_stops=False, manage_exits=True,
+    )
+    assert premier["exit_sent"] == 0
+    assert json.loads(
+        (tmp_path / "micro_baskets.json").read_text(encoding="utf-8")
+    )["EURUSD"] == pytest.approx(0.8)
+
+    retour = FakeMt5(positions=(
+        FakePos(ticket=1, current=1.1020),
+        FakePos(ticket=2, current=1.1020),
+    ))
+    second = manage_once(
+        retour, policy=ARMEE, params=P, state_path=state_path,
+        account=compte_demo(), manage_stops=False, manage_exits=True,
+    )
+    assert second["exit_sent"] == 2
+    assert second["basket_exit_sent"] == 2
+    assert len(retour.envois) == 2
+    assert all(envoi["action"] == FakeMt5.TRADE_ACTION_DEAL for envoi in retour.envois)
+    assert all("basket-exit" in envoi["comment"] for envoi in retour.envois)
+    assert all("sl" not in envoi and "tp" not in envoi for envoi in retour.envois)
+
+
+def test_passage_cloture_apres_deux_peurs_glm_distinctes(tmp_path):
+    from datetime import datetime, timezone
+
+    from titanium.organism.contracts import CORTEX_DECISION_MODEL_VERSION
+
+    state_path = tmp_path / "s.json"
+    request_path = tmp_path / "position_requests.ndjson"
+    verdict_path = tmp_path / "position_verdicts.ndjson"
+    save_state(state_path, {
+        "1": etat(sentiment_ref="fear-1", sentiment_state="FEAR",
+                  sentiment_confidence=0.90, fear_streak=1),
+    })
+    verdict_path.write_text(json.dumps({
+        "request_ref": "fear-2",
+        "ticket": "1",
+        "state": "FEAR",
+        "confidence": 0.91,
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "rendered_at": datetime.now(timezone.utc).isoformat(),
+        "model_version": CORTEX_DECISION_MODEL_VERSION,
+    }) + "\n", encoding="utf-8")
+    m = FakeMt5(positions=(FakePos(current=1.0950),))
+
+    r = manage_once(
+        m, policy=ARMEE, params=P, state_path=state_path,
+        account=compte_demo(), manage_stops=True, manage_trailing=False,
+        manage_exits=True, sentiment_request_path=request_path,
+        sentiment_verdict_path=verdict_path,
+    )
+
+    assert r["fear_exit_sent"] == 1
+    assert r["exit_sent"] == 1
+    assert m.envois[0]["comment"] == "titanium-v14-fear-exit"
+    assert "sl" not in m.envois[0] and "tp" not in m.envois[0]
+
+
+def test_ancien_snapshot_de_peur_ne_declenche_aucune_sortie(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    from titanium.organism.contracts import CORTEX_DECISION_MODEL_VERSION
+
+    now = datetime.now(timezone.utc)
+    state_path = tmp_path / "state.json"
+    verdict_path = tmp_path / "verdicts.ndjson"
+    save_state(state_path, {"1": etat(sentiment_ref="fear-1", fear_streak=1)})
+    verdict_path.write_text(json.dumps({
+        "request_ref": "fear-2", "ticket": "1", "state": "FEAR", "confidence": 0.91,
+        "observed_at": (now - timedelta(seconds=500)).isoformat(),
+        "rendered_at": now.isoformat(), "model_version": CORTEX_DECISION_MODEL_VERSION,
+    }) + "\n", encoding="utf-8")
+    broker = FakeMt5(positions=(FakePos(current=1.0950),))
+    result = manage_once(
+        broker, policy=ARMEE, params=P, state_path=state_path, account=compte_demo(),
+        manage_stops=False, manage_trailing=False, manage_exits=True,
+        sentiment_request_path=tmp_path / "requests.ndjson",
+        sentiment_verdict_path=verdict_path,
+    )
+    assert result["fear_exit_sent"] == 0
+    assert broker.envois == []
+    assert load_state(state_path)["1"].fear_streak == 0
+
+
+def test_observation_continue_de_memoriser_le_pic_sans_ordre(tmp_path):
+    f = tmp_path / "s.json"
+    m = FakeMt5(positions=(FakePos(current=1.1150),))
+    r = manage_once(
+        m, policy=ARMEE, params=P, state_path=f, account=compte_demo(),
+        manage_stops=False, manage_exits=False,
+    )
+    assert r["exit_sent"] == 0
+    assert m.envois == []
+    assert load_state(f)["1"].peak_fav_r == pytest.approx(1.5)
 
 
 def test_tp_short_est_renvoye_strictement_inchange(tmp_path):
@@ -367,6 +554,22 @@ def test_compte_reel_ne_gere_rien(tmp_path):
     m = FakeMt5(positions=(FakePos(),))
     r = manage_once(m, policy=ARMEE, params=P, state_path=tmp_path / "s.json",
                     account=reel)
+    assert r["reason"] == "WALL_NOT_DEMO"
+    assert m.envois == []
+
+
+def test_sortie_adaptative_reste_derriere_le_mur_demo(tmp_path):
+    from titanium.data.mt5_vendor import AccountSnapshot
+    reel = AccountSnapshot(login=60261188, server="Axi-US52-Live", currency="EUR",
+                           balance=20.0, equity=20.0, margin_free=15.0,
+                           is_demo=False, trade_mode=2)
+    f = tmp_path / "s.json"
+    save_state(f, {"1": etat(peak_fav_r=1.5)})
+    m = FakeMt5(positions=(FakePos(current=1.1080),))
+    r = manage_once(
+        m, policy=ARMEE, params=P, state_path=f, account=reel,
+        manage_stops=False, manage_exits=True,
+    )
     assert r["reason"] == "WALL_NOT_DEMO"
     assert m.envois == []
 
@@ -554,3 +757,15 @@ def test_tracked_state_from_dict_tolere_un_etat_ancien_sans_instrumentation():
     assert relu.entry_atr == 0.0
     assert relu.contre_tendance is False
     assert relu.horizon_excursions == {}
+
+
+def test_tracked_state_roundtrip_conserve_le_sentiment():
+    s = etat(sentiment_ref="ref-2", sentiment_state="FEAR",
+             sentiment_confidence=0.91, fear_streak=2,
+             fear_exit_sent_ref="ref-2")
+    relu = TrackedState.from_dict(s.to_dict())
+    assert relu.sentiment_ref == "ref-2"
+    assert relu.sentiment_state == "FEAR"
+    assert relu.sentiment_confidence == pytest.approx(0.91)
+    assert relu.fear_streak == 2
+    assert relu.fear_exit_sent_ref == "ref-2"

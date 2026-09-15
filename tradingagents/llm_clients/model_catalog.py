@@ -98,8 +98,10 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Claude Haiku 4.5 - Fastest with near-frontier intelligence", "claude-haiku-4-5"),
         ],
         "deep": [
-            ("Claude Fable 5 - Most capable, long-running agents", "claude-fable-5"),
-            ("Claude Opus 4.8 - Frontier agentic coding and reasoning", "claude-opus-4-8"),
+            ("Claude Opus 5 - Recommended default, frontier reasoning + coding", "claude-opus-5"),
+            ("Claude Fable 5.1 - Most capable, long-horizon agents, 1M ctx", "claude-fable-5-1"),
+            ("Claude Fable 5 - Previous flagship, long-running agents", "claude-fable-5"),
+            ("Claude Opus 4.8 - Previous frontier, agentic coding and reasoning", "claude-opus-4-8"),
             ("Claude Sonnet 5 - Near-frontier intelligence at Sonnet cost", "claude-sonnet-5"),
             ("Claude Opus 4.7 - Previous frontier, long-running agents", "claude-opus-4-7"),
         ],

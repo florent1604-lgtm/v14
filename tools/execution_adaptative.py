@@ -24,6 +24,7 @@ import json
 import math
 import statistics
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,10 @@ from titanium.execution_sim.runner import (  # noqa: E402
     generate_scenarios,
     run_matrix,
 )
+from titanium.macro import load_policy  # noqa: E402
+from titanium.macro.contracts import MacroRisk, MacroState  # noqa: E402
+from titanium.macro.gate import MACRO_POSTURE_KEY, macro_block  # noqa: E402
+from tools import arene_cellules as arene  # noqa: E402
 
 TEMOIN = "market"
 
@@ -432,6 +437,116 @@ def ecrire(resultat: dict[str, Any], rows: list[dict[str, Any]], output: Path) -
     return {"json": json_path, "ndjson": ndjson_path, "markdown": md_path}
 
 
+def _tension(valeur: str) -> float:
+    """Tension d'execution : [0, 1], refusee hors bornes.
+
+    Hors bornes, le mecanisme refuse deja de planifier -- une posture
+    illisible n'est pas une posture neutre -- mais l'arene rendait alors un
+    rapport a un seul comportement et 136 collisions, en imprimant la valeur
+    declaree comme si elle avait ete appliquee. Un refus explicite vaut mieux
+    qu'un rapport qui a l'air d'une mesure.
+    """
+    try:
+        tension = float(valeur)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"tension illisible : {valeur!r}") from None
+    if not 0.0 <= tension <= 1.0:
+        raise argparse.ArgumentTypeError(f"tension hors de [0, 1] : {valeur!r}")
+    return tension
+
+
+def _table_lisible(valeur: str) -> Path:
+    """Table ndjson de reference : elle doit exister DES LE LANCEMENT.
+
+    Sans ce refus, une faute de frappe rendait une `FileNotFoundError`
+    brute apres douze secondes de calcul. Le cas n'est pas theorique :
+    l'artefact de reference n'est pas versionne, donc un checkout neuf
+    n'en a aucun et c'est le chemin que le mode d'emploi decrit.
+    """
+    chemin = Path(valeur)
+    if not chemin.is_file():
+        raise argparse.ArgumentTypeError(f"table de reference introuvable : {chemin}")
+    return chemin
+
+
+def _dossier_defaut() -> Path:
+    """Ou ecrit une passe qui ne nomme PAS ``--output`` : un dossier date.
+
+    Le defaut precedent etait ``results/execution_adaptative/``, soit
+    l'emplacement de l'artefact de reference : 30 Mo non versionnes, et le
+    sha256 sur lequel tout le dossier repose. Une passe distraite le
+    remplacait, et toute comparaison ulterieure comparait alors l'artefact
+    a lui-meme -- le piege que cette campagne a deja paye une fois.
+
+    Le comportement EXPLICITE ne bouge pas : ``--output`` ecrit exactement
+    ou on le demande, reference comprise. C'est l'ecriture IMPLICITE qui
+    change de cible, et qui ne peut donc plus rien detruire -- pas meme la
+    mesure d'une passe implicite precedente.
+    """
+    horodatage = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return ROOT / "results" / f"arene_{horodatage}"
+
+
+def bloc_posture(tension: float, *, echelle_s: float) -> dict[str, Any] | None:
+    """Bloc macro d'une posture d'execution, construit par son PROPRIETAIRE.
+
+    La forme du bloc n'est pas recopiee ici : ``titanium.macro.gate`` la
+    possede (``macro_block``), et la posture sort de ``macro_posture``, seule
+    formule du depot. Le harnais ne choisit que l'INSTANT d'une publication :
+    la tension demandee est traduite en delai avant publication, sur
+    l'echelle de temps du veto, ce qui la rend lisible par la fonction que la
+    production emploie. Une tension nulle vaut neutre : aucun bloc, donc
+    exactement le comportement d'avant.
+    """
+    if tension <= 0.0:
+        return None
+    delai_s = echelle_s * (1.0 - tension) / tension
+    risque = MacroRisk(
+        state=MacroState.CLEAR,
+        score=0.0,
+        now=datetime.now(timezone.utc),
+        next_event_title="posture de mesure (aucune publication lue)",
+        seconds_to_next=delai_s,
+    )
+    return macro_block(risque, posture_scale_s=echelle_s)
+
+
+def comparer(reference: Path, courant: Path) -> dict[str, Any]:
+    """Compare deux tables cellule par cellule, sur TOUTES les colonnes.
+
+    La REGLE vit dans ``tools.arene_cellules`` (cle d'appariement, lecture du
+    ndjson, denombrement, empreintes) ; ce harnais ne choisit que sa
+    POLITIQUE -- toutes les colonnes, cellules presentes d'un seul cote
+    comptees comme des ecarts -- et met le resultat en forme.
+    """
+    gauche, droite = arene.lire_ndjson(reference), arene.lire_ndjson(courant)
+    noms: set[str] = set()
+    for row in gauche + droite:
+        noms |= set(row)
+    colonnes = tuple(sorted(noms))
+    politique = arene.comparer(
+        arene.projeter(arene.indexer(gauche), colonnes),
+        arene.projeter(arene.indexer(droite), colonnes),
+        colonnes=colonnes,
+        cellules_absentes_comptent=True,
+    )
+    return {
+        "reference": str(reference),
+        "courant": str(courant),
+        "sha256_reference": arene.sha256_fichier(reference),
+        "sha256_courant": arene.sha256_fichier(courant),
+        "cellules_comparees": politique["cellules_comparees"],
+        "cellules_identiques": politique["cellules_identiques"],
+        "cellules_bougees": politique["cellules_bougees"],
+        "colonnes_bougees": politique["colonnes_bougees"],
+        "cellules_bougees_par_technique": politique["bougees_par_politique"],
+        "exemples": [
+            {"cle": cle.split("|"), "colonnes": list(champs)}
+            for cle, champs, _, _ in politique["ecarts"][:20]
+        ],
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="execution-adaptative",
@@ -439,11 +554,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", default=str(ROOT / "config" / "execution_backtest.json"))
     parser.add_argument(
-        "--output", default=str(ROOT / "results" / "execution_adaptative")
+        "--output",
+        default=None,
+        help="dossier de sortie ; omis, la passe ecrit dans "
+             "results/arene_<date> et JAMAIS sur l'artefact de reference",
     )
     parser.add_argument("--seed", type=int, default=14_082_026)
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--quick", action="store_true")
+    parser.add_argument(
+        "--macro-tension",
+        type=_tension,
+        default=0.0,
+        help="posture d'execution [0,1] appliquee a tous les cas ; 0 = neutre (defaut)",
+    )
+    parser.add_argument(
+        "--comparer",
+        type=_table_lisible,
+        default=None,
+        help="table ndjson de reference a comparer cellule par cellule",
+    )
     return parser
 
 
@@ -452,16 +582,54 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args.config)
     if config["execution"].get("live_enabled") is not False:
         raise SystemExit("refus : execution.live_enabled doit rester false")
+    # La cible est decidee AVANT le calcul : l'operateur voit ou la passe
+    # ecrit, et une ecriture implicite ne peut pas viser la reference.
+    sortie = Path(args.output) if args.output is not None else _dossier_defaut()
+    if args.output is None:
+        print(
+            f"output implicite: {sortie} - l'artefact de reference "
+            "(results/execution_adaptative/execution_adaptative.ndjson) "
+            "n'est PAS touche ; nommer --output <dossier> pour choisir la cible"
+        )
     spec = MatrixSpec(
         policies=(TEMOIN, *ADAPTIVE_POLICIES),
         seed=args.seed,
         quick=args.quick,
         jobs=max(1, args.jobs),
     )
-    rows = run_matrix(spec, config)
+    politique_macro = load_policy()
+    echelle_s = float(politique_macro.elevated_within_s)
+    macro = bloc_posture(args.macro_tension, echelle_s=echelle_s)
+    rows = run_matrix(spec, config, macro=macro)
     resultat = build_report(rows, seed=args.seed, quick=args.quick)
     resultat["config_fingerprint"] = _empreinte_config(config)
-    sorties = ecrire(resultat, rows, Path(args.output))
+    # Posture REELLEMENT posee, relue sur le bloc du proprietaire : une
+    # valeur declaree que le mecanisme refuse ne doit pas s'afficher comme
+    # une mesure. L'echelle est ecrite a cote, parce que c'est elle qui
+    # relie la tension demandee a un delai avant publication.
+    resultat["posture_macro"] = (
+        float(macro[MACRO_POSTURE_KEY]) if macro is not None else 0.0
+    )
+    resultat["posture_echelle_s"] = echelle_s
+    sorties = ecrire(resultat, rows, sortie)
+    if args.comparer is not None:
+        comparaison = comparer(Path(args.comparer), sorties["ndjson"])
+        chemin = sortie / "comparaison_posture.json"
+        chemin.write_text(
+            json.dumps(comparaison, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        resultat["comparaison_posture"] = comparaison
+        print(
+            f"comparaison: cellules={comparaison['cellules_comparees']} "
+            f"identiques={comparaison['cellules_identiques']} "
+            f"bougees={comparaison['cellules_bougees']} "
+            f"sha_reference={comparaison['sha256_reference'][:16]} "
+            f"sha_courant={comparaison['sha256_courant'][:16]}"
+        )
+        print(f"colonnes_bougees={comparaison['colonnes_bougees']}")
+        print(f"par_technique={comparaison['cellules_bougees_par_technique']}")
+        print(f"comparaison: {chemin}")
     print(
         f"mode=backtest/dry-run live_enabled=false seed={args.seed} "
         f"techniques={len(ADAPTIVE_POLICIES)} scenarios_par_technique="
@@ -475,6 +643,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     if resultat["independance"]["collisions"]:
         print("COLLISIONS: " + ", ".join(resultat["independance"]["collisions"]))
+    print(f"posture_macro={resultat['posture_macro']}")
     print(
         f"independance={'OUI' if resultat['independance']['independantes'] else 'NON'} "
         f"comportements_distincts={len(resultat['classes_equivalence'])} "

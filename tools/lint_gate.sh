@@ -33,5 +33,15 @@ else
   RUFF="python -m ruff"
 fi
 
+# The first pass honors Ruff exclusions, including replay-sealed engine files.
+# Explicit paths bypass exclusions, so the second pass validates those sources
+# without exposing them to a future tree-wide `ruff --fix`.
 # shellcheck disable=SC2086
-exec $RUFF check --select "$SELECT" $CIBLES "$@"
+$RUFF check --select "$SELECT" $CIBLES "$@"
+# shellcheck disable=SC2086
+exec $RUFF check --select "$SELECT" \
+  tools/rejeu_univers.py titanium/backtest.py titanium/data/archive_barres.py \
+  titanium/edge.py titanium/features/builder.py titanium/features/candlesticks.py \
+  titanium/features/indicators.py titanium/features/smc.py \
+  titanium/features/structure.py titanium/features/ict_structure.py \
+  titanium/gates/confluence_gate.py

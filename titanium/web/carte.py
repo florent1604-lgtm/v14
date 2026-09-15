@@ -94,7 +94,7 @@ def _analyser(p: Path) -> Module | None:
                lignes=src.count("\n") + 1)
 
     for n in ast.walk(arbre):
-        if isinstance(n, ast.FunctionDef) or isinstance(n, ast.AsyncFunctionDef):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # Les fonctions privées ne sont pas des points d'entrée : les
             # signaler inertes produirait un bruit permanent.
             if not n.name.startswith("_"):

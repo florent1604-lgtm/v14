@@ -42,11 +42,16 @@ SERVICES = ("live_demo", "dashboard", "analystes")
 #: carnet écrivent deux fois les mêmes différentiels dans le même fichier
 #: append-only, et une archive dédoublée ne se répare pas — les numéros de
 #: séquence deviennent ininterprétables.
-COLLECTEURS = ("enregistreur_quotes", "enregistreur_carnet_binance")
+COLLECTEURS = (
+    "enregistreur_quotes",
+    "enregistreur_carnet_binance",
+    "collecteur_microstructure",
+)
 
 MOTIF = re.compile(
     r"tools[\\/](live_demo|dashboard|analystes"
-    r"|enregistreur_quotes|enregistreur_carnet_binance)\.py")
+    r"|enregistreur_quotes|enregistreur_carnet_binance"
+    r"|collecteur_microstructure)\.py")
 
 
 def _processus() -> list:
@@ -57,7 +62,8 @@ def _processus() -> list:
              "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
              "Select-Object ProcessId,ParentProcessId,CommandLine | "
              "ConvertTo-Json -Compress"],
-            capture_output=True, text=True, timeout=60).stdout.strip()
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=60).stdout.strip()
         d = json.loads(out) if out else []
         return [d] if isinstance(d, dict) else d
     except Exception:  # noqa: BLE001

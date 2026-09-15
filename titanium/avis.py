@@ -13,21 +13,21 @@ de la disponibilité d'un service externe.
 
 La solution
 -----------
-Deux flux découplés par un fichier.
+Deux flux découplés par une file et une mémoire centrale scellée.
 
 1. La boucle **dépose** ce que Titanium a vu (portes, piliers, zones,
    indicateurs) et continue immédiatement. Coût : une écriture.
-2. Un travailleur séparé **consomme** les demandes, fait délibérer les
-   analystes, et écrit un avis daté.
-3. La boucle **relit** l'avis le plus récent pour l'actif, sans jamais
-   attendre. Pas d'avis, ou avis périmé → conviction neutre.
+2. Un travailleur séparé **consomme** les demandes et écrit une proposition
+   liée à l'identité exacte de la décision.
+3. La boucle relit uniquement cette proposition exacte, sans attendre.
+   Absence, autre barre ou empreinte différente → `WAIT` et alerte.
 
-L'avis ne décide de rien
-------------------------
-Il alimente `conviction`, qui module la **taille** de ±25 % au plus via
-`titanium.confiance`. Il ne peut ni ouvrir, ni fermer, ni empêcher une
-position. C'est la règle non négociable de V14 : aucun LLM n'a autorité
-d'exécution, et aucun LLM n'est dans le chemin temps réel.
+Autorité cognitive, exécution séparée
+-------------------------------------
+Hermès choisit ALLOW, WAIT ou BLOCK parmi les candidats produits par les
+organes et peut moduler sa conviction. Il ne peut inventer un sens, fixer une
+taille, appeler MT5, fermer une position ou modifier un SL. Toute autorisation
+reste soumise aux gardes techniques de mémoire, risque, coût et compte DEMO.
 
 Un avis périmé est traité comme une absence d'avis. Sans cette péremption,
 une analyse d'il y a six heures continuerait à peser sur une décision prise
@@ -41,8 +41,17 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from titanium.organism.contracts import (
+    MODEL_VERSION,
+    PROMPT_VERSION,
+    DecisionIdentity,
+    build_decision_identity,
+)
+
 #: Au-delà, un avis ne décrit plus le marché courant. Trois barres M15.
 PEREMPTION_S = 45 * 60
+HERMES_RETRY_AFTER_S = 600
+HERMES_MAX_FAILURES_PER_DECISION = 2
 
 #: Valeur rendue quand aucun avis exploitable n'existe. Le point mort de
 #: l'échelle de confiance : ni bonus, ni malus.
@@ -64,13 +73,27 @@ class Demande:
     stop_distance: float = 0.0
     rr: float = 0.0
     bar_time: str = ""
+    engine_context: str = ""
     zones: list = field(default_factory=list)
     indicateurs: dict = field(default_factory=dict)
     #: Résumé d'auscultation — quels organes du bot sont dégradés.
     sante: str = ""
     demande_a: str = ""
+    decision_ref: str = ""
+    context_digest: str = ""
+    model_version: str = MODEL_VERSION
+    prompt_version: str = PROMPT_VERSION
+
+    def sceller(self) -> DecisionIdentity:
+        identity = build_decision_identity(asdict(self))
+        self.decision_ref = identity.decision_ref
+        self.context_digest = identity.context_digest
+        self.model_version = identity.model_version
+        self.prompt_version = identity.prompt_version
+        return identity
 
     def to_dict(self) -> dict:
+        self.sceller()
         d = asdict(self)
         d["demande_a"] = self.demande_a or _maintenant()
         return d
@@ -130,6 +153,13 @@ class Avis:
     bar_time: str = ""
     rendu_a: str = ""
     source: str = ""
+    action: str = "WAIT"
+    sources: list[str] = field(default_factory=list)
+    decision_ref: str = ""
+    context_digest: str = ""
+    evidence_digest: str = ""
+    model_version: str = MODEL_VERSION
+    prompt_version: str = PROMPT_VERSION
 
     def frais(self, *, maintenant: float | None = None,
               peremption: int = PEREMPTION_S) -> bool:
@@ -172,6 +202,7 @@ def deposer(demande: Demande, chemin: Path) -> bool:
 # ────────────────────────────────────────────────────────────────────────
 
 def dernier_avis(symbole: str, chemin: Path, *,
+                 identity: DecisionIdentity | None = None,
                  peremption: int = PEREMPTION_S) -> Avis | None:
     """Le dernier avis frais pour ce symbole, ou None.
 
@@ -194,6 +225,12 @@ def dernier_avis(symbole: str, chemin: Path, *,
                 continue
             if d.get("symbol") != symbole:
                 continue
+            if identity is not None:
+                expected = identity.to_dict()
+                if any(d.get(key) != value for key, value in expected.items()):
+                    continue
+                if not str(d.get("evidence_digest", "")):
+                    continue
             trouve = d          # le dernier gagne : le fichier est ordonné
         if trouve is None:
             return None
@@ -205,14 +242,15 @@ def dernier_avis(symbole: str, chemin: Path, *,
 
 
 def conviction_pour(symbole: str, side: int, chemin: Path,
-                    *, peremption: int = PEREMPTION_S) -> tuple[float, str]:
+                    *, identity: DecisionIdentity | None = None,
+                    peremption: int = PEREMPTION_S) -> tuple[float, str]:
     """Conviction utilisable par le sizing, et son motif.
 
     Un avis en **désaccord de direction** ne renverse rien — il abaisse la
     conviction, donc la taille. C'est la seule autorité qu'un LLM possède
     ici : rendre une position plus petite, jamais l'annuler ni l'inverser.
     """
-    a = dernier_avis(symbole, chemin, peremption=peremption)
+    a = dernier_avis(symbole, chemin, identity=identity, peremption=peremption)
     if a is None:
         return NEUTRE, "aucun avis"
     if a.side and side and a.side != side:
@@ -220,6 +258,22 @@ def conviction_pour(symbole: str, side: int, chemin: Path,
         # décision déterministe restant souveraine.
         return min(a.conviction, 0.2), f"analystes en désaccord ({a.rating})"
     return a.conviction, f"analystes {a.rating or 'sans note'}"
+
+
+def autorisation_pour(symbole: str, side: int, chemin: Path,
+                      *, identity: DecisionIdentity | None = None,
+                      peremption: int = PEREMPTION_S) -> tuple[str, str]:
+    """Verdict fondamental frais; toute ambiguite attend plutot que trader."""
+    a = dernier_avis(symbole, chemin, identity=identity, peremption=peremption)
+    if a is None:
+        return "WAIT", "analyse fondamentale absente ou perimee"
+    if a.side and side and a.side != side:
+        return "BLOCK", "analyse fondamentale rendue pour le sens oppose"
+    action = str(a.action or "WAIT").upper()
+    if action not in {"ALLOW", "WAIT", "BLOCK"}:
+        action = "WAIT"
+    sources = ", ".join(a.sources[:4]) if a.sources else "aucune source"
+    return action, f"{a.resume or a.rating or action} [{sources}]"
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -251,19 +305,39 @@ def demandes_en_attente(file_demandes: Path, file_avis: Path,
     if not file_demandes.exists():
         return []
 
+    import time as _t
+    maintenant = _t.time()
     faits = set()
+    outages: dict[str, tuple[int, float]] = {}
     if file_avis.exists():
         for ligne in file_avis.read_text(encoding="utf-8").splitlines():
             try:
                 d = json.loads(ligne)
-                faits.add((d.get("symbol"), d.get("bar_time")))
+                cle = d.get("decision_ref") or (d.get("symbol"), d.get("bar_time"))
+                if (isinstance(cle, str) and cle and d.get("source") == "hermes-unavailable"
+                        and d.get("action") == "WAIT" and d.get("model_version") == "none"):
+                    try:
+                        rendered = datetime.fromisoformat(d.get("rendu_a", ""))
+                        if rendered.tzinfo is None or rendered.timestamp() > maintenant:
+                            raise ValueError("unverifiable outage timestamp")
+                        count, last = outages.get(cle, (0, 0.0))
+                        outages[cle] = (count + 1, max(last, rendered.timestamp()))
+                    except (TypeError, ValueError):
+                        faits.add(cle)
+                else:
+                    # A real cognitive WAIT/BLOCK/ALLOW is final for these facts.
+                    faits.add(cle)
             except json.JSONDecodeError:
                 continue
+    for cle, (count, last) in outages.items():
+        # One retry after a durable cooldown, never a loop of billable retries.
+        # A restart cannot reset this budget: evidence stays in the append-only journal.
+        # Source freshness is still checked by the worker before any API request.
+        if (count >= HERMES_MAX_FAILURES_PER_DECISION
+                or maintenant - last < HERMES_RETRY_AFTER_S):
+            faits.add(cle)
 
-    import time as _t
-    maintenant = _t.time()
-
-    vues: dict[tuple, Demande] = {}
+    vues: dict[object, Demande] = {}
     perimees = 0
     for ligne in file_demandes.read_text(encoding="utf-8").splitlines():
         ligne = ligne.strip()
@@ -273,8 +347,9 @@ def demandes_en_attente(file_demandes: Path, file_avis: Path,
             d = json.loads(ligne)
         except json.JSONDecodeError:
             continue
-        cle = (d.get("symbol"), d.get("bar_time"))
-        if cle in faits or None in cle:
+        legacy = (d.get("symbol"), d.get("bar_time"))
+        cle = d.get("decision_ref") or legacy
+        if cle in faits or legacy in faits or None in legacy:
             continue
 
         # ── Une demande plus vieille que la péremption produirait un avis

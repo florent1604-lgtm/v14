@@ -141,7 +141,7 @@ def test_lot_minimum_revalide_alias_avec_risque_effectif(monkeypatch):
     from titanium.data import mt5_vendor
 
     position = SimpleNamespace(
-        symbol="NAS100.fs", sl=1.099, price_open=1.100, volume=1.6,
+        symbol="NAS100.fs", sl=1.099, price_open=1.100, volume=5.4,
     )
     specification = SimpleNamespace(
         trade_tick_size=0.00001, trade_tick_value=1.0,
@@ -172,7 +172,7 @@ def test_lot_minimum_revalide_alias_avec_risque_effectif(monkeypatch):
 
     assert not ok
     assert "sous-jacent US_NASDAQ_100" in motif
-    assert "1.60 %" in motif
+    assert "5.40 %" in motif
 
 
 def test_gate_correle_unique_utilise_le_risque_post_sizing_avant_ordre():
@@ -183,7 +183,8 @@ def test_gate_correle_unique_utilise_le_risque_post_sizing_avant_ordre():
     # L'envoi passe par ``_envoi_entree`` depuis le 24/08/2026 : marche par
     # defaut, limite passive sur demande. La porte correlee doit rester devant
     # l'ordre quel que soit le type d'ordre choisi.
-    ordre = source.index("res = _envoi_entree()(")
+    ordre = source.index("res = execute_recorded(")
+    assert source.index("_envoi_entree(),", ordre) > ordre
 
     assert budget < non_tradable < gate_effectif < ordre
     assert "_place_dans_la_grappe(sym, conf.pct)" not in source

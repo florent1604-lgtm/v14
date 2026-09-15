@@ -49,9 +49,14 @@ from titanium.features.structure import (
     sr_context,
     volume_context,
 )
+# Le seul import du paquet macro depuis le coeur : il apporte le bloc de
+# features, jamais une decision. `macro_features` rend None quand le flux est
+# eteint, et le dict de sortie reste alors exactement celui d'avant.
+from titanium.macro.gate import macro_features
 
 #: Incrémenter dès que la façon de CALCULER une feature change — la trace le porte.
-BUILDER_VERSION = "1.1.0"
+#: 1.2.0 : ajout du bloc `macro` OPTIONNEL (voir `titanium.macro.gate`).
+BUILDER_VERSION = "1.2.0"
 
 #: G5 accepte un displacement en SECOURS quand le moteur de formes est muet.
 #:
@@ -246,7 +251,9 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
                 marche_continu: bool = False,
                 min_bars_ltf: int = 60,
                 min_bars_htf: int = 60,
-                with_indicators: bool = False) -> dict:
+                with_indicators: bool = False,
+                symbol: str = "",
+                macro: dict | None = None) -> dict:
     """Assemble le dict attendu par `confluence_gate.evaluate`.
 
     Args:
@@ -261,6 +268,12 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
         marche_continu: True pour un marché qui ne ferme pas (crypto). Désarme
             le blocage week-end, qui ne protège que des marchés fermés.
         min_bars_ltf / min_bars_htf: en-dessous, `data_valid=False`.
+        symbol: symbole évalué. C'est LUI qui branche le macro : sans symbole,
+            aucune clé `macro` n'est ajoutée, donc la porte se comporte comme
+            avant. Le couplage est voulu — devises du symbole d'un côté,
+            publications de l'autre — et il est explicite plutôt que caché.
+        macro: bloc macro déjà calculé (rejeu, test, backtest). Prioritaire sur
+            `symbol`.
 
     Returns:
         Le dict de features. En cas de données insuffisantes, il porte
@@ -269,6 +282,11 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
     maintenant = now or datetime.now(timezone.utc)
     if maintenant.tzinfo is None:
         maintenant = maintenant.replace(tzinfo=timezone.utc)
+
+    # ── Bloc macro : présent SEULEMENT si le flux est allumé ET qu'on nomme le
+    #    symbole (voir `titanium.macro.gate`). Absent, la porte rend exactement
+    #    la décision d'avant, ce qui rend la non-régression démontrable.
+    bloc_macro = macro if macro is not None else (macro_features(symbol) if symbol else None)
 
     invalide = {
         "data_valid": False,
@@ -279,6 +297,8 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
                    "decided_at": maintenant.isoformat(),
                    "reason": "donnees_insuffisantes"},
     }
+    if bloc_macro is not None:
+        invalide["macro"] = bloc_macro
 
     ltf, htf = _normalize(df_ltf), _normalize(df_htf)
     if ltf is None or htf is None or len(ltf) < min_bars_ltf or len(htf) < min_bars_htf:
@@ -349,6 +369,7 @@ def build_feats(df_ltf: pd.DataFrame | None, df_htf: pd.DataFrame | None, *,
         # edge_ok=None ⇒ inconnu ⇒ BLOCK en PROD. Jamais True par défaut.
         "cost": {"edge_ok": edge_ok,
                  "weekend_block": _weekend_block(maintenant, marche_continu)},
+        **({"macro": bloc_macro} if bloc_macro is not None else {}),
         "strengths": {
             "trend_sr": round(float(sr_ctx.get("on_level_strength", 0.0)), 3),
             "fair_value": 0.5 if vp_ctx.get("on_fair_price_zone") else 0.0,

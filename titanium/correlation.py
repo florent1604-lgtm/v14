@@ -4,7 +4,8 @@ Le défaut que ce module comble
 -------------------------------
 `MAX_RISQUE_CUMULE_PCT` compte le risque total mais il est **aveugle à la
 corrélation**. Le 07/08/2026, huit positions ouvertes respectaient le budget
-de 6 % — et six d'entre elles portaient le yen, corrélées à **0.69** en
+global **d'alors — 6,0 %, contre 17,1 % aujourd'hui** — et six d'entre elles
+portaient le yen, corrélées à **0.69** en
 moyenne. Ce n'étaient pas six paris, c'était un pari pris six fois. Le
 budget global était respecté ; l'exposition réelle valait le triple.
 
@@ -40,10 +41,14 @@ CACHE = RACINE / "results" / "grappes.json"
 
 #: Risque cumulé maximal par grappe, en % de l'équité.
 #:
-#: Un tiers du budget global (6 %) : trois grappes indépendantes peuvent
-#: le saturer, une seule ne le peut pas. C'est la définition opérationnelle
-#: de « diversifié » pour ce bot.
-MAX_RISQUE_GRAPPE_PCT = 2.0
+#: Plafond DEMO promu de 2,0 % à 5,7 % le 13/09/2026, en même temps que le
+#: budget global passait de 6,0 % à 17,1 %. L'invariant tenu est
+#: `3 x 5,7 = 17,1` : trois grappes indépendantes saturent l'enveloppe, et
+#: c'est le budget global — pas ce plafond-ci — qui borne la quatrième.
+#: Ce plafond reste la barrière de l'exposition CORRÉLÉE ; le budget global
+#: est celle de l'ensemble. Mesure des deux en euros :
+#: `tools/mesure_budget_risque.py`.
+MAX_RISQUE_GRAPPE_PCT = 5.7
 
 #: Version de la table des *doublons de contrat* verifies sur la collecte H1.
 #:
@@ -82,6 +87,9 @@ SEUIL_CORRELATION = 0.60
 #: Fraîcheur de l'arbre de corrélation. Les régimes changent, mais pas en
 #: une heure — et le recalcul lit 300 barres sur 54 actifs.
 TTL_GRAPPES_S = 6 * 3600
+# Batch newly discovered symbols so opening-session rotations cannot trigger a
+# full MT5 history scan for every catalogue addition.
+CATALOGUE_REFRESH_MIN_S = 15 * 60
 
 #: Nombre de grappes visé.
 #:
@@ -268,11 +276,15 @@ def age_grappes(grappes: Grappes | None) -> float:
 
 
 def charger(symboles, *, ttl: float = TTL_GRAPPES_S) -> Grappes:
-    """Grappes en vigueur, recalculées seulement si périmées."""
+    """Recalcule si perimees ou si le catalogue contient un actif non examine."""
+    symboles = sorted(set(symboles))
     try:
         if CACHE.exists():
             d = json.loads(CACHE.read_text(encoding="utf-8"))
-            if time.time() - float(d.get("calcule_le", 0)) < ttl:
+            examines = set(d.get("symboles_demandes", d.get("par_actif", {})))
+            age = time.time() - float(d.get("calcule_le", 0))
+            if (0 <= age < ttl
+                    and (set(symboles) <= examines or age < CATALOGUE_REFRESH_MIN_S)):
                 return Grappes(par_actif=d.get("par_actif", {}),
                                membres=d.get("membres", {}),
                                calcule_le=d.get("calcule_le", 0),
@@ -284,7 +296,10 @@ def charger(symboles, *, ttl: float = TTL_GRAPPES_S) -> Grappes:
     try:
         CACHE.parent.mkdir(parents=True, exist_ok=True)
         tmp = CACHE.with_suffix(".tmp")
-        tmp.write_text(json.dumps(g.to_dict(), ensure_ascii=False),
+        contenu = g.to_dict()
+        # An examined symbol without usable prices stays absent from par_actif.
+        contenu["symboles_demandes"] = symboles
+        tmp.write_text(json.dumps(contenu, ensure_ascii=False),
                        encoding="utf-8")
         tmp.replace(CACHE)
     except Exception:  # noqa: BLE001

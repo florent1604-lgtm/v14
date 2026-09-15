@@ -30,12 +30,12 @@ et se teste intégralement sans terminal MT5 ni appel LLM.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
-from titanium.gates import confluence_gate
-from titanium.risk.riskgate import ALLOW, DENY, REDUCE, RiskGate, RiskInput
 from titanium.execution.mt5_executor import ExecutionPolicy, OrderResult, place_market_order
+from titanium.gates import confluence_gate
+from titanium.risk.riskgate import ALLOW as ALLOW, DENY, REDUCE as REDUCE, RiskGate, RiskInput
 
 # Étapes de la chaîne, dans l'ordre. Sert aux motifs d'arrêt.
 STEP_GATES = "gates"

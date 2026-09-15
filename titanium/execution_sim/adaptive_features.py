@@ -19,6 +19,11 @@ from typing import Any
 from titanium.execution_sim.models import ExecutionIntent
 from titanium.execution_sim.policies import PolicyContext
 
+# La regle de completude du bloc macro a UN seul proprietaire : la porte de
+# confluence et le contexte d'arrivee doivent refuser sur le meme critere, sinon
+# un bloc accepte par l'une serait refuse par l'autre sans que rien ne le dise.
+from titanium.macro.gate import MACRO_BLOCK_KEYS, MACRO_POSTURE_KEY
+
 MAX_DECIMALES = 10
 
 
@@ -70,9 +75,14 @@ class AdaptiveFeatures:
     depth_ratio: float
     inventory_ratio: float
     urgency: float
-    urgency_source: str
     baseline_spread_bps: float | None = None
     horizon_ms: int = 0
+    # ── Pas de champ macro recopie ici, et c'est deliberé : la posture macro
+    #    n'est pas COPIEe, elle est APPLIQUEE a l'axe d'agressivite que les
+    #    techniques lisent deja (`urgency`), et la valeur appliquee est celle que
+    #    la trace de chaque technique porte deja. Recopier l'etat ou le score dans
+    #    des champs que personne ne lirait aurait ajoute de l'etat sans lecteur —
+    #    le defaut que ce module refuse par ailleurs.
 
 
 def build_features(
@@ -125,18 +135,51 @@ def build_features(
     inventory = 0.0 if not fini(context.inventory) else float(context.inventory)
     inventory_ratio = inventory / max_inventory if max_inventory > 0 else 0.0
 
+    # ── Macro : refuse de planifier quand le calendrier interdit le risque neuf.
+    #    UNE SEULE REGLE, exactement celle de la porte : les cles de
+    #    `MACRO_BLOCK_KEYS`, puis `allows_new_risk`. Un bloc PRESENT mais
+    #    incomplet est traite comme un refus, jamais comme un laissez-passer.
+    #    Cette fonction ne validait aussi le type de `score` : c'etait un critere
+    #    que la porte n'applique pas, donc un bloc accepte par l'une et refuse
+    #    par l'autre — et il ne servait qu'a remplir un champ que personne ne
+    #    lisait. Les champs de trace restent ceux de la porte, qui les cite.
+    macro = getattr(context, "macro", None)
+    posture = 0.0
+    if macro is not None:
+        if not isinstance(macro, dict) or not MACRO_BLOCK_KEYS.issubset(macro):
+            return None
+        if macro.get("allows_new_risk") is not True:
+            return None
+        # Posture d'execution. ABSENTE vaut neutre — un producteur qui ne la
+        # publie pas doit rendre exactement le comportement d'avant, au bit.
+        # PRESENTE mais illisible (non finie, hors [0, 1]) refuse de planifier :
+        # une posture qu'on ne sait pas lire n'est pas une posture neutre.
+        declaree = macro.get(MACRO_POSTURE_KEY, 0.0)
+        if not fini(declaree) or not 0.0 <= float(declaree) <= 1.0:
+            return None
+        posture = float(declaree)
+
     metadata = dict(intent.metadata or {})
+    # Precedence : declaree > derivee de l'horizon > defaut. Aucune etiquette ne
+    # nomme la branche gagnante : c'est la VALEUR qui la nomme, et un test la
+    # fixe avec trois valeurs distinctes.
     urgency_declaree = metadata.get("urgency")
     if fini(urgency_declaree):
         urgency = borne(float(urgency_declaree), 0.0, 1.0)
-        urgency_source = "metadata"
     elif fini(metadata.get("horizon_ms")):
         horizon = max(1.0, float(metadata["horizon_ms"]))
         urgency = borne(1.0 - horizon / max(1.0, horizon_reference_ms), 0.0, 1.0)
-        urgency_source = "horizon_ms"
     else:
         urgency = borne(float(urgency_default), 0.0, 1.0)
-        urgency_source = "default"
+
+    # ── Effet de la posture : une tension T ramene l'agressivite a (1 - T) de sa
+    #    valeur. T = 0 rend le vecteur EXACTEMENT celui d'avant (aucune valeur
+    #    modifiee), donc la posture neutre est prouvable, pas promise. T = 1
+    #    ramene a l'urgence nulle, qui est le palier le plus patient de la
+    #    famille : la posture ne peut jamais rendre une technique plus agressive
+    #    que ce que l'intention demandait.
+    if posture > 0.0:
+        urgency = borne(urgency * (1.0 - posture), 0.0, 1.0)
 
     horizon_ms = int(metadata.get("horizon_ms") or 0)
     return AdaptiveFeatures(
@@ -155,7 +198,6 @@ def build_features(
         depth_ratio=depth_ratio,
         inventory_ratio=inventory_ratio,
         urgency=urgency,
-        urgency_source=urgency_source,
         baseline_spread_bps=baseline_spread_bps,
         horizon_ms=horizon_ms,
     )

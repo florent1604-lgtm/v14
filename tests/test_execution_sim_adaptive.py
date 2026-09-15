@@ -12,9 +12,11 @@ Ces tests verrouillent les proprietes qui rendent la famille MESURABLE :
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
+import titanium.execution_sim
 from titanium.execution_sim.adaptive import (
     ADAPTIVE_POLICIES,
     SEQUENTIAL_ADAPTIVE_POLICIES,
@@ -29,7 +31,12 @@ from titanium.execution_sim.models import (
     OrderType,
     Side,
 )
-from titanium.execution_sim.policies import POLICY_REGISTRY, PolicyContext, get_policy
+from titanium.execution_sim.policies import (
+    POLICY_REGISTRY,
+    PolicyContext,
+    contexte_execution,
+    get_policy,
+)
 from titanium.execution_sim.runner import (
     ALL_POLICIES,
     _policy_config,
@@ -38,6 +45,7 @@ from titanium.execution_sim.runner import (
     executer_sur_snapshots,
     generate_scenarios,
 )
+from titanium.macro.gate import MACRO_POSTURE_KEY
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -270,16 +278,25 @@ def test_les_features_sont_deterministes_et_decrivent_le_contexte():
     assert premier.spread_bps == pytest.approx(0.25 / 100.105 * 10_000.0)
     assert premier.depth_ratio == pytest.approx(13.0 / 10.0)
     assert premier.inventory_ratio == pytest.approx(0.5)
-    assert premier.urgency_source == "default"
+    assert premier.urgency == pytest.approx(0.5)
 
 
 def test_l_urgence_declaree_prime_sur_le_defaut():
-    features = build_features(intent(metadata={"urgency": 0.9}), context())
-    assert features.urgency == pytest.approx(0.9)
-    assert features.urgency_source == "metadata"
-    derive = build_features(intent(metadata={"horizon_ms": 6_000}), context())
-    assert derive.urgency_source == "horizon_ms"
-    assert derive.urgency == pytest.approx(0.9)
+    """Trois sources, trois valeurs DISTINCTES : la precedence se prouve ainsi.
+
+    La valeur declaree (0,7) et celle que l'horizon produirait (0,9) sont
+    differentes : si la derivee l'emportait, le test le verrait. C'est ce qui
+    permet de retirer l'etiquette de provenance sans perdre la capacite de
+    mordre.
+    """
+    declaree = build_features(
+        intent(metadata={"urgency": 0.7, "horizon_ms": 6_000}), context()
+    )
+    assert declaree.urgency == pytest.approx(0.7)
+    derivee = build_features(intent(metadata={"horizon_ms": 6_000}), context())
+    assert derivee.urgency == pytest.approx(0.9)
+    defaut = build_features(intent(), context())
+    assert defaut.urgency == pytest.approx(0.5)
 
 
 def _marbres(n=10, debut=100.0):
@@ -340,6 +357,38 @@ def test_aucune_entree_ne_remplit_plus_que_la_quantite_voulue():
             total += rempli_moteur
     # Sans cela, la porte passerait aussi sur un executeur qui ne remplit rien.
     assert total > 0
+
+
+def test_les_deux_entrees_appliquent_la_meme_posture():
+    """Le moteur et le runner lisent la MEME posture, ou la nomment absente.
+
+    `BacktestExecutionEngine.execute` recoit `macro` en opt-in : sans ce test, le
+    parametre serait une surface que personne n'emprunte, et un cablage par cette
+    entree aurait pu ignorer la posture sans que rien ne le dise -- le defaut que
+    la garde du proprietaire ferme pour la construction du contexte.
+    """
+    config = load_config()
+    jeux = _marbres()
+    bloc = bloc_posture(1.0)
+    neutre = executer_sur_snapshots(
+        "adapt_urgency_ladder", jeux, intent(qty=6.0), config=config,
+        seed=1, latency_ms=0, tick_size=0.01,
+    )
+    tendu_runner = executer_sur_snapshots(
+        "adapt_urgency_ladder", jeux, intent(qty=6.0), config=config,
+        seed=1, latency_ms=0, tick_size=0.01, macro=bloc,
+    )
+    tendu_moteur = BacktestExecutionEngine(policy="adapt_urgency_ladder", seed=1).execute(
+        intent(qty=6.0), jeux, tick_size=0.01, macro=bloc
+    )
+    def decisions(ordres):
+        return [order.metadata["decision"] for order in ordres]
+
+    assert decisions(tendu_runner) != decisions(neutre), "la posture doit decider"
+    assert decisions(tendu_moteur) == decisions(tendu_runner)
+    assert [order.order_type for order in tendu_moteur] == [
+        order.order_type for order in tendu_runner
+    ]
 
 
 def test_les_deux_entrees_suivent_le_meme_ordonnancement():
@@ -502,6 +551,103 @@ def test_aucune_paire_de_techniques_n_est_identique_sur_tous_les_scenarios():
     assert collisions == []
 
 
+# ───────────────────── Posture macro consommee par l'execution ───────────────
+# Mesure du 14/09 sur le contrat livre : tout etat qui EXECUTE rend
+# ``score = 0`` et ``conservative = False`` par construction, et ELEVATED fait
+# WAIT. Une posture tiree de ces deux valeurs, ou coupee a l'horizon du veto,
+# serait donc identiquement nulle partout ou l'execution a lieu : un lecteur
+# mort. La posture passe donc par l'axe que les techniques LISENT : `urgency`.
+
+POSTURE_CLEAR = {"allows_new_risk": True, "conservative": False, "state": "CLEAR"}
+
+
+def bloc_posture(tension):
+    return {**POSTURE_CLEAR, MACRO_POSTURE_KEY: tension}
+
+
+def decision(orders):
+    return orders[0].metadata["decision"] if orders else "aucun_ordre"
+
+
+def test_la_posture_macro_deplace_la_decision_d_execution():
+    """Meme intention, meme carnet : SEULE la posture change, et elle decide."""
+    config = {"high_urgency": 0.66, "medium_urgency": 0.33}
+    immediat = plan(
+        "adapt_urgency_ladder", intr=intent(metadata={"urgency": 0.9}), config=config
+    )
+    patient = plan(
+        "adapt_urgency_ladder",
+        intr=intent(metadata={"urgency": 0.9}),
+        ctx=context(macro=bloc_posture(1.0)),
+        config=config,
+    )
+    assert decision(immediat) == "urgence_haute"
+    assert decision(patient) == "urgence_basse"
+    assert immediat[0].order_type != patient[0].order_type
+    # La VALEUR appliquee, relevee dans la trace : 0,9 intacte d'un cote,
+    # 0,9 reduite par une tension de 1 de l'autre.
+    assert immediat[0].metadata["urgency"] == pytest.approx(0.9)
+    assert patient[0].metadata["urgency"] == pytest.approx(0.0)
+
+
+def test_la_posture_est_graduee_et_pas_binaire():
+    """Trois tensions, trois paliers : la posture dose, elle ne bascule pas."""
+    config = {"high_urgency": 0.66, "medium_urgency": 0.33}
+    urgence = 0.9
+    paliers = []
+    for tension in (0.0, 1.0 - 0.5 / urgence, 1.0):
+        orders = plan(
+            "adapt_urgency_ladder",
+            intr=intent(metadata={"urgency": urgence}),
+            ctx=context(macro=bloc_posture(tension)),
+            config=config,
+        )
+        paliers.append(decision(orders))
+    assert paliers == ["urgence_haute", "urgence_moyenne", "urgence_basse"]
+
+
+def test_la_posture_ne_rend_jamais_plus_agressif_que_l_intention():
+    """La posture ne peut que reduire l'agressivite demandee, jamais l'augmenter."""
+    base = build_features(intent(), context())
+    assert base is not None
+    precedente = base.urgency
+    for tension in (0.0, 0.25, 0.5, 0.75, 1.0):
+        courante = build_features(intent(), context(macro=bloc_posture(tension)))
+        assert courante is not None
+        assert courante.urgency <= precedente + 1e-12
+        precedente = courante.urgency
+    assert precedente < base.urgency
+
+
+def test_la_posture_neutre_rend_exactement_le_vecteur_d_avant():
+    """Sans bloc, avec un bloc neutre, ou sans la cle : le meme vecteur, au bit."""
+    sans_bloc = build_features(intent(), context())
+    sans_cle = build_features(intent(), context(macro=dict(POSTURE_CLEAR)))
+    nulle = build_features(intent(), context(macro=bloc_posture(0.0)))
+    assert sans_bloc is not None
+    assert sans_bloc == sans_cle == nulle
+
+
+def test_une_posture_illisible_refuse_de_planifier():
+    """Une posture qu'on ne sait pas lire n'est PAS une posture neutre."""
+    for valeur in ("0.5", 1.5, -0.1, float("nan")):
+        assert build_features(intent(), context(macro=bloc_posture(valeur))) is None
+
+
+def test_le_selecteur_change_de_technique_sous_posture():
+    """La SELECTION d'entree est une decision d'execution : elle doit reagir."""
+    config = {"high_urgency": 0.6}
+    calme = plan("adapt_selector", intr=intent(metadata={"urgency": 0.9}), config=config)
+    tendu = plan(
+        "adapt_selector",
+        intr=intent(metadata={"urgency": 0.9}),
+        ctx=context(macro=bloc_posture(1.0)),
+        config=config,
+    )
+    assert calme[0].metadata["selected_technique"] == "adapt_urgency_ladder"
+    assert tendu[0].metadata["selected_technique"] == "adapt_midpoint_aggressive"
+
+
 def test_les_axes_declares_ne_sont_pas_inertes():
     """Chaque technique qui declare un axe doit y REAGIR, verifie en isolation."""
     from tools.execution_adaptative import AXE_DECLARE, _sonde_axes
@@ -511,3 +657,47 @@ def test_les_axes_declares_ne_sont_pas_inertes():
     sonde = _sonde_axes(config, scenarios)
     for name, axe in AXE_DECLARE.items():
         assert sonde[name][axe], f"axe inerte : {name} / {axe}"
+
+def test_un_contexte_d_execution_exige_que_la_posture_soit_nommee():
+    """La garde : `macro` est obligatoire, donc la posture ne peut pas disparaitre.
+
+    Ce test TOMBE si quelqu'un redonne une valeur par defaut a `macro` — c'est le
+    seul moyen de rendre le silence impossible plutot que de compter sur la
+    relecture. Le defaut qu'il ferme est mesure : deux points d'entree sur quatre
+    (le moteur, le remplacement reactif) construisaient leur contexte sans le
+    bloc, donc la posture y etait absente sans que rien ne le dise.
+    """
+    with pytest.raises(TypeError):
+        contexte_execution(snapshot(), tick_size=0.0001)
+    assert contexte_execution(snapshot(), tick_size=0.0001, macro=None).macro is None
+
+
+def test_un_seul_module_construit_un_contexte_d_execution():
+    """Aucun module du simulateur ne construit de contexte hors du proprietaire.
+
+    Un nouveau point d'entree doit passer par `contexte_execution`, donc NOMMER
+    la posture ; s'il construit le dataclass directement, ce test tombe.
+    """
+    import ast
+
+    paquet = Path(titanium.execution_sim.__file__).parent
+    fautifs: list[str] = []
+    for fichier in sorted(paquet.glob("*.py")):
+        if fichier.name == "policies.py":
+            continue
+        arbre = ast.parse(fichier.read_text(encoding="utf-8"))
+        for noeud in ast.walk(arbre):
+            if not isinstance(noeud, ast.Call):
+                continue
+            fonction = noeud.func
+            nom = (
+                fonction.attr
+                if isinstance(fonction, ast.Attribute)
+                else getattr(fonction, "id", "")
+            )
+            if nom == "PolicyContext":
+                fautifs.append(f"{fichier.name}:{noeud.lineno}")
+    # Un appel, pas une chaine : un simple commentaire mentionnant le nom ne fait
+    # plus echouer ce test a tort, et `policies.PolicyContext(...)` est vu comme
+    # les autres -- la recherche de texte laissait passer les deux.
+    assert fautifs == []

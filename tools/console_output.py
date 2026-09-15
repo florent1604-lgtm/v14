@@ -12,6 +12,7 @@ et les superviseurs externes.
 from __future__ import annotations
 
 import sys
+from contextlib import suppress
 from typing import TextIO
 
 
@@ -19,12 +20,10 @@ def _configure_stream(stream: TextIO) -> None:
     reconfigure = getattr(stream, "reconfigure", None)
     if reconfigure is None:
         return
-    try:
+    # Flux capture, ferme ou non reconfigurable : l'affichage ne doit
+    # jamais empecher le service de demarrer.
+    with suppress(OSError, ValueError):
         reconfigure(encoding="utf-8", errors="replace")
-    except (OSError, ValueError):
-        # Flux capture, ferme ou non reconfigurable : l'affichage ne doit
-        # jamais empecher le service de demarrer.
-        pass
 
 
 def configure_console_output(*, stdout: TextIO | None = None,

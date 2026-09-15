@@ -2,8 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
-
 
 # ═══════════════════════════════ ict_market_profiles ═════════════════════════
 
@@ -65,26 +63,30 @@ class TestSessions:
     """Kill zones et sessions retournent des résultats cohérents."""
 
     def test_current_session_returns_enum(self):
-        from titanium.features.ict_market_profiles import current_session, SessionType
         from datetime import datetime, timezone
+
+        from titanium.features.ict_market_profiles import SessionType, current_session
         s = current_session(datetime(2026, 8, 11, 3, 0, tzinfo=timezone.utc))
         assert s == SessionType.ASIAN
 
     def test_london_session(self):
-        from titanium.features.ict_market_profiles import current_session, SessionType
         from datetime import datetime, timezone
+
+        from titanium.features.ict_market_profiles import SessionType, current_session
         s = current_session(datetime(2026, 8, 11, 9, 0, tzinfo=timezone.utc))
         assert s == SessionType.LONDON
 
     def test_overlap_session(self):
-        from titanium.features.ict_market_profiles import current_session, SessionType
         from datetime import datetime, timezone
+
+        from titanium.features.ict_market_profiles import SessionType, current_session
         s = current_session(datetime(2026, 8, 11, 14, 0, tzinfo=timezone.utc))
         assert s == SessionType.OVERLAP
 
     def test_active_kill_zones(self):
-        from titanium.features.ict_market_profiles import active_kill_zones
         from datetime import datetime, timezone
+
+        from titanium.features.ict_market_profiles import active_kill_zones
         kzs = active_kill_zones(datetime(2026, 8, 11, 8, 0, tzinfo=timezone.utc))
         names = [kz.name for kz in kzs]
         assert "London Open Kill Zone" in names

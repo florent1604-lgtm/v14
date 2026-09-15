@@ -76,14 +76,14 @@ def test_un_symbole_hors_mapping_reste_un_sous_jacent_distinct():
 
 
 def test_aliases_partagent_un_plafond_meme_si_cache_les_separe():
-    # 1,6 % deja portes sur NAS100.fs ; ajouter 0,5 % via USTECH depasse 2 %.
-    pos = _Pos("NAS100.fs", vol=1.6)
+    # 5,4 % deja portes sur NAS100.fs ; ajouter 0,5 % via USTECH depasse 5,7 %.
+    pos = _Pos("NAS100.fs", vol=5.4)
     ok, motif = place_disponible(
         "USTECH", 0.5, _mt5([pos]), _grappes_separees(), 10_000.0,
     )
     assert not ok
     assert "sous-jacent US_NASDAQ_100" in motif
-    assert "1.60 %" in motif
+    assert "5.40 %" in motif
 
 
 def test_plafond_de_bloc_reste_independant_du_sous_jacent():
@@ -92,7 +92,7 @@ def test_plafond_de_bloc_reste_independant_du_sous_jacent():
         membres={"gJPY": ["EURJPY", "NZDJPY"]},
     )
     ok, motif = place_disponible(
-        "NZDJPY", 0.5, _mt5([_Pos("EURJPY", vol=1.6)]), grappes, 10_000.0,
+        "NZDJPY", 0.5, _mt5([_Pos("EURJPY", vol=5.4)]), grappes, 10_000.0,
     )
     assert not ok
     assert "grappe gJPY" in motif

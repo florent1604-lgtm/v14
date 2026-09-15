@@ -76,31 +76,78 @@ class Choix:
                 "atr": self.atr, "elargie": self.elargie, "motif": self.motif}
 
 
-def _cout_relatif(spread_prix: float, atr: float, k_stop: float) -> float:
-    """Aller-retour de spread rapporté à la distance de stop."""
-    if atr <= 0:
-        return 9.9
-    # `spread_prix` est déjà ask-bid. Un aller-retour paie ce spread une fois :
-    # demi-spread à l'entrée + demi-spread à la sortie dans le backtest.
-    return spread_prix / (k_stop * atr)
+#: Le code de refus pour coût, produit ICI avec la décision.
+#: La boucle ne le reconstitue plus en relisant le texte du motif : renommer
+#: un message ne doit pas reclasser le tunnel.
+CODE_COUT_SPREAD = "COUT_SPREAD"
 
 
-def cout_relatif_stop(spec, stop_distance: float) -> float:
-    """Coût du spread rapporté au stop réellement retenu.
+@dataclass(frozen=True)
+class VerdictCout:
+    """Décision de coût : refus ou non, la valeur, le code, le motif.
 
-    Sert au second contrôle juste avant l'ordre. Le choix d'échelle utilise un
-    ATR estimé ; la décision finale utilise le stop produit par RiskGate. Les
-    deux doivent parler la même unité et respecter le même plafond.
+    UN SEUL propriétaire de la règle « le spread ne dépasse pas ``plafond`` de
+    la distance de stop ». Les trois portes appellent ``verdict_cout`` et
+    affichent ce qu'elle rend ; aucune ne recalcule le ratio.
     """
-    try:
-        spread_prix = float(getattr(spec, "spread", 0) or 0) * \
-            float(getattr(spec, "point", 0) or 0)
-        distance = float(stop_distance)
-    except (TypeError, ValueError):
-        return 9.9
+
+    depasse: bool
+    cout: float
+    code: str = ""
+    motif: str = ""
+
+
+def _ratio_cout(spread_prix: float, distance: float) -> float:
+    """LA SEULE arithmétique : spread en prix divisé par la distance de stop.
+
+    ``spread_prix`` est déjà ask-bid. Un aller-retour paie ce spread **une**
+    fois — demi-spread à l'entrée, demi-spread à la sortie. Le doubler rendait
+    chaque actif deux fois plus cher que le backtest et que le P&L réel, ce
+    que `sizing.MAX_COUT_SPREAD_PCT` documente : le plafond affiché valait
+    25 % et le plafond réellement appliqué 12,5 %.
+    """
     if distance <= 0:
         return 9.9
     return spread_prix / distance
+
+
+def spread_prix_de(spec) -> float:
+    """Le spread ask-bid en unités de PRIX : seule lecture de ``spec``."""
+    return (float(getattr(spec, "spread", 0) or 0)
+            * float(getattr(spec, "point", 0) or 0))
+
+
+def cout_relatif_stop(spec, stop_distance: float) -> float:
+    """Coût du spread rapporté au stop réellement retenu — la VALEUR seule.
+
+    Le choix d'échelle utilise un ATR estimé ; la décision finale utilise le
+    stop produit par RiskGate. Les deux parlent la même unité et la même
+    formule.
+    """
+    try:
+        spread_prix = spread_prix_de(spec)
+        distance = float(stop_distance)
+    except (TypeError, ValueError):
+        return 9.9
+    return _ratio_cout(spread_prix, distance)
+
+
+def verdict_cout(spec, stop_distance: float, *, plafond: float) -> VerdictCout:
+    """Décide si le coût dépasse ``plafond``, et rend la valeur AVEC le code.
+
+    Le SEUL endroit qui décide. Les appelants affichent : ils ne recalculent
+    plus le ratio et ne redécodent plus le motif pour en tirer un code.
+
+    Le test est **strictement** supérieur, comme les trois portes le
+    formulaient : un coût non fini ne refuse donc pas. C'est le comportement
+    historique, conservé tel quel.
+    """
+    cout = cout_relatif_stop(spec, stop_distance)
+    if cout > plafond:
+        return VerdictCout(
+            True, cout, CODE_COUT_SPREAD,
+            f"spread {cout:.0%} du stop reel (plafond {plafond:.0%})")
+    return VerdictCout(False, cout)
 
 
 def choisir(symbole: str, spec, *, plafond: float, k_stop: float = 1.5,
@@ -121,9 +168,6 @@ def choisir(symbole: str, spec, *, plafond: float, k_stop: float = 1.5,
     if lecteur is None:
         from titanium.data.mt5_vendor import get_rates as lecteur  # noqa: N813
 
-    spread_prix = float(getattr(spec, "spread", 0) or 0) * \
-        float(getattr(spec, "point", 0) or 0)
-
     depart = ECHELLE.index(reference) if reference in ECHELLE else 0
     meilleur = None
     from titanium.features.smc import compute_atr
@@ -138,15 +182,19 @@ def choisir(symbole: str, spec, *, plafond: float, k_stop: float = 1.5,
             atr = float(compute_atr(df))
         except Exception:  # noqa: BLE001
             continue
-        if atr <= 0:
+        # `not (atr > 0)` plutôt que `atr <= 0` : un ATR non fini est écarté
+        # ici comme il l'était implicitement plus bas, sans dépendre d'une
+        # comparaison qui vaut False sur NaN.
+        if not (atr > 0):
             continue
 
-        cout = _cout_relatif(spread_prix, atr, k_stop)
+        verdict = verdict_cout(spec, k_stop * atr, plafond=plafond)
+        cout = verdict.cout
         if meilleur is None or cout < meilleur.cout:
             meilleur = Choix(timeframe=tf, cout=cout, atr=atr,
                              elargie=(tf != reference))
 
-        if cout <= plafond:
+        if not verdict.depasse:
             # La PLUS PETITE qui passe : un stop plus large immobilise un
             # créneau plus longtemps, on n'élargit que du nécessaire.
             return Choix(

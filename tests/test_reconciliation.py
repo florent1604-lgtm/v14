@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from titanium.analysis.reconciliation import aggregate_mt5_deals, reconcile
-from titanium.edge import ClosedTrade, PNL_R_MAX
+from titanium.edge import PNL_R_MAX, ClosedTrade
 
 
 def deal(position, *, entry, magic=0, reason=3, profit=0.0,
@@ -312,12 +312,12 @@ class TestCoherenceDesObservations:
 
     def _position(self, **kw):
         from titanium.analysis.reconciliation import Mt5ClosedPosition
-        base = dict(
-            position_id=1, symbol="EURUSD", opened_at="", closed_at="",
-            net_currency=0.0, profit=0.0, commission=0.0, swap=0.0, fee=0.0,
-            close_reason="SL", exit_class="server_exit",
-            manual_intervention=False, explicit_titanium_close=False,
-            strategy_observation=True, censored=False, deal_count=2)
+        base = {
+            "position_id": 1, "symbol": "EURUSD", "opened_at": "", "closed_at": "",
+            "net_currency": 0.0, "profit": 0.0, "commission": 0.0, "swap": 0.0, "fee": 0.0,
+            "close_reason": "SL", "exit_class": "server_exit",
+            "manual_intervention": False, "explicit_titanium_close": False,
+            "strategy_observation": True, "censored": False, "deal_count": 2}
         base.update(kw)
         return Mt5ClosedPosition(**base)
 
@@ -344,10 +344,10 @@ class TestCoherenceDesObservations:
     def test_censored_et_observation_sont_exclusifs(self):
         """Une sortie censuree n'a pas atteint sa cible : elle ne mesure
         pas la strategie, elle mesure l'interruption."""
-        from titanium.analysis.reconciliation import Mt5ClosedPosition
         import dataclasses
-        for champ in dataclasses.fields(Mt5ClosedPosition):
-            pass
+
+        from titanium.analysis.reconciliation import Mt5ClosedPosition
+        dataclasses.fields(Mt5ClosedPosition)
         p = self._position(manual_intervention=True, censored=True,
                            exit_class="manual_batch_titanium_close",
                            explicit_titanium_close=True)

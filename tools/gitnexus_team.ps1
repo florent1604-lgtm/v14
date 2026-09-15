@@ -203,7 +203,7 @@ function Sync-TeamIndex {
         try {
             Push-Location $Root
             try {
-                & node ".gitnexus\run.cjs" analyze
+                & node ".gitnexus\run.cjs" analyze --skip-skills
                 if ($LASTEXITCODE -ne 0) { throw "gitnexus analyze a echoue avec le code $LASTEXITCODE." }
             } finally {
                 Pop-Location
@@ -214,7 +214,7 @@ function Sync-TeamIndex {
                 Write-Output "Des fichiers ont change pendant l'analyse; seconde passe de stabilisation."
                 Push-Location $Root
                 try {
-                    & node ".gitnexus\run.cjs" analyze
+                    & node ".gitnexus\run.cjs" analyze --skip-skills
                     if ($LASTEXITCODE -ne 0) { throw "Seconde analyse GitNexus en echec ($LASTEXITCODE)." }
                 } finally {
                     Pop-Location

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Titanium V14 · Pro Trading</title>
+  <script defer src="/vendor/htmx.min.js"></script>
+  <script defer src="/vendor/sse.js"></script>
+  <script defer src="/vendor/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root{--fond:#0b0e14;--carte:#131722;--bord:#2a2e39;--texte:#d1d4dc;
+      --gris:#787b86;--vert:#10b981;--rouge:#ef4444;--ambre:#f59e0b;--bleu:#2962ff}
+    *{box-sizing:border-box} body{margin:0;background:var(--fond);color:var(--texte);
+      font:13px Inter,Segoe UI,system-ui,sans-serif;min-width:320px}
+    header{height:58px;border-bottom:1px solid var(--bord);display:flex;align-items:center;
+      justify-content:space-between;padding:0 20px;background:#0e1118;position:sticky;top:0;z-index:20}
+    .marque{display:flex;align-items:center;gap:11px;font-weight:800;letter-spacing:.08em}
+    .logo{width:28px;height:28px;display:grid;place-items:center;border:1px solid #334155;
+      color:#7dd3fc;background:#111827;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+    .entete-droit{display:flex;align-items:center;gap:12px}.connexion{display:flex;align-items:center;gap:6px;color:var(--gris)}
+    .point{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--gris)}
+    .point.ok{background:var(--vert);box-shadow:0 0 8px #10b98188}.point.ko{background:var(--rouge)}
+    main{max-width:1800px;margin:auto;padding:14px;display:grid;gap:12px}
+    .grille-haut{display:grid;grid-template-columns:minmax(450px,1.2fr) minmax(320px,.8fr);gap:12px}
+    .pilotage-grille{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .carte{background:var(--carte);border:1px solid var(--bord);border-radius:7px;padding:14px;overflow:hidden}
+    h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;margin:0 0 12px;color:#f1f5f9}
+    .titre-ligne{display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .titre-ligne h2{margin-bottom:10px}.badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:3px;
+      font-size:10px;font-weight:800;background:#242936;color:#aab0bd;white-space:nowrap}
+    .vert-bg{background:#064e3b;color:#6ee7b7}.rouge-bg{background:#4c171c;color:#fca5a5}.badge.ambre{background:#451a03;color:#fbbf24}
+    .mode-switch{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--bord);border-radius:5px;padding:3px;gap:3px}
+    .mode-switch span{text-align:center;padding:7px;color:var(--gris);font-size:11px;font-weight:800}
+    .mode-switch .actif{background:#263043;color:#e2e8f0;border-radius:3px}.mode-switch .demo{background:#064e3b;color:#6ee7b7}
+    .controle-actions{display:flex;gap:7px;margin:10px 0}.bouton{border:1px solid #3b4558;background:#202634;color:#d8dce5;
+      border-radius:4px;padding:7px 11px;font:700 11px inherit;cursor:pointer}.bouton:hover:not(:disabled){border-color:#64748b;background:#293142}
+    .bouton:disabled{opacity:.38;cursor:not-allowed}.bouton.danger{color:#fecaca;border-color:#7f1d1d;background:#35171b}.bouton.petit{padding:4px 8px}
+    .garde,.micro{color:var(--gris);margin:8px 0 0;font-size:11px}.garde{display:flex;gap:7px;align-items:center}.micro{line-height:1.45}
+    .parametres{display:grid;grid-template-columns:1fr 1fr;gap:7px 14px}.parametres label{display:flex;justify-content:space-between;
+      gap:12px;border-bottom:1px solid #232936;padding:5px 0;color:var(--gris)} output{color:#e2e8f0;font-weight:700;white-space:nowrap}
+    .alerte-donnee{margin-top:10px;padding:7px;background:#451a03;color:#fbbf24;border-radius:4px;font-size:11px}
+    .metriques{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.metrique{padding:10px;background:#10141d;border:1px solid #232936;border-radius:5px}
+    .metrique small{display:block;color:var(--gris);text-transform:uppercase;font-size:9px;margin-bottom:5px}.metrique strong{font-size:17px}
+    .vert{color:var(--vert)!important}.rouge{color:var(--rouge)!important}.ambre{color:var(--ambre)!important}.gris{color:var(--gris)!important}.perime{opacity:.55}
+    .ligne{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #232936}.ligne:last-child{border:0}
+    .zone-chart{padding:0}.barre-chart{height:47px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--bord)}
+    select,input{background:#0f131c;color:var(--texte);border:1px solid var(--bord);border-radius:4px;padding:6px 8px}
+    #chart{height:440px;width:100%}.chart-etat{margin-left:auto;color:var(--gris);font-size:11px}.chart-erreur{color:var(--rouge)}
+    .analyse-marche{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(400px,1.2fr);gap:10px;padding:10px;border-top:1px solid var(--bord);background:#0f131c}
+    .analyse-bloc{border:1px solid #232936;border-radius:5px;padding:10px;min-height:116px}.analyse-titre{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:#e2e8f0;font-size:11px;font-weight:800;text-transform:uppercase}
+    .chips{display:flex;gap:5px;flex-wrap:wrap}.chip{padding:3px 6px;border:1px solid #334155;border-radius:3px;color:#94a3b8;font-size:10px}.chip.ok{border-color:#065f46;color:#6ee7b7}.chip.ko{border-color:#7f1d1d;color:#fca5a5}
+    .calculs{display:grid;grid-template-columns:repeat(3,minmax(100px,1fr));gap:5px}.calcul{display:flex;justify-content:space-between;gap:7px;padding:4px 6px;background:#10141d;border-radius:3px;font-size:10px}.calcul span{color:var(--gris)}
+    .analyse-recente{padding:5px 0;border-bottom:1px solid #232936;font-size:10px}.analyse-recente:last-child{border:0}.analyse-recente strong{color:#e2e8f0}.analyse-recente time{color:var(--gris);float:right}
+    .positions{overflow:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}th{text-align:left;color:var(--gris);font-size:9px;
+      text-transform:uppercase;letter-spacing:.07em;padding:6px 8px;border-bottom:1px solid var(--bord)}td{padding:7px 8px;border-bottom:1px solid #202632;font-variant-numeric:tabular-nums}
+    td.vide{text-align:center;padding:22px}.intentions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px;margin-top:9px;border:1px solid #78350f;background:#271606;border-radius:5px}.intentions small{color:#d6a45d}
+    .barre-journal{display:flex;align-items:center;gap:5px;margin-bottom:8px}.filtre{border:0;background:transparent;color:var(--gris);padding:4px 7px;cursor:pointer;font-size:10px}.filtre:hover{color:white}
+    #journal{height:180px;overflow:auto;background:#0a0d12;border:1px solid #202632;border-radius:4px;padding:8px;
+      font:11px/1.65 Consolas,monospace}.toast{position:fixed;right:18px;bottom:18px;max-width:420px;padding:11px 14px;
+      background:#1e293b;border:1px solid #475569;border-radius:5px;box-shadow:0 12px 35px #0008;z-index:50}.toast.erreur{border-color:#991b1b;color:#fecaca}
+    dialog{width:min(460px,calc(100% - 28px));background:var(--carte);color:var(--texte);border:1px solid #4b5563;border-radius:7px;padding:0;box-shadow:0 24px 70px #000b}
+    dialog::backdrop{background:#020617c9}.dialog-corps{padding:18px}.dialog-corps h2{font-size:14px}.dialog-corps input{width:100%;margin:8px 0 14px}.dialog-actions{display:flex;justify-content:flex-end;gap:8px}.securite{color:#fbbf24;font-size:11px;line-height:1.5}
+    @media(max-width:980px){.grille-haut{grid-template-columns:1fr}.pilotage-grille{grid-template-columns:1fr}.metriques{grid-template-columns:repeat(2,1fr)}.analyse-marche{grid-template-columns:1fr}}
+    @media(max-width:560px){header{padding:0 10px}.entete-droit .badge{display:none}main{padding:8px}.parametres{grid-template-columns:1fr}#chart{height:330px}}
+  </style>
+</head>
+<body hx-ext="sse" sse-connect="/stream">
+<header>
+  <div class="marque"><span class="logo">T</span><span>TITANIUM V14</span><span class="badge">PRO TRADING</span></div>
+  <div class="entete-droit"><span class="badge rouge-bg">PAPER / DÉMO ONLY</span><span class="connexion"><i id="etat-point" class="point"></i><span id="etat-texte">connexion…</span></span></div>
+</header>
+<main>
+  <section id="pilotage" class="carte" hx-get="/ui/pilotage" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"><h2>Pilotage</h2><span class="gris">Lecture…</span></section>
+  <div class="grille-haut">
+    <section id="compte" class="carte" hx-get="/ui/compte" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"><h2>Compte</h2><span class="gris">Lecture…</span></section>
+    <section id="boucle" class="carte" hx-get="/ui/boucle" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"><h2>Risk Engine</h2><span class="gris">Lecture…</span></section>
+  </div>
+  <section id="macro" class="carte" hx-get="/ui/macro" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"><h2>Macro</h2><span class="gris">Lecture…</span></section>
+  <section class="carte zone-chart">
+    <div class="barre-chart"><strong>MARKET VIEW</strong>
+      <select id="symbole" aria-label="Actif">{% for sym in symboles %}<option value="{{ sym }}" {{ 'selected' if sym == symbole else '' }}>{{ sym }}</option>{% endfor %}</select>
+      <select id="timeframe" aria-label="Timeframe">{% for tf in ('M5','M15','M30','H1','H4','D1') %}<option {{ 'selected' if tf == timeframe else '' }}>{{ tf }}</option>{% endfor %}</select>
+      <button class="bouton petit" type="button" onclick="chargerGraphique(true)">CHARGER</button><span id="chart-etat" class="chart-etat">initialisation…</span></div>
+    <div id="chart"></div>
+    <div class="analyse-marche">
+      <div class="analyse-bloc"><div class="analyse-titre">Décision V14 <span id="analyse-verdict" class="badge">WAIT</span><span id="analyse-fraicheur" class="micro"></span></div><div id="analyse-contexte" class="micro">En attente des calculs…</div><div id="analyse-piliers" class="chips"></div></div>
+      <div class="analyse-bloc"><div class="analyse-titre">Calculs des moteurs</div><div id="analyse-indicateurs" class="calculs"><span class="gris">En attente…</span></div></div>
+      <div class="analyse-bloc"><div class="analyse-titre">Zones et plan sur le graphique</div><div id="analyse-zones" class="micro">En attente…</div></div>
+      <div class="analyse-bloc"><div class="analyse-titre">Analyses réelles de la boucle</div><div id="analyses-bot" class="micro">Lecture…</div></div>
+    </div>
+  </section>
+  <section id="positions" class="carte positions" hx-get="/ui/positions" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"><h2>Positions</h2><span class="gris">Lecture…</span></section>
+  <section class="carte"><div class="barre-journal"><h2 style="margin:0 auto 0 0">Event Log</h2>
+    <button class="filtre" onclick="filtrerJournal('ALL')">TOUT</button><button class="filtre" onclick="filtrerJournal('INFO')">INFO</button><button class="filtre" onclick="filtrerJournal('WARNING')">ALERTES</button><button class="filtre" onclick="filtrerJournal('ERROR')">ERREURS</button></div>
+    <div id="journal" hx-get="/ui/journal" hx-trigger="load, v14:tick from:body" hx-swap="innerHTML"></div>
+  </section>
+</main>
+<dialog id="dialog-cloture"><form class="dialog-corps" onsubmit="envoyerCloture(event)"><h2>Déposer une intention de clôture</h2>
+  <p>Position <strong id="cloture-position"></strong></p><p class="securite">Cette action ne ferme pas la position. Elle dépose une intention horodatée que seule la boucle armée pourra arbitrer.</p>
+  <label for="motif">Motif d’audit</label><input id="motif" maxlength="240" required placeholder="Pourquoi clôturer manuellement ?">
+  <input id="ticket" type="hidden"><input id="symbol" type="hidden"><div class="dialog-actions"><button class="bouton" type="button" onclick="document.getElementById('dialog-cloture').close()">ANNULER</button><button class="bouton danger" type="submit">DÉPOSER</button></div></form></dialog>
+<div id="toast" class="toast" hidden></div>
+<script>
+  let graphique, serie, lignesPrix = [];
+  function tempsUnix(valeur){ const ms=Date.parse(valeur); return Number.isFinite(ms)?Math.floor(ms/1000):valeur; }
+  function bougie(c){ return {time:tempsUnix(c.t),open:c.o,high:c.h,low:c.l,close:c.c}; }
+  function initialiserGraphique(){
+    const conteneur=document.getElementById('chart');
+    graphique=LightweightCharts.createChart(conteneur,{layout:{background:{type:'solid',color:'#131722'},textColor:'#787b86'},grid:{vertLines:{color:'#202632'},horzLines:{color:'#202632'}},rightPriceScale:{borderColor:'#2a2e39'},timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false}});
+    serie=graphique.addCandlestickSeries({upColor:'#10b981',downColor:'#ef4444',borderVisible:false,wickUpColor:'#10b981',wickDownColor:'#ef4444'});
+    new ResizeObserver(entries=>{const r=entries[0].contentRect;graphique.applyOptions({width:r.width,height:r.height});}).observe(conteneur);
+  }
+  function vider(noeud){while(noeud.firstChild)noeud.removeChild(noeud.firstChild);}
+  function texte(noeud,valeur){noeud.textContent=valeur==null||valeur===''?'—':String(valeur);}
+  function lignePrix(prix,couleur,titre,style=2){const n=Number(prix);if(Number.isFinite(n)&&n>0)lignesPrix.push(serie.createPriceLine({price:n,color:couleur,lineWidth:1,lineStyle:style,axisLabelVisible:true,title:titre}));}
+  function afficherCalculs(d,enveloppe){
+    const verdict=document.getElementById('analyse-verdict');texte(verdict,d.verdict||'WAIT');verdict.className=`badge ${d.verdict==='ENTER'?'vert-bg':d.verdict==='BLOCK'?'rouge-bg':'ambre'}`;
+    texte(document.getElementById('analyse-fraicheur'),enveloppe.stale?'DONNÉE PÉRIMÉE':`âge ${Number(enveloppe.age_s||0).toFixed(1)} s`);
+    texte(document.getElementById('analyse-contexte'),`${d.symbol} · ${d.asset_class||'classe inconnue'} · contexte ${d.context||'—'} · code ${d.code||'—'} · setup ${d.family||'—'} · quorum ${d.support_passed||0}/${d.quorum||0}`);
+    const piliers=document.getElementById('analyse-piliers');vider(piliers);(d.pillars||[]).forEach(p=>{const e=document.createElement('span');e.className=`chip ${p.passed?'ok':'ko'}`;e.textContent=`${p.passed?'✓':'×'} ${p.name} — ${p.reason||''}`;piliers.appendChild(e);});
+    const indicateurs=document.getElementById('analyse-indicateurs');vider(indicateurs);const valeurs={prix:d.price,...(d.indicators||{})};Object.entries(valeurs).forEach(([nom,valeur])=>{const e=document.createElement('div');e.className='calcul';const n=document.createElement('span');n.textContent=nom;const v=document.createElement('strong');v.textContent=typeof valeur==='number'?Number(valeur).toPrecision(6):String(valeur??'—');e.append(n,v);indicateurs.appendChild(e);});if(!indicateurs.children.length)indicateurs.textContent='Aucun calcul publié.';
+    const zones=document.getElementById('analyse-zones');const z=(d.zones||[]).map(x=>`${x.label||x.kind}: ${x.bas} → ${x.haut}`);const p=d.plan||{};texte(zones,[...z,`Plan ${p.side>0?'LONG':p.side<0?'SHORT':'WAIT'} · entrée ${p.entry||'—'} · SL ${p.sl||'—'} · TP ${p.tp||'—'} · R:R ${p.rr||'—'}`].join(' | '));
+  }
+  async function chargerAnalyses(symbole){
+    const cible=document.getElementById('analyses-bot');
+    try{const r=await fetch(`/api/analyses?symbole=${encodeURIComponent(symbole)}`,{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(`HTTP ${r.status}`);vider(cible);const elements=[...(d.runs||[]).slice(0,4).map(x=>({titre:`Décision ${x.ticker}`,detail:x.decision||'Décision vide',at:x.at})),...((d.analystes||{}).recents||[]).slice(0,4).map(x=>({titre:`Avis ${x.source||'LLM'} · ${x.rating||'—'}`,detail:`conviction ${x.conviction} · accord ${x.accord}`,at:x.rendu_a}))];if(!elements.length){cible.textContent='Aucune analyse produite récemment pour cet actif.';return;}elements.forEach(x=>{const e=document.createElement('div');e.className='analyse-recente';const t=document.createElement('strong');t.textContent=x.titre;const h=document.createElement('time');h.textContent=x.at||'';const q=document.createElement('div');q.textContent=x.detail;e.append(t,h,q);cible.appendChild(e);});
+    }catch(e){cible.textContent=`Analyses indisponibles : ${e.message}`;}
+  }
+  async function chargerUnivers(){
+    const select=document.getElementById('symbole'),courant=select.value;
+    try{const r=await fetch('/api/univers',{cache:'no-store'}),e=await r.json(),liste=e.data||[];if(!r.ok||!liste.length)return;vider(select);liste.forEach(sym=>{const o=document.createElement('option');o.value=sym;o.textContent=sym;o.selected=sym===courant;select.appendChild(o);});if(!select.value&&courant){const o=document.createElement('option');o.value=courant;o.textContent=courant;o.selected=true;select.prepend(o);}}
+    catch(_erreur){/* le repli serveur reste utilisable */}
+  }
+  async function chargerGraphique(remplacer=false){
+    if(!serie)return;const statut=document.getElementById('chart-etat');statut.textContent='lecture…';statut.classList.remove('chart-erreur');
+    const symbole=document.getElementById('symbole').value.trim().toUpperCase(),tf=document.getElementById('timeframe').value;
+    try{const reponse=await fetch(`/api/chart?symbole=${encodeURIComponent(symbole)}&timeframe=${encodeURIComponent(tf)}`,{cache:'no-store'}),enveloppe=await reponse.json(),d=enveloppe.data||{};if(!reponse.ok||enveloppe.erreur||d.error)throw new Error(d.error||enveloppe.erreur||`HTTP ${reponse.status}`);const donnees=(d.candles||[]).map(bougie);if(!donnees.length)throw new Error('aucune bougie disponible');
+      if(remplacer){serie.setData(donnees);graphique.timeScale().fitContent();lignesPrix.forEach(l=>serie.removePriceLine(l));lignesPrix=[];const plan=d.plan||{};[['entry','#38bdf8','ENTRÉE'],['sl','#ef4444','SL'],['tp','#10b981','TP']].forEach(([k,c,t])=>lignePrix(plan[k],c,t));(d.zones||[]).slice(0,8).forEach((z,i)=>{lignePrix(z.bas,'#f59e0b',`${z.label||z.kind} bas`,3);lignePrix(z.haut,'#f59e0b',`${z.label||z.kind} haut`,3);});}else{seriesUpdate(donnees[donnees.length-1]);}
+      afficherCalculs(d,enveloppe);statut.textContent=`${d.symbol} · ${d.timeframe} · ${d.verdict||'WAIT'} · ${donnees.length} bougies${enveloppe.stale?' · PÉRIMÉ':''}`;if(remplacer)chargerAnalyses(symbole);
+    }catch(e){statut.textContent=e.message;statut.classList.add('chart-erreur');}
+  }
+  function seriesUpdate(candleData){serie.update(candleData);}
+  function filtrerJournal(niveau){const j=document.getElementById('journal');j.setAttribute('hx-get',`/ui/journal?niveau=${niveau}`);htmx.process(j);htmx.trigger(j,'v14:tick');}
+  function demanderCloture(bouton){document.getElementById('ticket').value=bouton.dataset.ticket;document.getElementById('symbol').value=bouton.dataset.symbol;document.getElementById('cloture-position').textContent=`#${bouton.dataset.ticket} · ${bouton.dataset.symbol}`;document.getElementById('motif').value='';document.getElementById('dialog-cloture').showModal();}
+  async function envoyerCloture(e){e.preventDefault();const payload={action:'close_position',ticket:document.getElementById('ticket').value,symbol:document.getElementById('symbol').value,motif:document.getElementById('motif').value.trim()};
+    try{const r=await fetch('/api/intentions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw new Error(d.motif||`HTTP ${r.status}`);document.getElementById('dialog-cloture').close();notifier(d.message||'Intention déposée');htmx.trigger(document.body,'v14:tick');}catch(err){notifier(err.message,true);}}
+  function notifier(message,erreur=false){const t=document.getElementById('toast');t.textContent=message;t.className=`toast${erreur?' erreur':''}`;t.hidden=false;clearTimeout(t._timer);t._timer=setTimeout(()=>t.hidden=true,5000);}
+  document.addEventListener('DOMContentLoaded',()=>{initialiserGraphique();chargerGraphique(true);chargerUnivers();document.getElementById('symbole').addEventListener('change',()=>chargerGraphique(true));document.getElementById('timeframe').addEventListener('change',()=>chargerGraphique(true));});
+  document.body.addEventListener('htmx:sseMessage',e=>{const type=e.detail&&e.detail.type;if(type==='tick'){document.getElementById('etat-point').className='point ok';document.getElementById('etat-texte').textContent='temps réel';htmx.trigger(document.body,'v14:tick');}if(type==='chart')chargerGraphique(false);});
+  document.body.addEventListener('htmx:sseError',()=>{document.getElementById('etat-point').className='point ko';document.getElementById('etat-texte').textContent='reconnexion…';});
+</script>
+</body>
+</html>

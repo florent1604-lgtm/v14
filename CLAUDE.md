@@ -1,4 +1,18 @@
-# V14 — Titanium hybride
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## V14 — Titanium hybride
+
+### Mandat actuel — 06/09/2026 (prioritaire sur les sections historiques)
+
+Codex dispose de l'autorité de recherche, correction et commit décrite dans
+le dossier V3. Hermès peut être sur le chemin critique et appeler MT5 via les
+gardes DEMO : ce droit ne supprime ni fraîcheur, ni idempotence, ni RiskGate.
+Aucun ordre réel, aucun armement; `.env` jamais lu, écrit ou exposé. Donnée,
+mémoire ou politique absente/expirée/incohérente : WAIT aux nouvelles entrées.
+Les modèles ne promeuvent pas seuls leurs seuils ou leur risque. Le lot d'audit
+ne redémarre pas les services. Voir `docs/AUDIT_MODERNISATION_V14_20260906.md`.
 
 ## Skills locaux Claude
 
@@ -94,16 +108,77 @@ données MT5 (prioritaire) / yfinance (secours)
 
 ## Les trois règles non négociables
 
-1. **Le LLM n'a jamais l'autorité d'exécution.** Il module la taille et le plan
-   d'entrée d'un setup *déjà validé*. Les portes gardent le droit de véto.
-2. **Aucun appel LLM dans le chemin critique temps réel.** L'intraday ne
-   supporte pas 30 appels réseau. La délibération sert le swing et le
-   dimensionnement, jamais le déclenchement.
-3. **Fail-closed conservé.** LLM indisponible, lent ou incohérent ⇒ on retombe
-   sur le comportement déterministe, jamais sur un pari.
+1. **Hermès est le pilote décisionnel DEMO.** Il choisit parmi les candidats
+   scellés et publie `ALLOW/WAIT/BLOCK`; il n'appelle jamais MT5 directement.
+   RiskGate, sizing, identité du compte et idempotence restent les murs
+   techniques qui peuvent refuser une exécution invalide.
+2. **Aucun appel LLM dans le chemin critique temps réel.** Le worker Hermès
+   prépare des politiques hors ligne; la boucle lit localement leur décision
+   exacte et fraîche en quelques millisecondes.
+3. **Fail-closed conservé.** Hermès indisponible, lent, périmé ou incohérent ⇒
+   `WAIT` pour toute nouvelle entrée. La protection déterministe des positions
+   ouvertes continue, sans inventer une autorisation.
 
-Corollaire de coût : délibérer sur 149 actifs est intenable. On ne délibère que
-sur ce que les portes ont déjà validé — quelques décisions par jour.
+Corollaire de coût : les 149 actifs restent observés, mais seuls les candidats
+quantifiés sont soumis au cortex, par lots courts et sans top-N fixe.
+
+## Style de réponse attendu
+
+Instruction de Florent, 25/08/2026 : **des réponses claires, complètes, mais
+courtes.**
+
+Les trois tiennent ensemble. Complet ne veut pas dire long : cela veut dire ne
+rien omettre de ce qui change une décision — un chiffre mesuré, une réserve, un
+échec. Court veut dire supprimer ce qui n'en change aucune — le récit des
+étapes, les options écartées, la reformulation de ce qui vient d'être dit.
+
+En pratique :
+
+- Le résultat d'abord, la méthode seulement si elle est contestable.
+- Un chiffre vaut mieux qu'un adjectif ; une mesure vaut mieux qu'un avis.
+- Les détails vont dans les fichiers du dépôt, pas dans la réponse.
+- Une réserve se dit en une phrase, pas en un paragraphe.
+- Ne pas réexpliquer ce qui est déjà dans un rapport commité : le citer.
+
+## Commandes
+
+L'interpréteur est **`.venv/Scripts/python.exe`**, jamais `python` nu : le venv
+est un lanceur-relais et le `python` du PATH n'a pas les dépendances du projet.
+
+```bash
+# suite complète — environ 4 min, 2342 tests
+.venv/Scripts/python.exe -m pytest tests/ -q
+
+# un seul fichier, une seule fonction
+.venv/Scripts/python.exe -m pytest tests/test_riskgate.py -q
+.venv/Scripts/python.exe -m pytest tests/test_riskgate.py::test_anti_fade_bloque_le_contre_tendance_quand_il_est_arme
+
+# la porte de lint du dépôt — la MEME que le pre-commit et la CI
+bash tools/lint_gate.sh          # ruff --select E9,F63,F7,F82 sur 4 dossiers
+
+# relevé de tests qui alimente le tableau de bord
+.venv/Scripts/python.exe tools/dashboard.py --tests
+```
+
+Le hook `pre-commit` enchaîne `tools/lint_gate.sh` puis une sélection de tests
+de sûreté (28). Il tourne à chaque commit ; ne pas le contourner.
+
+Encodage : passer `-X utf8` à tout script qui écrit du texte accentué, et
+`sys.stdout.reconfigure(encoding="utf-8", errors="replace")` dans les scripts
+d'analyse. Sans cela la sortie casse sur la console Windows.
+
+### Outils d'analyse hors ligne
+
+```bash
+# conformité de l'archive de barres, par symbole et unité de temps
+.venv/Scripts/python.exe -X utf8 tools/audit_archive_barres.py --timeframes M15 H4
+
+# état des artefacts de rejeu : époque, sceaux, générations mixtes
+.venv/Scripts/python.exe -X utf8 tools/audit_rejeu_artefacts.py
+
+# classement par actif, borné à l'époque scellée du corpus
+.venv/Scripts/python.exe -X utf8 tools/analyse_rejeu_univers.py
+```
 
 ## Arborescence
 
@@ -139,7 +214,8 @@ V14/
 | **Gestion de position** (`titanium/execution/position_manager.py`) | ✅ 43 |
 | **Orchestrateur** (`titanium/orchestrator.py`) | ✅ 29 |
 
-**Suite complète : 939 passed, 2 skipped** — 363 titanium + 576 socle.
+**Suite complète : 2342 passed, 2 skipped** (relevé du 25/08/2026). Les deux
+skips sont structurels : `langchain_aws` absent et clé DeepSeek non renseignée.
 Relevé authoritatif : `python tools/dashboard.py --tests`. Ajouter une brique
 dans `BRIQUES` (tools/dashboard.py) la fait apparaître sur la page **et** dans
 le compteur — les deux lisaient auparavant des listes distinctes, et les
@@ -193,7 +269,7 @@ Le terminal peut basculer de compte entre deux appels : c'est arrivé le
 
 | Verrou | Variable | État |
 |---|---|---|
-| 1. Armement | `TITANIUM_EXEC_ENABLED` | `0` — **fermé** |
+| 1. Armement | `TITANIUM_EXEC_ENABLED` | **ouvert** — la boucle trade en démo depuis le 07/08/2026 |
 | 2. Le courtier dit DEMO (`trade_mode==0`) | — (lu du serveur) | ✅ ouvert |
 | 3. Login attendu | `TITANIUM_DEMO_LOGIN=10055401` | ✅ concordant |
 
@@ -268,6 +344,58 @@ position en erreur n'interrompt pas la boucle · le mur s'applique aussi (gérer
 un SL est un ordre). Le pic favorable est un **cliquet** : il ne redescend
 jamais, sinon le trailing rendrait du gain déjà sécurisé.
 
+### Mise à plat hors crypto le week-end (12/09/2026)
+
+`titanium/execution/weekend_flat.py` + `MISE_A_PLAT_WEEKEND` dans
+`tools/live_demo.py`. Décision de Florent : **aucune position hors crypto ne
+passe le week-end, même perdante.**
+
+Le chiffre qui l'a déclenchée : `DAX40.fs` #108485347 portée du vendredi au
+samedi — **+6.38 EUR de gain brut contre −45.25 EUR de swap**. Le portage a
+rendu perdante une position gagnante, sur un marché fermé où le stop ne
+pouvait de toute façon pas être géré. Le coût du portage est certain ; le
+retour du prix ne l'est pas.
+
+Fenêtre par défaut, en **heure serveur** : vendredi 22:00 → lundi 01:00. Le
+début n'est pas collé à la fermeture (23:58 serveur) : les dernières minutes
+du vendredi sont les moins liquides de la semaine. 22:00 serveur = 15:00 à
+New York, séance pleine, spread normal.
+
+La crypto est **exemptée** — mesuré le 12/09 : 29 marchés ouverts sur 149, et
+les 29 sont des cryptos. La mettre à plat reviendrait à fermer le seul marché
+du week-end.
+
+Quatre points de conception, tous payés par un piège connu :
+
+1. **L'heure vient du serveur, et on la LIT au lieu de la calculer.** Un
+   calcul contre l'horloge locale décale de trois heures (Axi = GMT+3) et la
+   clôture partirait après la fermeture, donc jamais. Le tick d'un actif
+   continu porte déjà l'heure serveur. Estimer un *décalage* ne suffit pas :
+   `decalage_serveur` rend `0` quand la mesure échoue, et `0` est
+   indiscernable d'un serveur réellement en UTC.
+2. **Horloge illisible ⇒ aucune clôture. Classe inconnue ⇒ clôture.** Les
+   deux sens sont opposés et c'est délibéré : un ordre est irréversible, donc
+   on ne l'émet pas sur une horloge inconnue ; à l'inverse une crypto mal
+   classée serait reprise au tour suivant, quand un indice gardé par erreur
+   saigne 48 h sans gestion possible.
+3. **Un marché endormi n'est pas sollicité** (`marche_cote`, seuil 20 min
+   comme `sizing.RETARD_MAX_MIN`). Sans cette garde, une position hors crypto
+   encore ouverte le samedi ferait partir une demande refusée toutes les dix
+   secondes pendant trente-six heures — plus de douze mille ordres inutiles.
+4. **L'étage d'entrée refuse aussi** (`WEEKEND_FLAT` dans `refus_live`) :
+   rouvrir ce que la gestion vient de fermer paierait deux spreads pour rien.
+
+`decide_weekend_flat()` est **pure** — aucun MT5, aucun fichier, aucune
+horloge locale — comme `decide_new_sl`. L'I/O tient dans deux coquilles
+minces (`heure_serveur_mt5`, `marche_cote`). 39 tests, dont le câblage réel
+de `manage_once` : un `TRADE_ACTION_DEAL` doit partir, et son témoin marché-
+fermé ne doit rien envoyer.
+
+⚠️ `manage_once` est en risque **HIGH** au rayon d'explosion GitNexus
+(6 symboles impactés, 2 processus). La modification est additive — un
+paramètre optionnel et une quatrième source de sortie — mais toute évolution
+future de cette fonction touche la boucle armée.
+
 ### Orchestrateur — les trois règles en code
 
 ```
@@ -330,6 +458,7 @@ Constatés en lisant le code (cf. `V13/docs/DIAGNOSTIC_V12_V13.md`) :
 | `scan_v14.py [SYMBOLES…]` | **la chaîne complète** sur données MT5 : features → portes → RiskGate → décision. `--deliberer` ajoute le LLM, `--prod` durcit le quorum. N'exécute jamais. |
 | `python tools/dashboard.py --tests` | relève la suite et alimente la page |
 | `PRIME_V14.bat` | **harnais de développement Prime Agent** — écrit du code, ne trade pas |
+| `IRM_V14.bat` | **flux vivant** `http://localhost:8099` — la chaîne organe par organe, en temps réel |
 
 Port 8095 choisi pour ne heurter ni V12 (8090), ni JARVIS (8080/8765), ni
 Open WebUI (3000).
@@ -402,6 +531,57 @@ Rejouer la vérification : installer `playwright` dans le venv puis piloter
 l'API toutes les 10 s, elle n'est jamais « au repos ». Attendre
 `domcontentloaded` puis le sélecteur `#wall .verdict`.
 
+## L'IRM — le flux vivant (05/09/2026)
+
+`tools/irm.py` (port **8099**) + `tools/ui/irm.{html,css,js}`. Le tableau de bord
+répond « où en est le système » ; l'IRM répond « qu'est-il en train de faire ».
+
+**C'est un lecteur, jamais un ré-exécuteur.** Rejouer la chaîne pour l'observer
+demanderait le verrou MT5 — celui que la boucle armée utilise pour trader. Un
+observateur qui affame l'observé ne mesure plus rien. L'IRM lit donc uniquement
+les journaux que la boucle écrit déjà. Conséquence assumée : boucle arrêtée ⇒
+l'IRM le dit, elle n'invente aucune activité.
+
+Dix organes, dans l'ordre du flux, avec leur débit relevé dans `stats.tunnel` :
+
+```
+catalogue → portabilité → détecteurs → portes ET → mémoire d'edge
+→ politique → grappes → microstructure → avis LLM → exécution
+```
+
+Aucun chiffre n'est calculé par la page — tous sont relevés. Un étage que la
+boucle ne compte pas affiche **« non compté »**, jamais `0` : confondre « rien
+laissé passer » et « pas mesuré » ferait conclure faux.
+
+Complétée le 05/09 : **onze organes** (le cortex Hermès a le sien, il était
+fondu dans « Mémoire d'edge » alors que c'est lui qui raisonne) et quatre
+panneaux cognitifs — **Réflexion du cortex** (le raisonnement d'Hermès mot pour
+mot, ses sources citées, le producteur réel de chaque verdict), **Mémoire**
+(n, espérance R, PF par contexte, le rentable en tête), **Données réellement
+injectées** (une source tombée reste affichée à zéro, sinon elle disparaît en
+silence) et **Revue des positions ouvertes**.
+
+Cinq pièges rencontrés en construisant, tous trouvés à la mesure :
+
+1. **Les décalages de lecture sont un état partagé.** Un client SSE qui draine
+   lui-même les journaux vole les octets au suivant : deux onglets montraient
+   deux vérités différentes, et un rechargement donnait une page vide. Un seul
+   collecteur remplit désormais un tampon commun.
+2. **`positions.json` n'a pas de résultat courant.** Le champ `r` est le
+   multiplicateur R→prix (`|entrée − SL|`, cf. `position_manager.py:514`), pas
+   un P&L. Affiché comme un résultat, il donnait « UK100 +34.36 R » là où le
+   pic réel est +0.17 R — et les sommer additionnait des dollars d'argent avec
+   des points d'indice. Seul `peak_fav_r` est en R.
+3. **Une grille 12 colonnes ne se replie pas toute seule.** À 420 px, ses onze
+   gouttières de 18 px dépassaient à elles seules la largeur disponible.
+4. **Un sélecteur trop précis casse en silence.** `.deux-colonnes > .bloc`
+   n'attrapait plus la colonne de droite devenue un `div` de regroupement :
+   elle héritait d'une piste de quelques pixels et son texte se cassait à un
+   caractère par ligne. Invisible en lisant le CSS, évident à la capture.
+5. **Une lecture de queue ne jette la première ligne que si elle a sauté.**
+   La jeter systématiquement perdait un enregistrement dans tout journal plus
+   court que la fenêtre — invisible en production où tous la dépassent.
+
 ## Environnement
 
 - **Lancer depuis la racine V14** (`find_dotenv(usecwd=True)` pour les clés).
@@ -409,8 +589,10 @@ l'API toutes les 10 s, elle n'est jamais « au repos ». Attendre
   Gemini Pro est hors free tier. Config dans `.env` (`TRADINGAGENTS_*`).
 - Machine **CPU seul** (Ryzen 7 7730U, pas de GPU utilisable) — aucun LLM local
   dans le chemin de décision.
-- MT5 : terminal Axi, **compte réel 60261188**. Le mur démo↔réel est
-  obligatoire avant tout `order_send`.
+- MT5 : terminal Axi, **compte démo 10055401** (Axi-US50-Demo). Le compte réel
+  60261188 existe sur le même terminal : le mur démo↔réel est vérifié à chaque
+  ordre, jamais mis en cache, parce que le terminal peut basculer entre deux
+  appels.
 
 ## Rapport à V12 et V13
 
@@ -418,6 +600,111 @@ l'API toutes les 10 s, elle n'est jamais « au repos ». Attendre
   depuis V14**, toujours.
 - **V13** (`C:\Users\flore\Desktop\V13`) est le banc d'essai qui a validé la
   mécanique de délibération. On y garde le diagnostic comparatif.
+
+## Ce qui scelle les artefacts — `FICHIERS_MOTEUR`
+
+`tools/rejeu_univers.py:67` liste **onze fichiers** dont l'empreinte SHA-256
+combinée est scellée dans chaque artefact de rejeu. En modifier un seul fait
+basculer l'empreinte, et **les 147 artefacts deviennent incomparables au code
+présent** : les bancs hors ligne refusent tout en bloc.
+
+```
+tools/rejeu_univers.py · titanium/backtest.py · titanium/data/archive_barres.py
+titanium/edge.py · features/{builder,candlesticks,indicators,smc,structure,
+ict_structure}.py · gates/confluence_gate.py
+```
+
+Coût réel d'une bascule : **un rejeu complet de 149 symboles, ~15 h**. Arrivé
+deux fois entre le 22 et le 25/08. Avant toute édition d'un de ces onze
+fichiers, se demander si le changement peut attendre un lot groupé.
+
+Piège associé, vécu le 25/08 : `edge.py` porte de la télémétrie *live*
+(`ClosedTrade`, `TradeJournal`) **et** est fichier moteur. Un correctif
+d'instrumentation parfaitement légitime a donc périmé 147 artefacts, et
+**aucun des 2342 tests ne l'a signalé** — rien ne lie l'arbre de travail à la
+génération scellée. L'extraction de ces classes hors de `edge.py` est une dette
+ouverte.
+
+L'analyse doit se caler sur la génération scellée dans les artefacts, jamais sur
+l'état du code du jour : `tools/epoque_rejeu.py` (hors `FICHIERS_MOTEUR` par
+construction) fournit `epoque_corpus`, le pin `--empreinte` (préfixe hexa de 16
+à 64), et le sidecar `<sortie>.blocked.json`.
+
+⚠️ **`symbols_measured: 0` n'est pas un résultat nul.** Un rapport vide se lit
+comme « aucun signal » alors qu'il dit « rien mesuré ». Tout consommateur doit
+lire le sidecar OU vérifier `mesure_le` avant de revendiquer une fraîcheur.
+
+## Deux canaux de collaboration, à ne pas confondre
+
+| canal | support | qui le lit |
+|---|---|---|
+| **CollabHub** `127.0.0.1:8770/mcp` | SQLite, offsets globaux | **canonique** — Codex, Hermes, Prime |
+| bus NDJSON `tools/collab_bus.mjs` | fichier partagé avec V12 | secours hors ligne |
+
+Ils ne sont **pas** synchronisés. Un verdict publié le 24/08 sur le bus est
+resté invisible une journée entière, et l'équipe a maintenu un HOLD faute de
+réponse. Publier sur le hub :
+
+```python
+# collab_publish : principal, target, kind, content, idempotency_key requis
+# target accepte 'codex', 'hermes', 'topic:prime', 'topic:team', 'florent'
+```
+
+`collab_read` prend `after_offset`, pas `from_offset`.
+
+## Jointure des journaux live — deux normalisations obligatoires
+
+```
+limit_lifecycle.position_ticket   89347153        (entier)
+trades.ndjson.ticket              live:89347153   (chaîne préfixée)
+excursions.ndjson.ticket          live:89347153
+```
+
+Une jointure naïve rend **zéro correspondance** et ressemble à une absence de
+données ; après `str(t).split(":")[-1]` elle est **complète, 373/373, sans
+collision**. Les ordres `expired` n'ont aucun `position_ticket` — ils ne sont
+jamais devenus des positions, donc ils n'ont pas d'aval.
+
+Second piège : `spread_r` n'est porté que par l'événement **`placed`**, pas par
+`closed`. Il faut joindre par `order_ticket`. Lire `closed` seul fait conclure
+que l'axe n'existe pas.
+
+## Pièges de mesure constatés
+
+- **`df.index.view("int64")` rend du bruit** sur un index horodaté (`[1, 1, 1]`).
+  Utiliser `idx.tz_convert("UTC").tz_localize(None).astype("datetime64[s]")
+  .astype("int64")`. Deux conclusions publiées ont dû être retirées.
+- **`cmd /k` survit à la mort de sa commande.** Quatre fenêtres « boucle armée »
+  dans une liste de processus peuvent n'être qu'un seul interpréteur vivant :
+  descendre aux enfants, un `conhost.exe` seul signale une coquille vide.
+- **Le spread brut n'est pas comparable entre actifs.** Rapporté à l'ATR, la
+  corrélation espérance↔coût passe de −0,399 à −0,867.
+- **Une partition par `exit_reason` est en partie définitionnelle** : atteindre
+  +0,8 R déclenche le breakeven et change le motif. Les taux de réussite par
+  seau ne sont pas des résultats.
+
+## GitNexus — sortir de la boucle FTS
+
+Symptôme : `analyze` échoue sur `FTS index 'file_fts' is inconsistent`, et
+`--repair-fts` refuse en renvoyant vers `analyze`. La boucle se casse seule —
+un `node .gitnexus/run.cjs analyze` **nu** détecte le drapeau
+`incrementalInProgress`, force une reconstruction complète et se répare (~70 s).
+Rencontré deux fois le 25/08.
+
+## État des politiques live au 25/08/2026
+
+| | |
+|---|---|
+| porte de coût | `MAX_COUT_SPREAD_PCT = 0.125` (`titanium/sizing.py:70`) |
+| FX | **suspendu** (`live_demo.py:178`), décision Florent du 24/08 |
+| anti-fade contre-tendance | **levé** en politique (`riskgate.py:63`), réarmable par un mot |
+| mode d'entrée | **MARCHE** depuis `691adb6` — la cohorte limite est gelée |
+
+Le carnet L2 n'existe pas chez Axi : mode d'exécution `MARKET (dealer)`,
+`market_book_add` rend `False`, et les ticks ne portent que `BID`/`ASK` — aucun
+`LAST`, `BUY`, `SELL`. Profondeur, file d'attente et côté agresseur sont donc
+**non observables et non identifiables** depuis ce courtier. Le modèle de file
+a été abandonné par consensus des quatre agents.
 
 ## Journal
 
@@ -760,7 +1047,8 @@ Compte **10055401** Axi-US50-Demo, 5000 EUR. `TITANIUM_EXEC_ENABLED=1`,
 | 3/4 (quorum PROD) | ~1.13 % |
 | 4/4 | 1.75 % — plafond de modulation |
 
-`MAX_RISK_PCT = 2 %` reste un **mur intact** : le plafond de modulation est
+`MAX_RISK_PCT = 2 %` — risque d'**un** trade, distinct du budget global
+d'exposition (17,1 %) — reste un **mur intact** : le plafond de modulation est
 délibérément en dessous, pour que le plafond dur garde son rôle de dernier
 recours. La conviction du délibérateur nuance de ±25 % au plus — un LLM
 nuance la taille, il ne la décide pas.
@@ -886,6 +1174,11 @@ la déduire. Même leçon que `_SUPPORT_PILLARS` lu à la source.
 
 ## Plafonds relevés — 8 positions + budget de risque (07/08/2026)
 
+> **État au 13/09/2026** : `MAX_RISQUE_CUMULE_PCT = 17,1 %` et
+> `MAX_RISQUE_GRAPPE_PCT = 5,7 %`, invariant `3 x 5,7 = 17,1`. La section
+> ci-dessous décrit l'état du **07/08/2026** ; les 6 % qu'elle cite sont
+> ceux d'alors. Mesure courante : `tools/mesure_budget_risque.py`.
+
 `MAX_POSITIONS` 3 → **8**, mais **jamais seul** : `MAX_RISQUE_CUMULE_PCT = 6`.
 
 Compter les positions ne borne PAS l'exposition. À 1.75 % chacune, huit
@@ -919,9 +1212,10 @@ Une seule chose, et elle ne dépend pas du code :
 
 - **Accumuler des trades pour mesurer l'edge.** `titanium/edge.py` lit un
   journal append-only et rend un verdict par contexte, mais il faut
-  `MIN_SAMPLES = 20` trades clos par contexte. Aujourd'hui : **0**. Tant que
-  l'edge est inconnu, le mode PROD bloque tout — par conception, c'est le
-  correctif du fail-OPEN de V12.
+  `MIN_SAMPLES = 20` trades clos par contexte. Au 25/08/2026 : **455 trades
+  clos** dans `results/trades.ndjson`, dont 373 issus d'entrées limites. Le
+  registre n'est plus vide ; c'est la couverture PAR CONTEXTE qui reste le
+  facteur limitant.
 - **Armer la démo** quand tu le décides : `TITANIUM_EXEC_ENABLED=1`. C'est ce
   qui déclenchera l'accumulation ci-dessus.
 
@@ -947,7 +1241,7 @@ lot backfill et de la réparation contrôlée du journal :
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (9528 symbols, 19446 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (12444 symbols, 24603 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -975,16 +1269,5 @@ This project is indexed by GitNexus as **titanium-v14** (9528 symbols, 19446 rel
 | `gitnexus://repo/titanium-v14/clusters` | All functional areas |
 | `gitnexus://repo/titanium-v14/processes` | All execution flows |
 | `gitnexus://repo/titanium-v14/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->

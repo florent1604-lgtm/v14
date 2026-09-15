@@ -45,12 +45,12 @@ def features(**over) -> dict:
 
 
 def risque(**over) -> dict:
-    base = dict(price=1.1000, atr=0.0020, equity=10_000.0, risk_pct=1.0,
-                halted=False, circuit_breaker=False,
-                fundamentals_block=False, fundamentals_reduce=False,
-                trend=1, gross_exposure_pct=0.0,
-                emotion_available=True, emotion_would_block=False,
-                timeframe="H4", roundtrip_cost=0.8)
+    base = {"price": 1.1000, "atr": 0.0020, "equity": 10_000.0, "risk_pct": 1.0,
+                "halted": False, "circuit_breaker": False,
+                "fundamentals_block": False, "fundamentals_reduce": False,
+                "trend": 1, "gross_exposure_pct": 0.0,
+                "emotion_available": True, "emotion_would_block": False,
+                "timeframe": "H4", "roundtrip_cost": 0.8}
     base.update(over)
     return base
 

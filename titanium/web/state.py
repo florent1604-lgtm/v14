@@ -1,17 +1,18 @@
 """Collecte de l'état de V14 — source unique pour l'interface et la CLI.
 
-Chaque fonction relit l'état RÉEL à l'appel, ne met rien en cache et **ne lève
-jamais** : une sonde qui plante ne doit pas noircir tout le tableau de bord. Un
-bloc en erreur porte sa propre clé ``error`` et les autres continuent de vivre.
+Chaque fonction relit l'état RÉEL à l'appel et **ne lève jamais** : une sonde
+qui plante ne doit pas noircir tout le tableau de bord. Le seul calcul mis en
+cache est le classement statistique lourd, invalidé avec son journal source.
+Un bloc en erreur porte sa propre clé ``error`` et les autres continuent de vivre.
 
-Rien ici ne déclenche d'ordre, ne modifie de stop, ni n'appelle de LLM. Le seul
-point coûteux est `scan()`, qui lit MT5 et calcule les features — il est donc
-explicite et jamais automatique.
+Rien ici ne déclenche d'ordre, ne modifie de stop, ni n'appelle de LLM. `scan()`
+lit MT5 et calcule les features ; il est donc explicite et jamais automatique.
 """
 
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,11 +36,20 @@ def _safe(fn, defaut=None):
 
 def meta() -> dict:
     c = _config()
+    from titanium.hermes_cortex import HERMES_MODEL, HERMES_PROVIDER, HERMES_SOURCE
+
     return {
         "now": datetime.now(timezone.utc).isoformat(),
-        "provider": c["llm_provider"],
-        "deep_model": c["deep_think_llm"],
+        # Le worker d'analystes appelle desormais Hermes via l'authentification
+        # Claude Code. Ollama/Qwen reste un repli local; l'afficher comme
+        # fournisseur principal rendait le tableau de bord factuellement faux.
+        "provider": HERMES_PROVIDER,
+        "deep_model": HERMES_MODEL,
         "quick_model": c["quick_think_llm"],
+        "cortex_primary": HERMES_SOURCE,
+        "cortex_mode": "async_advisory",
+        "fallback_provider": c["llm_provider"],
+        "fallback_model": c["deep_think_llm"],
         "results_dir": str(c["results_dir"]),
     }
 
@@ -202,50 +212,64 @@ def positions() -> dict:
 
         from titanium.data.mt5_vendor import mt5_lock, mt5_session
 
-        with mt5_lock:
-            with mt5_session():
-                for pos in (mt5.positions_get() or ()):
-                    if int(getattr(pos, "magic", 0) or 0) != p.magic:
-                        continue
-                    st = suivi.get(str(pos.ticket))
-                    entree, courant = float(pos.price_open), float(pos.price_current)
-                    side = 1 if int(pos.type) == 0 else -1
-                    fav = ((courant - entree) / st.r * side) if (st and st.r) else None
-                    lignes.append({
-                        "ticket": str(pos.ticket), "symbol": pos.symbol,
-                        "side": side, "volume": float(pos.volume),
-                        "entry": entree, "current": courant,
-                        "sl": float(pos.sl) if pos.sl else None,
-                        "tp": float(pos.tp) if pos.tp else None,
-                        "profit": float(getattr(pos, "profit", 0.0)),
-                        "phase": st.phase if st else "non suivi",
-                        "fav_r": round(fav, 3) if fav is not None else None,
-                        "peak_r": round(st.peak_fav_r, 3) if st else None,
-                    })
-                for ordre in (mt5.orders_get() or ()):
-                    if int(getattr(ordre, "magic", 0) or 0) != p.magic:
-                        continue
-                    ordre_type = int(getattr(ordre, "type", -1) or -1)
-                    buy_limit = int(mt5.ORDER_TYPE_BUY_LIMIT)
-                    sell_limit = int(mt5.ORDER_TYPE_SELL_LIMIT)
-                    if ordre_type not in (buy_limit, sell_limit):
-                        continue
-                    side = 1 if ordre_type == buy_limit else -1
-                    attentes.append({
-                        "ticket": str(ordre.ticket), "symbol": ordre.symbol,
-                        "side": side,
-                        "volume": float(getattr(ordre, "volume_initial", 0.0) or 0.0),
-                        "price": float(getattr(ordre, "price_open", 0.0) or 0.0),
-                        "sl": float(ordre.sl) if getattr(ordre, "sl", 0.0) else None,
-                        "tp": float(ordre.tp) if getattr(ordre, "tp", 0.0) else None,
-                        "expires": int(getattr(ordre, "time_expiration", 0) or 0),
-                        "kind": "BUY_LIMIT" if side > 0 else "SELL_LIMIT",
-                    })
+        with mt5_lock, mt5_session():
+            for pos in (mt5.positions_get() or ()):
+                if int(getattr(pos, "magic", 0) or 0) != p.magic:
+                    continue
+                st = suivi.get(str(pos.ticket))
+                entree, courant = float(pos.price_open), float(pos.price_current)
+                side = 1 if int(pos.type) == 0 else -1
+                fav = ((courant - entree) / st.r * side) if (st and st.r) else None
+                brut = float(getattr(pos, "profit", 0.0) or 0.0)
+                # MT5 separe le profit du portage : ``profit`` ne contient PAS
+                # le swap, alors que l'equite du compte, elle, le compte.
+                # Mesure du 12/09/2026 sur DAX40.fs #108485347 : +6,38 EUR de
+                # brut contre -45,25 EUR de swap, soit equity - balance egal a
+                # profit + swap au centime. Afficher le brut seul rend le
+                # panneau optimiste du montant exact qui decide.
+                portage = float(getattr(pos, "swap", 0.0) or 0.0)
+                lignes.append({
+                    "ticket": str(pos.ticket), "symbol": pos.symbol,
+                    "side": side, "volume": float(pos.volume),
+                    "entry": entree, "current": courant,
+                    "sl": float(pos.sl) if pos.sl else None,
+                    "tp": float(pos.tp) if pos.tp else None,
+                    "profit": brut,
+                    "swap": portage,
+                    "net": brut + portage,
+                    "phase": st.phase if st else "non suivi",
+                    "fav_r": round(fav, 3) if fav is not None else None,
+                    "peak_r": round(st.peak_fav_r, 3) if st else None,
+                })
+            for ordre in (mt5.orders_get() or ()):
+                if int(getattr(ordre, "magic", 0) or 0) != p.magic:
+                    continue
+                ordre_type = int(getattr(ordre, "type", -1) or -1)
+                buy_limit = int(mt5.ORDER_TYPE_BUY_LIMIT)
+                sell_limit = int(mt5.ORDER_TYPE_SELL_LIMIT)
+                if ordre_type not in (buy_limit, sell_limit):
+                    continue
+                side = 1 if ordre_type == buy_limit else -1
+                attentes.append({
+                    "ticket": str(ordre.ticket), "symbol": ordre.symbol,
+                    "side": side,
+                    "volume": float(getattr(ordre, "volume_initial", 0.0) or 0.0),
+                    "price": float(getattr(ordre, "price_open", 0.0) or 0.0),
+                    "sl": float(ordre.sl) if getattr(ordre, "sl", 0.0) else None,
+                    "tp": float(ordre.tp) if getattr(ordre, "tp", 0.0) else None,
+                    "expires": int(getattr(ordre, "time_expiration", 0) or 0),
+                    "kind": "BUY_LIMIT" if side > 0 else "SELL_LIMIT",
+                })
     except Exception as exc:  # noqa: BLE001
+        # Un flottant ILLISIBLE n'est pas un flottant nul : ``None`` se
+        # distingue de ``0.0``, et la carte n'affiche alors aucun total.
         return {"error": f"{type(exc).__name__}: {exc}", "positions": [],
-                "pending": [], "params": params.__dict__}
+                "pending": [], "params": params.__dict__,
+                "net_total": None, "portage_total": None}
 
     return {"positions": lignes, "pending": attentes, "params": params.__dict__,
+            "net_total": round(sum(ligne["net"] for ligne in lignes), 2),
+            "portage_total": round(sum(ligne["swap"] for ligne in lignes), 2),
             "state_path": str(chemin)}
 
 
@@ -310,6 +334,23 @@ def _const_boucle(nom: str, defaut):
     return defaut
 
 
+def _battement() -> tuple[dict, float, float] | None:
+    """Le battement de la boucle, son age et sa limite. ``None`` s'il n'existe pas.
+
+    UN SEUL lecteur. `loop()` et `macro()` lisent le meme fichier : deux
+    lectures separees finiraient par en tirer deux conclusions de fraicheur
+    differentes, et le tableau de bord afficherait « la boucle tourne » a cote
+    d'un verdict macro qu'elle n'a plus publie depuis une heure.
+    """
+    f = RACINE / "results" / "loop_heartbeat.json"
+    if not f.exists():
+        return None
+    b = json.loads(f.read_text(encoding="utf-8"))
+    battu = datetime.fromisoformat(b["at"])
+    age = (datetime.now(timezone.utc) - battu).total_seconds()
+    return b, age, float(b.get("intervalle", 60)) * TOLERANCE_BATTEMENT
+
+
 def loop() -> dict:
     """La boucle d'amorçage tourne-t-elle, et qu'a-t-elle fait ?
 
@@ -342,16 +383,13 @@ def loop() -> dict:
         "etat_incidents": [], "etat_incidents_total": 0,
     }
 
-    f = RACINE / "results" / "loop_heartbeat.json"
-    if not f.exists():
+    lu = _battement()
+    if lu is None:
         out["reason"] = "aucun battement — la boucle n'a jamais tourné"
         return out
 
     try:
-        b = json.loads(f.read_text(encoding="utf-8"))
-        battu = datetime.fromisoformat(b["at"])
-        age = (datetime.now(timezone.utc) - battu).total_seconds()
-        limite = float(b.get("intervalle", 60)) * TOLERANCE_BATTEMENT
+        b, age, limite = lu
         out.update(
             last_beat=b["at"], age_s=round(age, 1),
             stats=b.get("stats", {}), equity=b.get("equity"),
@@ -372,13 +410,51 @@ def loop() -> dict:
     return out
 
 
+_DISCRIMINANTS_LOCK = threading.Lock()
+_DISCRIMINANTS_CACHE: dict = {}
+_DISCRIMINANTS_BUILDING = False
+
+
+def _calculer_discriminants(ech, limite: int, signature: tuple) -> None:
+    """Construit le classement hors du chemin HTTP puis le publie atomiquement."""
+    global _DISCRIMINANTS_BUILDING, _DISCRIMINANTS_CACHE
+
+    from titanium.analysis.discriminants import MIN_PAR_GROUPE, analyser
+
+    try:
+        r = analyser(ech, n_permutations=300)
+        resultat = {
+            "suffisant": r.suffisant, "n_trades": r.n_trades,
+            "n_gagnants": r.n_gagnants, "n_perdants": r.n_perdants,
+            "min_par_groupe": MIN_PAR_GROUPE, "message": r.message,
+            "top": [d.to_dict() for d in r.discriminants[:limite]],
+            "pending": False,
+        }
+    except Exception as exc:  # noqa: BLE001 — une sonde ne tue pas le dashboard
+        resultat = {
+            "suffisant": False, "n_trades": len(ech),
+            "min_par_groupe": MIN_PAR_GROUPE, "top": [],
+            "message": f"calcul indisponible : {type(exc).__name__}",
+            "error": f"{type(exc).__name__}: {exc}", "pending": False,
+        }
+
+    with _DISCRIMINANTS_LOCK:
+        _DISCRIMINANTS_CACHE = {"signature": signature, "result": resultat}
+        _DISCRIMINANTS_BUILDING = False
+
+
 def discriminants(limite: int = 12) -> dict:
-    """Classement des indicateurs — ou pourquoi il n'y en a pas encore."""
-    from titanium.analysis.discriminants import (
-        MIN_PAR_GROUPE,
-        analyser,
-        depuis_journal,
-    )
+    """Classement des indicateurs, calculé en fond pour garder l'UI réactive.
+
+    Les 300 permutations prennent environ vingt secondes avec le journal
+    actuel. Les exécuter dans la requête ``/api/state`` laissait le poste de
+    contrôle vide et faisait croire que la boucle était arrêtée. Le journal est
+    toujours relu à chaque changement ; seul le calcul statistique part dans
+    un thread du processus dashboard.
+    """
+    global _DISCRIMINANTS_BUILDING
+
+    from titanium.analysis.discriminants import MIN_PAR_GROUPE, depuis_journal
 
     # Le panel d'indicateurs vit dans `excursions.ndjson`, pas dans le journal
     # d'edge : `ClosedTrade` ne modélise que ce dont la mesure d'edge a besoin
@@ -389,19 +465,33 @@ def discriminants(limite: int = 12) -> dict:
     ech = depuis_journal(chemin)
     if not ech:
         # Le backtest, lui, écrit son panel directement dans le journal d'edge.
-        ech = depuis_journal(base / "trades.ndjson")
+        chemin = base / "trades.ndjson"
+        ech = depuis_journal(chemin)
     if not ech:
         return {"suffisant": False, "n_trades": 0, "min_par_groupe": MIN_PAR_GROUPE,
                 "message": ("aucun trade journalisé avec panel d'indicateurs — "
                             "le classement demande des résultats, pas des opinions"),
-                "top": []}
-    # Peu de permutations ici : la page doit répondre vite. L'analyse de
-    # référence se lance hors ligne, avec le réglage complet.
-    r = analyser(ech, n_permutations=300)
-    return {"suffisant": r.suffisant, "n_trades": r.n_trades,
-            "n_gagnants": r.n_gagnants, "n_perdants": r.n_perdants,
-            "min_par_groupe": MIN_PAR_GROUPE, "message": r.message,
-            "top": [d.to_dict() for d in r.discriminants[:limite]]}
+                "top": [], "pending": False}
+
+    stat = chemin.stat()
+    signature = (str(chemin), stat.st_mtime_ns, stat.st_size, int(limite))
+    with _DISCRIMINANTS_LOCK:
+        if _DISCRIMINANTS_CACHE.get("signature") == signature:
+            return dict(_DISCRIMINANTS_CACHE["result"])
+        if not _DISCRIMINANTS_BUILDING:
+            _DISCRIMINANTS_BUILDING = True
+            threading.Thread(
+                target=_calculer_discriminants,
+                args=(ech, int(limite), signature),
+                name="v14-discriminants",
+                daemon=True,
+            ).start()
+
+    return {
+        "suffisant": False, "n_trades": len(ech),
+        "min_par_groupe": MIN_PAR_GROUPE, "top": [], "pending": True,
+        "message": "classement statistique en calcul de fond",
+    }
 
 
 def analystes() -> dict:
@@ -413,12 +503,12 @@ def analystes() -> dict:
         if not f.exists():
             return []
         out = []
-        for l in f.read_text(encoding="utf-8").splitlines():
-            l = l.strip()
-            if not l:
+        for ligne in f.read_text(encoding="utf-8").splitlines():
+            ligne = ligne.strip()
+            if not ligne:
                 continue
             try:
-                out.append(json.loads(l))
+                out.append(json.loads(ligne))
             except json.JSONDecodeError:
                 continue
         return out
@@ -458,9 +548,9 @@ def fenetres() -> dict:
     f = d / NOM_FICHIER_CHARTS
     syms = []
     if f.exists():
-        syms = [l.strip() for l in f.read_text(encoding="ascii",
+        syms = [ligne.strip() for ligne in f.read_text(encoding="ascii",
                                                errors="ignore").splitlines()
-                if l.strip() and not l.startswith("#")]
+                if ligne.strip() and not ligne.startswith("#")]
     return {"disponible": True, "dossier": str(d), "symboles": syms,
             "maxi": MAX_FENETRES,
             "ecrit_a": (datetime.fromtimestamp(f.stat().st_mtime,
@@ -475,14 +565,18 @@ def risque() -> dict:
     qui la borne, et c'est donc lui qu'il faut regarder.
     """
     from titanium.confiance import (
-        MAX_RISK_PCT, RISQUE_MAX_PCT, RISQUE_MIN_PCT, RISQUE_PIVOT_PCT,
+        MAX_RISK_PCT,
+        RISQUE_MAX_PCT,
+        RISQUE_MIN_PCT,
+        RISQUE_PIVOT_PCT,
     )
     budget = _const_boucle("MAX_RISQUE_CUMULE_PCT", 0.0)
     engage = 0.0
     n = 0
     try:
-        from titanium.data.mt5_vendor import mt5_session
         import MetaTrader5 as mt5  # noqa: N813
+
+        from titanium.data.mt5_vendor import mt5_session
         with mt5_session():
             info = mt5.account_info()
             eq = float(info.equity) if info else 0.0
@@ -509,6 +603,71 @@ def risque() -> dict:
     }
 
 
+def cortex() -> dict:
+    """Sante recente d'Hermes et de la memoire, sans appeler de LLM."""
+    from titanium.web.cortex_status import snapshot
+
+    return snapshot(root=RACINE)
+
+
+def macro() -> dict:
+    """Verdict macro courant, en jauges affichables — ne lève jamais.
+
+    Le bloc est DÉJÀ normalisé par ``titanium.macro`` : l'interface n'a pas à
+    lire de texte ni à interpréter un état. Une configuration illisible devient
+    ici un bloc rouge visible, jamais un tableau de bord silencieusement
+    optimiste.
+
+    **Ordre de lecture.** D'abord ce que la BOUCLE ARMÉE a publié dans son
+    battement : c'est le seul verdict qui décide, puisque c'est le sien. À
+    défaut, on calcule ici sur le cache de ce processus — le tableau de bord
+    reste alors lisible même si la boucle ne tourne pas, et il le DIT
+    (``source``), pour qu'on ne prenne pas un verdict local pour le sien.
+    """
+    publie = _macro_publie()
+    if publie is not None:
+        return publie
+
+    try:
+        from titanium.macro import macro_bloc_pour_publication
+
+        bloc = macro_bloc_pour_publication()
+    except Exception as exc:  # noqa: BLE001 — une sonde ne noircit pas le tableau
+        # Cas distinct du filet precedent : le paquet lui-meme ne se charge pas,
+        # donc son bloc rouge n'est pas joignable. Le gabarit ne demande que
+        # `disponible` et `error` pour rester lisible — et rouge.
+        return {"disponible": False, "severity": "crit", "source": "processus",
+                "error": f"{type(exc).__name__}: {exc}"}
+    bloc["source"] = "processus"
+    return bloc
+
+
+def _macro_publie() -> dict | None:
+    """Bloc macro publié par la boucle armée, ou ``None`` s'il est absent.
+
+    Le canal est le battement de cœur que la boucle écrit déjà — celui que
+    ``loop()`` relit. Rien de nouveau à surveiller, donc : si le battement est
+    vieux, ``loop()`` le dit déjà, et la fraîcheur du calendrier est portée par
+    le bloc lui-même.
+
+    Un bloc périmé est RENDU tel quel, jamais retiré : il porte son propre âge
+    et sa sévérité. Le remplacer par un verdict local ferait afficher « calme »
+    à l'instant précis où la boucle ne dit plus rien.
+    """
+    try:
+        lu = _battement()
+        if lu is None:
+            return None
+        publie = lu[0].get("macro")
+        if not isinstance(publie, dict) or not publie:
+            return None
+        age, limite = round(lu[1], 1), round(lu[2], 1)
+        return {**publie, "disponible": True, "source": "boucle",
+                "publie_age_s": age, "perime": age > limite}
+    except Exception:  # noqa: BLE001 — un battement illisible n'est pas un verdict
+        return None
+
+
 def state() -> dict:
     """État complet. Chaque bloc est isolé : un échec n'en emporte pas d'autres."""
     return {
@@ -528,6 +687,11 @@ def state() -> dict:
         "prod_fantome": _safe(prod_fantome, {"actif": False, "lignes": 0}),
         "fenetres": _safe(fenetres, {"disponible": False, "symboles": []}),
         "risque": _safe(risque, {"disponible": False}),
+        "cortex": _safe(cortex, {
+            "status": "unknown", "label": "Hermes non mesure",
+            "memory": {}, "refusals": {}, "communication": {},
+        }),
+        "macro": _safe(macro, {"disponible": False, "severity": "crit"}),
     }
 
 
@@ -548,7 +712,7 @@ def scan(symboles: list[str] | None = None, *, prod: bool = False,
     Il reste déterministe et gratuit : la délibération n'est pas invoquée.
     """
     from titanium.data.mt5_vendor import get_rates
-    from titanium.edge import EdgeBook, TradeJournal, context_from_feats
+    from titanium.edge import EdgeBook, TradeJournal, asset_class_of, context_from_feats
     from titanium.features.builder import build_feats, risk_context_from
     from titanium.gates import confluence_gate
     from titanium.orchestrator import OrchestratorConfig, run_once
@@ -570,7 +734,12 @@ def scan(symboles: list[str] | None = None, *, prod: bool = False,
     for sym in syms:
         ligne = {"symbol": sym}
         try:
-            feats = build_feats(get_rates(sym, ltf, bars), get_rates(sym, htf, bars))
+            feats = build_feats(
+                get_rates(sym, ltf, bars),
+                get_rates(sym, htf, bars),
+                marche_continu=asset_class_of(sym) == "crypto",
+                symbol=sym,
+            )
         except Exception as exc:  # noqa: BLE001
             ligne.update(error=f"{type(exc).__name__}", verdict="—",
                          reason="données indisponibles")
@@ -674,7 +843,7 @@ def chart(symbole: str, *, timeframe: str = "M15", barres: int = 180) -> dict:
                 "error": f"{sym} illisible — {type(derniere).__name__}. "
                          "MT5 est saturé par le balayage ; réessaie."}
 
-    feats = build_feats(ltf, htf, with_indicators=True)
+    feats = build_feats(ltf, htf, with_indicators=True, symbol=symbole)
     d = cg.evaluate(feats, require_edge=False)
     trace = feats.get("_trace") or {}
     prix = float(trace.get("price") or 0.0)

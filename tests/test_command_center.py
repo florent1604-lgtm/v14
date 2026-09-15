@@ -11,7 +11,6 @@ from titanium import collab_tasks
 from titanium.collab_tasks import TaskError
 from titanium.web import command_center
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -50,7 +49,7 @@ def test_journal_refuse_secret_statut_et_chemin_hors_collab(task_path, tmp_path)
             "owner": "prime", "actor": "codex",
         }, path=task_path)
     with pytest.raises(TaskError, match="status"):
-        task = collab_tasks.create_task({"title": "x", "status": "execute",
+        collab_tasks.create_task({"title": "x", "status": "execute",
                                          "actor": "codex"}, path=task_path)
     with pytest.raises(TaskError, match="hors de collab"):
         collab_tasks.create_task({"title": "x", "actor": "codex"},
@@ -112,7 +111,8 @@ def test_bus_et_rapports_sont_bornes_et_masques(monkeypatch, tmp_path):
         "ts_utc": "2026-01-01T00:00:00Z",
         "content": "API_KEY=top-secret-value-123456",
     }) + "\n", encoding="utf-8")
-    runs = tmp_path / "runs" / "r1"; runs.mkdir(parents=True)
+    runs = tmp_path / "runs" / "r1"
+    runs.mkdir(parents=True)
     (runs / "report.md").write_text("# Rapport sûr\n", encoding="utf-8")
     monkeypatch.setattr(command_center, "BUS_STREAM", stream)
     monkeypatch.setattr(command_center, "BUS_ACKS", tmp_path / "none.ndjson")

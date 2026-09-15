@@ -4,8 +4,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from titanium.execution.history_recovery import recover_unobserved_closures
 from titanium.edge import TradeJournal
+from titanium.execution.history_recovery import recover_unobserved_closures
 
 BASE = int(datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc).timestamp())
 

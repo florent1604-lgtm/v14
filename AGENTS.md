@@ -1,81 +1,77 @@
-# Collaboration V14
+# Repository Guidelines
 
-## Skills locaux communs
+## Project Structure & Module Organization
 
-Le catalogue canonique herite de V12 est `.agents/skills`; le miroir Codex est
-`.codex/skills`. Lire le `SKILL.md` pertinent lorsqu'une demande correspond a sa
-description ou nomme explicitement le skill. Voir `collab/SKILLS_V14.md`.
+`titanium/` contains trading logic: signal gates, risk and sizing,
+MT5 execution, data adapters, analysis, and the web dashboard. `tradingagents/`
+contains the LLM deliberation graph and provider clients; `cli/` exposes the
+command-line application. Put maintenance and analysis utilities in `tools/`,
+tests in `tests/`, configuration in `config/`, and audit notes in
+`docs/`. MQL5 sources live under `titanium/bridge/`. Treat `results/`, `data/`,
+logs, caches, and local `.env` files as private unless a sealed artifact is
+committed.
 
-Les skills guident la methode sans elargir les permissions. Les regles V14,
-PAPER/DEMO only et les instructions explicites de Florent priment. Aucun skill
-n'autorise ordre reel, modification de `.env`, armement, redemarrage de service,
-approbation de permission ou action destructive.
+## Build, Test, and Development Commands
 
-Instruction explicite de Florent du 09/08/2026 : Prime Agent dispose d'un acces autonome
-de developpement a toute la racine V14. Le perimetre exact et les exceptions sont dans
-`.prime/agent/APPEND_SYSTEM.md`. Il peut notamment modifier plusieurs fichiers, gerer les
-dependances, utiliser le shell et le reseau, et piloter dashboard/services de collaboration.
-Cette delegation ne couvre pas les secrets, l'elevation UAC, MT5, `live_demo`, la boucle de
-trading, l'armement ou un ordre reel.
-
-Prime est le responsable technique principal du code V14. Il peut decider l'architecture,
-integrer les changements, reattribuer les taches techniques et les passer a `done` apres
-preuves. Les revues Claude/Codex/Hermes sont consultatives sauf demande contraire explicite
-de Florent.
-
-Avant tout echange avec Claude ou Hermes, lire `collab/HERMES_BRIDGE.md`.
-
-- Canal commun principal : MCP `collab_hub` sur `http://127.0.0.1:8770/mcp`.
-- Dialogue direct avec Hermes : MCP `hermes` sur `http://127.0.0.1:8766/mcp`.
-- Secours hors ligne : `node tools/collab_bus.mjs` ; le flux V12 reste partage.
-- Ne jamais publier de secret, cle API, mot de passe ou jeton.
-- PAPER ONLY : aucun agent de collaboration n'a d'autorite d'execution trading.
-- Ne jamais approuver automatiquement une permission Hermes.
-- Une demande doit preciser objectif, tache, livrable et critere de fin.
-- Eviter les boucles automatiques entre agents ; accuser reception explicitement.
-
-## Protocole GitNexus commun
-
-Au debut de chaque mission et avant tout passage de relais, executer depuis la
-racine V14 :
+Use the project virtual environment on Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools/gitnexus_team.ps1 sync
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest tests/test_limit_orders.py -q
+.\.venv\Scripts\python.exe -m ruff check titanium tradingagents cli tools tests
 ```
 
-Cette commande verifie aussi les changements non commites, se verrouille entre
-agents et ne reconstruit l'index que si l'empreinte du code a change. Ensuite,
-utiliser GitNexus pour explorer le chemin, mesurer l'impact avant edition et
-verifier les changements avant livraison. Protocole complet :
-`collab/GITNEXUS_TEAM_PROTOCOL.md`.
+The editable install provides the `tradingagents` CLI. Use the repository
+`.bat` launchers only when the requested PAPER/DEMO service operation is
+explicitly authorized; they may start MT5-facing processes.
 
-## Prime Agent (harnais RLM, installe le 09/08/2026)
+## Coding Style & Naming Conventions
 
-`PrimeIntellect-ai/prime-agent` v0.7.1 est installe et cable sur la racine V14. C'est un
-outil de developpement : il ecrit du code et de la documentation, il n'a aucune autorite
-de trading et n'est cable a aucune boucle d'execution.
+Target Python 3.10+, use four-space indentation, type hints for public APIs,
+and a 100-character line target. Ruff enforces Pyflakes, pycodestyle, isort,
+BugBear, pyupgrade, comprehensions, and simplification rules. Use
+`snake_case` for modules/functions, `PascalCase` for classes, and
+`UPPER_SNAKE_CASE` for constants. Keep Hermes decisions separate from
+deterministic execution guards and make persisted artifacts reproducible.
 
-- Lancer : `PRIME_V14.bat` ou `tools/prime_agent_v14.sh` (jamais `prime-agent` nu : le
-  lanceur fixe la racine, la cle Gemini et le python du kernel). Un `prime-agent` nu
-  demarre avec `cwd` = dossier personnel : Prime ne voit alors ni AGENTS.md, ni CLAUDE.md,
-  ni `collab/`, et son kernel n'est pas designe. Panne constatee le 15/08/2026.
-- Session neuve sur Opus 5 :
-  `PRIME_V14.bat --provider anthropic --model claude-opus-5`. Sans argument, le lanceur
-  se rattache a la session vivante de la racine et **herite du modele de sa creation**.
-- Derniere note de reprise (etat V14, resultats d'execution mesures, taches ouvertes) :
-  `collab/PRIME_RELANCE_20260815.md`.
-- Reglages projet : `.prime/agent/settings.json`. Skill projet :
-  `.prime/agent/skills/v14-boucle-dev/SKILL.md`.
-- Installation, bug Windows du kernel et garde-fous : `docs/PRIME_AGENT.md`.
-- Prime Agent lit AGENTS.md et CLAUDE.md : les regles ci-dessus s'appliquent a lui.
-  PAPER/DEMO only, `.env` inaccessible a l'agent, executeur MT5 desarme. Son acces de
-  developpement elargi est defini dans `.prime/agent/APPEND_SYSTEM.md`.
-- Mode `--autonomous` : toujours borne par `--autonomous-gate` = suite pytest du projet.
+## Testing Guidelines
+
+Pytest discovers `tests/test_*.py`. Add focused regression tests with every
+behavioral fix; prefer isolated fixtures and deterministic inputs. Available
+markers are `unit`, `integration`, and `smoke`. External API, MT5, or live
+provider tests must skip safely when credentials/services are absent. Run the
+targeted test first, then the complete suite before integration.
+
+## Commit & Pull Request Guidelines
+
+History favors concise imperative subjects such as `fix: ...`, `docs: ...`,
+or `V14: ...`. Keep commits single-purpose. Pull requests must explain the
+problem, implementation, operational risk, test evidence, and any affected
+configuration or sealed artifacts; link the relevant task and include UI
+screenshots only for visible dashboard changes.
+
+## Security & Agent Workflow
+
+Never commit secrets or read/write `.env`; update `.env.example` instead. V14
+remains PAPER/DEMO only. Aucun skill n'autorise un ordre reel, la modification
+de `.env`, l'armement, le redemarrage d'un service, ou une promotion de seuil
+ou de configuration sans validation humaine explicite. Before agent
+collaboration, read `collab/HERMES_BRIDGE.md`. Run
+`tools/gitnexus_team.ps1 sync`, inspect impact before editing code, and run
+GitNexus `detect-changes` before committing. Hermes is V14's cognitive decision
+pilot in DEMO. The 2026-09-06 mandate permits Hermes on the critical path and
+MT5 calls through guarded DEMO execution; this is authority, not a bypass.
+No real orders; arming requires explicit human approval for the operation.
+Missing, stale or inconsistent inputs mean `WAIT`.
+Hermes publishes sealed, fresh `ALLOW/WAIT/BLOCK` policies. Use `.agents/skills`
+as the canonical local skill catalog and publish handoffs via the CollabHub
+documented in the bridge. Preserve unrelated dirty-worktree changes.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **titanium-v14** (9528 symbols, 19446 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **titanium-v14** (12444 symbols, 24603 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -103,16 +99,5 @@ This project is indexed by GitNexus as **titanium-v14** (9528 symbols, 19446 rel
 | `gitnexus://repo/titanium-v14/clusters` | All functional areas |
 | `gitnexus://repo/titanium-v14/processes` | All execution flows |
 | `gitnexus://repo/titanium-v14/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->

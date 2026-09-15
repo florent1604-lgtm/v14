@@ -80,11 +80,10 @@ class ManageLoop:
 
             from titanium.data.mt5_vendor import mt5_lock, mt5_session
 
-            with mt5_lock:
-                with mt5_session():
-                    rapport = manage_once(mt5, policy=self.policy, params=self.params,
-                                          state_path=self.state_path,
-                                          manage_stops=bool(self.policy.enabled))
+            with mt5_lock, mt5_session():
+                rapport = manage_once(mt5, policy=self.policy, params=self.params,
+                                      state_path=self.state_path,
+                                      manage_stops=bool(self.policy.enabled))
         except Exception as exc:  # noqa: BLE001 — la boucle survit à tout
             rapport = {"managed": 0, "moved": 0,
                        "reason": f"PASSAGE_ERREUR: {type(exc).__name__}: {exc}",
@@ -108,7 +107,7 @@ class ManageLoop:
             self.tick()
             self._stop.wait(self.interval)
 
-    def start(self) -> "ManageLoop":
+    def start(self) -> ManageLoop:
         """Démarre la boucle dans un thread démon."""
         if self._thread and self._thread.is_alive():
             return self

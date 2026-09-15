@@ -13,8 +13,8 @@ import contrefactuel_breakeven as C  # noqa: E402
 
 
 def t(**kw):
-    base = dict(symbole="EURUSD", mae_r=-0.3, mfe_r=0.0, pnl_r=-1.0,
-                sortie="init", contexte="")
+    base = {"symbole": "EURUSD", "mae_r": -0.3, "mfe_r": 0.0, "pnl_r": -1.0,
+                "sortie": "init", "contexte": ""}
     base.update(kw)
     return C.Trade(**base)
 

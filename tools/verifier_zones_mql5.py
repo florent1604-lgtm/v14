@@ -24,7 +24,9 @@ RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 from titanium.bridge.mt5_zones import (  # noqa: E402
-    MARQUEUR, NOM_FICHIER, dossier_mql5_files,
+    MARQUEUR,
+    NOM_FICHIER,
+    dossier_mql5_files,
 )
 
 

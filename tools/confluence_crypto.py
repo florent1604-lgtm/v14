@@ -21,7 +21,7 @@ contraire serait inventer une mesure.
     risque     le RiskGate refuse (contre-tendance, exposition…)
     grappe     la famille de corrélation porte déjà son plafond
     dérive     le prix a bougé depuis la décision, le setup est périmé
-    plafond    8 positions ou 6 % de risque déjà engagés
+    plafond    le budget de risque ou le nombre de positions est atteint
     ENVOI      rien ne s'y oppose — l'ordre partirait
 
 Ce script n'envoie **aucun** ordre. Il rejoue la décision, il ne l'exécute pas.
@@ -47,7 +47,9 @@ def analyser(sym: str, equity: float, ouverts: dict, budgets: dict,
              grappes, deja: dict, mt5) -> dict:
     """Rejoue la chaîne pour un actif. Ne lève jamais."""
     from titanium.confiance import (
-        evaluer as evaluer_confiance, piliers_de, total_piliers,
+        evaluer as evaluer_confiance,
+        piliers_de,
+        total_piliers,
     )
     from titanium.correlation import place_disponible
     from titanium.data.mt5_vendor import get_rates, get_rates_cache
@@ -142,7 +144,9 @@ def main() -> int:
     from titanium.data.mt5_vendor import account_snapshot, mt5_session
     from titanium.edge import asset_class_of
     from titanium.sizing import (
-        MAX_COUT_SPREAD_PCT, marches_ouverts, tradable_universe,
+        MAX_COUT_SPREAD_PCT,
+        marches_ouverts,
+        tradable_universe,
     )
     from tools.live_demo import MAX_POSITIONS, MAX_RISQUE_CUMULE_PCT
 
@@ -189,20 +193,20 @@ def main() -> int:
     print(entete)
     print("-" * len(entete))
 
-    for l in lignes:
-        if l["piliers"]:
-            p = " ".join(" +" if l["piliers"].get(k) else " ."
+    for ligne in lignes:
+        if ligne["piliers"]:
+            p = " ".join(" +" if ligne["piliers"].get(k) else " ."
                          for k in PILIERS)
         else:
             p = "  .  .  .  ."
-        s = str(l["support"]) if l["piliers"] else "-"
-        print(f"{l['symbol']:<12} {p:<12} {s:>2} {l['sens']:<6} "
-              f"{l['verdict']:<7} {l['grappe']:<7} {l['blocage']:<8}  "
-              f"{l['detail']}")
+        s = str(ligne["support"]) if ligne["piliers"] else "-"
+        print(f"{ligne['symbol']:<12} {p:<12} {s:>2} {ligne['sens']:<6} "
+              f"{ligne['verdict']:<7} {ligne['grappe']:<7} {ligne['blocage']:<8}  "
+              f"{ligne['detail']}")
 
     # ── Bilan par étage : où la chaîne s'arrête, et combien de fois.
     from collections import Counter
-    par_etage = Counter(l["blocage"] for l in lignes)
+    par_etage = Counter(ligne["blocage"] for ligne in lignes)
     print()
     print("Où la chaîne s'arrête :")
     for etage in ("marché", "coût", "données", "piliers", "risque",
@@ -212,13 +216,13 @@ def main() -> int:
             barre = "#" * min(40, n)
             print(f"  {etage:<9} {n:>3}  {barre}")
 
-    prets = [l for l in lignes if l["blocage"] == "ENVOI"]
+    prets = [ligne for ligne in lignes if ligne["blocage"] == "ENVOI"]
     print()
     if prets:
         print(f"{len(prets)} actif(s) déclencheraient un ordre MAINTENANT :")
-        for l in prets:
-            print(f"  {l['symbol']:<12} {l['sens']:<6} {l['support']}/4 "
-                  f"piliers · {l['detail']}")
+        for ligne in prets:
+            print(f"  {ligne['symbol']:<12} {ligne['sens']:<6} {ligne['support']}/4 "
+                  f"piliers · {ligne['detail']}")
     else:
         print("Aucun ordre ne partirait sur ce balayage.")
 

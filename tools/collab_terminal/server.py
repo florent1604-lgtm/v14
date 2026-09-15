@@ -28,12 +28,12 @@ import subprocess
 import sys
 import threading
 import time
-import traceback
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 RACINE = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(RACINE))
@@ -103,10 +103,8 @@ def _worker_status() -> dict:
 
     # Lire l'etat persistant
     state = {}
-    try:
+    with suppress(OSError, json.JSONDecodeError):
         state = json.loads(WORKER_STATE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        pass
 
     # Notifications en attente par agent
     pending = {}
@@ -168,10 +166,8 @@ def _worker_stop() -> dict:
             _worker_proc.terminate()
             _worker_proc.wait(timeout=5)
         except Exception:
-            try:
+            with suppress(Exception):
                 _worker_proc.kill()
-            except Exception:
-                pass
         _worker_proc = None
         return {"ok": True, "was_running": True, "pid": pid}
 
@@ -515,14 +511,10 @@ def _poller_loop():
                 _hub_offset = offset
 
     while _poller_running:
-        try:
+        with suppress(Exception):
             ingest_hub_messages()
-        except Exception:
-            pass
-        try:
+        with suppress(Exception):
             ingest_bus_messages()
-        except Exception:
-            pass
         time.sleep(5)
 
 
@@ -560,10 +552,9 @@ def _compute_task_scores(tasks: list[dict]) -> list[dict]:
         score += validation_bonus
         factors.append(f"{len(validators)} validateur(s)")
         note = t.get("note", "")
-        if note:
-            if any(w in note.lower() for w in ("preuve", "test", "pass", "verifie", "valide")):
-                score += 10
-                factors.append("preuve documentee")
+        if note and any(w in note.lower() for w in ("preuve", "test", "pass", "verifie", "valide")):
+            score += 10
+            factors.append("preuve documentee")
         scored.append({**t, "score": min(score, 100), "score_factors": factors, "validators": list(validators)})
     return scored
 
@@ -587,7 +578,7 @@ def _agent_performance(tasks: list[dict]) -> dict:
 
 
 def _validation_matrix(tasks: list[dict]) -> dict:
-    matrix = {a: {b: 0 for b in AGENTS} for a in AGENTS}
+    matrix = {a: dict.fromkeys(AGENTS, 0) for a in AGENTS}
     for t in tasks:
         owner = t.get("owner", "team")
         updater = t.get("updated_by", "")
@@ -953,10 +944,7 @@ class CollabHandler(BaseHTTPRequestHandler):
         elif path == "/api/tasks":
             try:
                 data = json.loads(body)
-                if "id" in data:
-                    result = update_task(data["id"], data)
-                else:
-                    result = create_task(data)
+                result = update_task(data["id"], data) if "id" in data else create_task(data)
                 self._json(result, 201)
             except TaskError as e:
                 self._json({"error": str(e)}, 400)
@@ -1011,15 +999,15 @@ def main():
 
     server = ThreadingHTTPServer(("127.0.0.1", port), CollabHandler)
     print(f"\n{'='*60}")
-    print(f"  V14 Collab Terminal v2.0")
+    print("  V14 Collab Terminal v2.0")
     print(f"  http://127.0.0.1:{port}")
     print(f"{'='*60}")
-    print(f"  Chat dispatch ->  POST /api/chat")
-    print(f"  Etat complet  ->  GET  /api/state")
+    print("  Chat dispatch ->  POST /api/chat")
+    print("  Etat complet  ->  GET  /api/state")
     print(f"  Hub MCP       ->  {'CONNECTE' if hub_ok else 'HORS LIGNE'} (:{HUB_PORT})")
     print(f"  Hermes MCP    ->  {'CONNECTE' if hermes_ok else 'HORS LIGNE'} (:{HERMES_PORT})")
     print(f"  Bus fichier   ->  {BUS_STREAM}")
-    print(f"  Poller        ->  actif (5s)")
+    print("  Poller        ->  actif (5s)")
     print(f"{'='*60}\n")
 
     try:

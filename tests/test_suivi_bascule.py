@@ -278,3 +278,42 @@ def test_une_seule_cloture_apres_la_bascule_dit_la_vraie_cause(module):
     assert bloc["n_requis"] is None
     assert "dispersion" in bloc["motif"]
     assert "vide" not in bloc["motif"]
+
+
+def test_un_journal_illisible_est_refuse_en_nommant_le_chemin(module, tmp_path,
+                                                              capsys, monkeypatch):
+    """Un chemin sans fichier lisible ne doit pas produire un rapport trompeur.
+
+    Mesure : `--journal <dossier>` rendait un rapport complet concluant « une des
+    deux fenetres est vide », c'est-a-dire une cause fausse pour un journal que
+    l'outil n'a jamais ouvert. Le refus est explicite et nomme le chemin ; un
+    journal lisible mais vide reste, lui, un rapport normal avec son motif.
+    """
+    dossier = tmp_path / "pas_un_journal.ndjson"
+    dossier.mkdir()
+    sortie = tmp_path / "jamais_ecrite.json"
+    monkeypatch.setattr(sys, "argv", ["suivi_bascule", "--journal", str(dossier),
+                                      "--sortie", str(sortie)])
+    assert module.main() == 2
+    texte = capsys.readouterr().out
+    assert str(dossier) in texte
+    assert "--journal" in texte
+    # La tolerance est dans le message, pas dans un rc muet : le cas
+    # « la boucle n'a pas encore clos sa premiere position » est nomme.
+    assert "premiere cloture" in texte
+    assert not sortie.exists()
+
+    absent = tmp_path / "absent.ndjson"
+    monkeypatch.setattr(sys, "argv", ["suivi_bascule", "--journal", str(absent),
+                                      "--sortie", str(sortie)])
+    assert module.main() == 2
+    assert str(absent) in capsys.readouterr().out
+    assert not sortie.exists()
+
+    vide = tmp_path / "vide.ndjson"
+    vide.write_text("", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["suivi_bascule", "--journal", str(vide),
+                                      "--sortie", str(sortie), "--equite", "1000"])
+    assert module.main() == 0
+    assert "une des deux fenetres est vide" in capsys.readouterr().out
+    assert sortie.exists()

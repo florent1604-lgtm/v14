@@ -403,6 +403,15 @@ def main() -> int:
     if bascule is None:
         print(f"instant de bascule illisible : {args.bascule!r}")
         return 2
+    if not args.journal.is_file():
+        print(f"journal illisible : {args.journal}")
+        print("  rien n'a ete lu : il n'y a rien a mesurer, et un rapport vide "
+              "accuserait les fenetres a tort")
+        print("  normal si la boucle n'a pas encore journalise sa premiere "
+              "cloture : le journal nait au premier trade clos")
+        print(f"  viser un autre fichier : --journal <chemin> "
+              f"(defaut : {JOURNAL})")
+        return 2
     if args.veiller:
         rapport = veiller(args.journal, bascule,
                           effectif_min=args.effectif_min,

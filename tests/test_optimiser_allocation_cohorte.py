@@ -156,3 +156,70 @@ def test_les_euros_sont_le_r_fois_le_risque_engage(tmp_path):
     assert rapport["journal"]["n"] == 40
     assert rapport["journal"]["euros"] == pytest.approx(2000.0)
     assert rapport["journal"]["total_r"] == pytest.approx(20.0)
+def test_un_null_trop_court_ne_conclut_pas(tmp_path, capsys):
+    """Un null d'un seul tirage rend p=0,0 sur des donnees de hasard.
+
+    Le chiffre reste vrai — aucun des tirages ne fait mieux — mais un tirage
+    unique ne peut pas separer le seuil du hasard : l'outil doit refuser le
+    verdict, pas le rendre.
+    """
+    profils = {f"BON{i}": (0.5, 0.5) for i in range(4)}
+    profils.update({f"MAUVAIS{i}": (-0.2, -0.2) for i in range(8)})
+    chemin = _ecrire(tmp_path, _serie(profils))
+
+    selection = opt.mesurer(opt.lire_journal(chemin), tirages=1)["selection"]
+
+    assert selection["null"]["tirages"] == 1
+    assert selection["null"]["p"] == 0.0
+    assert selection["jugement"]["possible"] is False
+    assert "plancher" in selection["jugement"]["motif"]
+
+    assert opt.main(["--journal", str(chemin), "--tirages", "1"]) == 0
+    sortie = capsys.readouterr().out
+    assert "AUCUN VERDICT" in sortie
+    assert "effet au-dela du hasard" not in sortie
+
+
+def test_le_motif_du_plancher_est_le_meme_que_le_rapport_le_dise(tmp_path):
+    """Le plancher est un proprietaire unique : la fonction et le rapport s'accordent."""
+    profils = {f"S{i}": (0.2, 0.2) for i in range(6)}
+    rapport = opt.mesurer(opt.lire_journal(_ecrire(tmp_path, _serie(profils))),
+                          tirages=opt.TIRAGES_MIN - 1)
+
+    selection = rapport["selection"]
+    assert selection["jugement"]["motif"] == opt.motif_non_jugeable(selection)
+
+    suffisant = opt.mesurer(opt.lire_journal(_ecrire(tmp_path, _serie(profils), "b.ndjson")),
+                            tirages=opt.TIRAGES_MIN)
+    assert suffisant["selection"]["jugement"]["possible"] is True
+
+
+def test_une_fenetre_de_jugement_vide_est_nommee(tmp_path, capsys):
+    """`--part-is 1.0` laisse la fenetre de jugement vide : rapport rempli, rien dit."""
+    profils = {f"S{i}": (0.2, -0.1) for i in range(6)}
+    chemin = _ecrire(tmp_path, _serie(profils))
+
+    selection = opt.mesurer(opt.lire_journal(chemin), part_is=1.0)["selection"]
+
+    assert selection["oos_tout"]["n"] == 0
+    assert selection["jugement"]["possible"] is False
+    assert "--part-is" in selection["jugement"]["motif"]
+
+    assert opt.main(["--journal", str(chemin), "--part-is", "1.0"]) == 0
+    assert "AUCUN VERDICT" in capsys.readouterr().out
+
+
+def test_une_regle_qui_ne_retenit_rien_le_dit(tmp_path, capsys):
+    """Un `--min-n` plus grand que le vivier ne retient aucun symbole."""
+    profils = {f"S{i}": (0.2, -0.1) for i in range(4)}
+    chemin = _ecrire(tmp_path, _serie(profils))
+
+    selection = opt.mesurer(opt.lire_journal(chemin), min_n=10_000)["selection"]
+
+    assert selection["retenus"] == []
+    assert selection["null"]["tirages"] == 0
+    assert selection["jugement"]["possible"] is False
+    assert "aucun symbole retenu" in selection["jugement"]["motif"]
+
+    assert opt.main(["--journal", str(chemin), "--min-n", "10000"]) == 0
+    assert "AUCUN VERDICT" in capsys.readouterr().out
